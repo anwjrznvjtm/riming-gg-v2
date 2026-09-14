@@ -2,14 +2,15 @@ import React, { useState, useMemo } from 'react';
 import { Match, LineName, PartnerStat, LINE_KEYS, LINE_LABELS, LineKey } from '../types';
 import { ComputedStats, getWoorimingTeam, getWoorimingLineKey, isWooriming, getPlayerLineChampionStats } from '../lib/stats';
 import { ChampionIcon } from './ChampionIcon';
-import { X, Trophy, TrendingDown, Users, ChevronRight, Calendar, Swords } from 'lucide-react';
+import { X, Trophy, TrendingDown, Users, ChevronRight, Calendar, Swords, Zap } from 'lucide-react';
 
 interface SynergyTabProps {
   stats: ComputedStats;
   matches: Match[];
+  onJumpToStreamer?: (streamerName: string, matchId?: string) => void;
 }
 
-export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches }) => {
+export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches, onJumpToStreamer }) => {
   const [selectedModal, setSelectedModal] = useState<{
     woorimingLine: 'ADC' | 'SUP';
     partnerLine: LineName;
@@ -471,7 +472,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches }) => {
             {/* Match History for Selected Streamer */}
             {selectedModal.selectedStreamer && (
               <div className="border-t border-[#1e1e2a] pt-4 animate-[fadeIn_0.2s]">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div className="text-[13px] font-bold text-white flex items-center gap-2">
                     <Swords size={16} className="text-[#8b5cf6]" />
                     <span>우리밍_ × {selectedModal.selectedStreamer} 함께 플레이한 경기 목록</span>
@@ -479,15 +480,31 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches }) => {
                       총 {partnerMatches.length}경기
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedModal((prev) => (prev ? { ...prev, selectedStreamer: null } : null))
-                    }
-                    className="text-[11px] text-[#8a8aa0] hover:text-white"
-                  >
-                    목록 닫기
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {onJumpToStreamer && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const name = selectedModal.selectedStreamer || '';
+                          setSelectedModal(null);
+                          onJumpToStreamer(name);
+                        }}
+                        className="px-2.5 py-1 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white border border-[#8b5cf6]/40 rounded-full text-[11px] font-bold flex items-center gap-1 transition"
+                      >
+                        <Zap size={11} />
+                        <span>CK 일지 이동</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedModal((prev) => (prev ? { ...prev, selectedStreamer: null } : null))
+                      }
+                      className="text-[11px] text-[#8a8aa0] hover:text-white"
+                    >
+                      목록 닫기
+                    </button>
+                  </div>
                 </div>
 
                 {partnerMatches.length === 0 ? (
@@ -569,13 +586,28 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches }) => {
                             </div>
                           </div>
 
-                          <div className="text-right shrink-0">
+                          <div className="text-right shrink-0 flex flex-col items-end gap-1">
                             <div className="text-[11px] font-bold text-white">
                               {m.winning_team === 'Red' ? 'RED팀' : 'BLUE팀'} {m.score || ''}
                             </div>
                             <div className="text-[10px] text-[#8a8aa0]">
                               소속: {wTeam === 'Red' ? '🔴 Red팀' : '🔵 Blue팀'}
                             </div>
+                            {onJumpToStreamer && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const name = selectedModal.selectedStreamer || '';
+                                  setSelectedModal(null);
+                                  onJumpToStreamer(name, m.id);
+                                }}
+                                className="mt-0.5 px-2 py-0.5 rounded bg-[#1e1e30] hover:bg-[#8b5cf6] text-[#c0c0d8] hover:text-white rounded-md text-[10px] font-bold border border-[#2a2a44] transition flex items-center gap-1"
+                                title="CK 일지의 해당 세트 카드로 이동"
+                              >
+                                <span>이 세트로 이동</span>
+                                <Zap size={10} />
+                              </button>
+                            )}
                           </div>
                         </div>
                       );

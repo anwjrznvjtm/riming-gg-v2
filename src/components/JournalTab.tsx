@@ -30,6 +30,8 @@ import {
   Copy,
   FastForward,
   Swords,
+  Zap,
+  ArrowDownCircle,
 } from 'lucide-react';
 
 interface JournalTabProps {
@@ -44,6 +46,9 @@ interface JournalTabProps {
   onToast: (msg: string) => void;
   allStreamers: string[];
   allChampions: string[];
+  targetStreamer?: string | null;
+  targetMatchId?: string | null;
+  onJumpToStreamer?: (streamerName: string, matchId?: string) => void;
 }
 
 export const JournalTab: React.FC<JournalTabProps> = ({
@@ -58,10 +63,14 @@ export const JournalTab: React.FC<JournalTabProps> = ({
   onToast,
   allStreamers,
   allChampions,
+  targetStreamer,
+  targetMatchId,
+  onJumpToStreamer,
 }) => {
   const [filterDate, setFilterDate] = useState('');
   const [filterName, setFilterName] = useState('');
   const [filterLine, setFilterLine] = useState('ALL');
+  const [filterStreamer, setFilterStreamer] = useState('');
 
   const [isChampsModalOpen, setIsChampsModalOpen] = useState(false);
   const [selectedOpponent, setSelectedOpponent] = useState<OpponentStat | null>(null);
@@ -134,6 +143,13 @@ export const JournalTab: React.FC<JournalTabProps> = ({
           const line = getWoorimingLine(m);
           if (line !== filterLine) return false;
         }
+        if (filterStreamer) {
+          const q = filterStreamer.trim().toLowerCase();
+          const teamA = Object.values(m.team_a || {}).map((v) => String(v || '').toLowerCase());
+          const teamB = Object.values(m.team_b || {}).map((v) => String(v || '').toLowerCase());
+          const hasPlayer = teamA.some((n) => n.includes(q)) || teamB.some((n) => n.includes(q));
+          if (!hasPlayer) return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -144,7 +160,86 @@ export const JournalTab: React.FC<JournalTabProps> = ({
         if (ckDiff !== 0) return ckDiff;
         return (Number(b.set_number) || 1) - (Number(a.set_number) || 1);
       });
-  }, [matches, filterDate, filterName, filterLine]);
+  }, [matches, filterDate, filterName, filterLine, filterStreamer]);
+
+  // 스트리머 경기 영역으로 스크롤 점프 함수
+  const handleJumpToStreamer = (streamerName: string, specificMatchId?: string) => {
+    if (!streamerName && !specificMatchId) return;
+    const cleanName = (streamerName || '').trim();
+
+    // 1. 만약 현재 필터로 인해 해당 스트리머/경기가 숨겨져 있다면 필터 초기화
+    if (cleanName) {
+      const matchExistsInAll = matches.some((m) => {
+        if (specificMatchId && m.id !== specificMatchId) return false;
+        const allPlayers = [...Object.values(m.team_a || {}), ...Object.values(m.team_b || {})];
+        return allPlayers.some((p) => String(p || '').trim().toLowerCase() === cleanName.toLowerCase());
+      });
+
+      if (matchExistsInAll) {
+        const isVisibleInCurrent = filteredMatches.some((m) => {
+          if (specificMatchId && m.id !== specificMatchId) return false;
+          const allPlayers = [...Object.values(m.team_a || {}), ...Object.values(m.team_b || {})];
+          return allPlayers.some((p) => String(p || '').trim().toLowerCase() === cleanName.toLowerCase());
+        });
+
+        if (!isVisibleInCurrent) {
+          setFilterDate('');
+          setFilterName('');
+          setFilterLine('ALL');
+          setFilterStreamer('');
+        }
+      }
+    }
+
+    // 2. DOM에서 카드 찾아서 element.scrollIntoView({ behavior: 'smooth' }) 실행
+    const attemptScroll = (retryCount = 0) => {
+      let targetEl: HTMLElement | null = null;
+
+      if (specificMatchId) {
+        targetEl = document.getElementById(`match-${specificMatchId}`);
+      }
+
+      if (!targetEl && cleanName) {
+        const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-match-card], [id^="match-"]'));
+        for (const card of cards) {
+          const streamers = card.getAttribute('data-streamers') || card.textContent || '';
+          if (streamers.includes(cleanName)) {
+            targetEl = card;
+            break;
+          }
+        }
+      }
+
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        targetEl.classList.remove('match-card-highlight');
+        void targetEl.offsetWidth; // trigger reflow for css animation
+        targetEl.classList.add('match-card-highlight');
+        setTimeout(() => {
+          targetEl?.classList.remove('match-card-highlight');
+        }, 2600);
+
+        if (cleanName) {
+          onToast(`'${cleanName}' 선수의 CK 일지 경기 영역으로 이동했습니다 🎯`);
+        }
+      } else if (retryCount < 6) {
+        setTimeout(() => attemptScroll(retryCount + 1), 80);
+      }
+    };
+
+    setTimeout(() => attemptScroll(0), 40);
+
+    if (onJumpToStreamer && cleanName) {
+      onJumpToStreamer(cleanName, specificMatchId);
+    }
+  };
+
+  // 상위(App)에서 targetStreamer나 targetMatchId가 전달되었을 때 자동 점프
+  React.useEffect(() => {
+    if (targetStreamer || targetMatchId) {
+      handleJumpToStreamer(targetStreamer || '', targetMatchId || undefined);
+    }
+  }, [targetStreamer, targetMatchId]);
 
   const woorimingLocation = useMemo(() => {
     for (const teamKey of ['team_a', 'team_b'] as const) {
@@ -573,7 +668,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                         {item.primaryLine}
                       </span>
                     </div>
-                    <div className="text-right flex items-center gap-2.5">
+                    <div className="text-right flex items-center gap-2">
                       <span className="text-[11px] text-[#8a8aa0]">
                         {item.games}전 {item.wins}승 {item.losses}패
                       </span>
@@ -588,6 +683,18 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                       >
                         {item.winrate.toFixed(0)}%
                       </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleJumpToStreamer(item.name);
+                        }}
+                        className="px-2 py-0.5 rounded bg-[#8b5cf6]/15 hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white border border-[#8b5cf6]/30 text-[10px] font-bold transition flex items-center gap-1 shrink-0 ml-0.5"
+                        title={`${item.name} 선수의 경기 영역으로 이동`}
+                      >
+                        <span>일지 이동</span>
+                        <Zap size={10} />
+                      </button>
                     </div>
                   </div>
                 ))
@@ -674,6 +781,45 @@ export const JournalTab: React.FC<JournalTabProps> = ({
             <option value="ADC">ADC</option>
             <option value="SUP">SUP</option>
           </select>
+
+          {/* 스트리머 검색/필터 */}
+          <div className="relative">
+            <input
+              value={filterStreamer}
+              onChange={(e) => setFilterStreamer(e.target.value)}
+              placeholder="스트리머 필터"
+              list="journal-streamers-list"
+              className="h-[36px] bg-[#08080c] border border-[#1e1e2a] focus:border-[#8b5cf6]/60 rounded-full pl-3.5 pr-7 text-[12px] w-[130px] placeholder:text-[#5a5a6a] text-white focus:outline-none"
+            />
+            {filterStreamer && (
+              <button
+                type="button"
+                onClick={() => setFilterStreamer('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#7a7a90] hover:text-white"
+                title="스트리머 필터 지우기"
+              >
+                <X size={12} />
+              </button>
+            )}
+            <datalist id="journal-streamers-list">
+              {allStreamers.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          </div>
+
+          {filterStreamer && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-[#8b5cf6]/20 border border-[#8b5cf6]/40 rounded-full text-[11px] text-[#c4b5fd]">
+              <span>선수: {filterStreamer}</span>
+              <button
+                type="button"
+                onClick={() => setFilterStreamer('')}
+                className="hover:text-white ml-0.5"
+              >
+                <X size={11} />
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
@@ -743,6 +889,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
               <div
                 key={m.id}
                 id={`match-${m.id}`}
+                data-match-card="true"
+                data-match-id={m.id}
+                data-streamers={`${Object.values(m.team_a || {}).join(' ')} ${Object.values(m.team_b || {}).join(' ')}`}
                 className={`relative rounded-xl border ${cardBorderClass} ${cardBgClass} transition-all duration-200 overflow-hidden group`}
               >
                 <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${accentBarClass}`} />
@@ -885,7 +1034,16 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                               </span>
                               <span className="whitespace-nowrap flex items-center gap-1">
                                 {isW && <span className="text-[#fbbf24] text-[11px]">👑</span>}
-                                <span className={isW ? 'text-[#f5d0fe] font-black' : ''}>
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (pName) handleJumpToStreamer(pName);
+                                  }}
+                                  className={`cursor-pointer hover:underline hover:text-[#a78bfa] transition-colors ${
+                                    isW ? 'text-[#f5d0fe] font-black' : ''
+                                  }`}
+                                  title={`${pName} 선수의 경기 영역으로 이동`}
+                                >
                                   {pName || '-'}
                                 </span>
                               </span>
@@ -924,7 +1082,16 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                               <span className="text-[#6a6a80] text-[10px] font-semibold w-[22px] shrink-0">
                                 {LINE_LABELS[k]}
                               </span>
-                              <span className="whitespace-nowrap">{pName || '-'}</span>
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (pName) handleJumpToStreamer(pName);
+                                }}
+                                className="whitespace-nowrap cursor-pointer hover:underline hover:text-[#a78bfa] transition-colors"
+                                title={`${pName} 선수의 경기 영역으로 이동`}
+                              >
+                                {pName || '-'}
+                              </span>
                             </div>
                           );
                         })}
@@ -1546,14 +1713,28 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedOpponent(null)}
-                className="w-[32px] h-[32px] bg-[#1e1e2a] hover:bg-[#2a2a3a] rounded-full flex items-center justify-center text-[#a0a0b8] hover:text-white transition"
-              >
-                <X size={16} />
-              </button>
-            </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const oppName = selectedOpponent.name;
+                      setSelectedOpponent(null);
+                      handleJumpToStreamer(oppName);
+                    }}
+                    className="h-[30px] px-3 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white border border-[#8b5cf6]/40 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition"
+                  >
+                    <Zap size={12} />
+                    <span>일지에서 경기 보기 ⚡</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOpponent(null)}
+                    className="w-[32px] h-[32px] bg-[#1e1e2a] hover:bg-[#2a2a3a] rounded-full flex items-center justify-center text-[#a0a0b8] hover:text-white transition"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
 
             <div className="overflow-y-auto my-4 space-y-2.5 pr-1 max-h-[480px]">
               {selectedOpponent.matches.map((m, idx) => (
@@ -1603,6 +1784,20 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                         세트 스코어 {m.score}
                       </span>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const matchId = m.matchId;
+                        const oppName = selectedOpponent.name;
+                        setSelectedOpponent(null);
+                        handleJumpToStreamer(oppName, matchId);
+                      }}
+                      className="mt-1.5 px-2.5 py-1 bg-[#1e1e30] hover:bg-[#8b5cf6] text-[#c0c0d8] hover:text-white rounded-md text-[10px] font-bold border border-[#2a2a44] transition flex items-center gap-1"
+                      title="CK 일지의 해당 경기 카드로 스크롤 이동"
+                    >
+                      <span>이 세트로 이동</span>
+                      <ArrowDownCircle size={11} />
+                    </button>
                   </div>
                 </div>
               ))}

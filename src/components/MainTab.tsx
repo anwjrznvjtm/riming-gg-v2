@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Match, LineKey, LINE_KEYS } from '../types';
 import { ComputedStats } from '../lib/stats';
 import { ChampionIcon } from './ChampionIcon';
+import { Zap } from 'lucide-react';
 
 interface MainTabProps {
   stats: ComputedStats;
@@ -9,6 +10,7 @@ interface MainTabProps {
   onOpenSummaryModal: () => void;
   onToast: (msg: string) => void;
   allStreamers: string[];
+  onJumpToStreamer?: (streamerName: string) => void;
 }
 
 type TeamRoster = Record<LineKey, string>;
@@ -234,7 +236,14 @@ function calcTeamScores(red:TeamRoster, blue:TeamRoster, matches:Match[], stats?
   };
 }
 
-export const MainTab: React.FC<MainTabProps> = ({ stats, matches, onOpenSummaryModal, onToast, allStreamers }) => {
+export const MainTab: React.FC<MainTabProps> = ({
+  stats,
+  matches,
+  onOpenSummaryModal,
+  onToast,
+  allStreamers,
+  onJumpToStreamer,
+}) => {
   const [redTeam, setRedTeam] = useState<TeamRoster>({ top:'', jgl:'', mid:'', adc:'', sup:'' });
   const [blueTeam, setBlueTeam] = useState<TeamRoster>({ top:'', jgl:'', mid:'', adc:'', sup:'' });
   const [winRate, setWinRate] = useState<ReturnType<typeof calcTeamScores>|null>(null);
@@ -618,9 +627,22 @@ export const MainTab: React.FC<MainTabProps> = ({ stats, matches, onOpenSummaryM
                       <span className="text-[11px] font-bold text-[#c2c6d6]">{lane.toUpperCase()} 라인 Best</span>
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#1e1e2a] text-[#9aa0b8]">이번달</span>
                     </div>
-                    <div className="text-[12px] font-bold text-white truncate">
-                      {best.name !== '데이터 없음' ? `${best.name} (${best.line||lane.toUpperCase()})` : '아직 함께한 전적 없음'} 
-                      <span className="text-[#a78bfa] ml-1">{best.total>0 ? `${best.rate}%` : ''}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[12px] font-bold text-white truncate">
+                        {best.name !== '데이터 없음' ? `${best.name} (${best.line||lane.toUpperCase()})` : '아직 함께한 전적 없음'} 
+                        <span className="text-[#a78bfa] ml-1">{best.total>0 ? `${best.rate}%` : ''}</span>
+                      </div>
+                      {best.name !== '데이터 없음' && onJumpToStreamer && (
+                        <button
+                          type="button"
+                          onClick={() => onJumpToStreamer(best.name)}
+                          className="px-2 py-0.5 rounded bg-[#8b5cf6]/20 hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white border border-[#8b5cf6]/35 text-[10px] font-bold transition flex items-center gap-1 shrink-0"
+                          title={`${best.name} 선수의 CK 일지 경기 영역으로 이동`}
+                        >
+                          <span>일지 이동</span>
+                          <Zap size={10} />
+                        </button>
+                      )}
                     </div>
                     <div className="text-[11px] text-[#c2c6d6] mb-2">
                       {best.total>0 ? `${best.total}전 ${best.wins}승 ${best.total-best.wins}패` : 'CK일지에 함께한 경기가 없습니다'}

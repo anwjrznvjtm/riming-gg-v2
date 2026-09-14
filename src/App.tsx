@@ -59,11 +59,20 @@ export default function App() {
   });
 
   const [currentTab, setCurrentTab] = useState<string>('main');
+  const [targetStreamer, setTargetStreamer] = useState<string | null>(null);
+  const [targetMatchId, setTargetMatchId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+
+  // 스트리머 또는 경기 ID를 받아서 CK 일지 탭으로 전환하고 해당 경기 위치로 스크롤 점프
+  const handleJumpToStreamer = useCallback((streamerName: string, matchId?: string) => {
+    setTargetStreamer(streamerName);
+    setTargetMatchId(matchId || null);
+    setCurrentTab('journal');
+  }, []);
 
   const [isBgmPlaying, setIsBgmPlaying] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -547,6 +556,7 @@ export default function App() {
         onTabChange={setCurrentTab}
         matches={matches}
         allStreamers={allStreamers}
+        onSelectStreamer={handleJumpToStreamer}
         isAdmin={isAdmin}
         onLoginClick={() => setIsAdminModalOpen(true)}
         onLogoutClick={handleAdminLogout}
@@ -569,9 +579,16 @@ export default function App() {
             onOpenSummaryModal={() => setIsSummaryModalOpen(true)}
             onToast={showToast}
             allStreamers={allStreamers}
+            onJumpToStreamer={handleJumpToStreamer}
           />
         )}
-        {currentTab === 'synergy' && <SynergyTab stats={stats} matches={matches} />}
+        {currentTab === 'synergy' && (
+          <SynergyTab
+            stats={stats}
+            matches={matches}
+            onJumpToStreamer={handleJumpToStreamer}
+          />
+        )}
         {currentTab === 'journal' && (
           <JournalTab
             stats={stats}
@@ -584,6 +601,9 @@ export default function App() {
             onToast={showToast}
             allStreamers={allStreamers}
             allChampions={allChampions}
+            targetStreamer={targetStreamer}
+            targetMatchId={targetMatchId}
+            onJumpToStreamer={handleJumpToStreamer}
           />
         )}
         {currentTab === 'rolland' && (
