@@ -61,16 +61,18 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('main');
   const [targetStreamer, setTargetStreamer] = useState<string | null>(null);
   const [targetMatchId, setTargetMatchId] = useState<string | null>(null);
+  const [targetStreamerRole, setTargetStreamerRole] = useState<'all' | 'ally' | 'enemy'>('all');
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
-  // 스트리머 또는 경기 ID를 받아서 CK 일지 탭으로 전환하고 해당 경기 위치로 스크롤 점프
-  const handleJumpToStreamer = useCallback((streamerName: string, matchId?: string) => {
+  // 스트리머 또는 경기 ID 및 아군/적팀 팀 역할(Team Check)을 받아서 CK 일지 탭으로 전환하고 해당 경기 위치로 스크롤 점프
+  const handleJumpToStreamer = useCallback((streamerName: string, matchId?: string, teamRole: 'all' | 'ally' | 'enemy' = 'all') => {
     setTargetStreamer(streamerName);
     setTargetMatchId(matchId || null);
+    setTargetStreamerRole(teamRole);
     setCurrentTab('journal');
   }, []);
 
@@ -603,6 +605,7 @@ export default function App() {
             allChampions={allChampions}
             targetStreamer={targetStreamer}
             targetMatchId={targetMatchId}
+            targetStreamerRole={targetStreamerRole}
             onJumpToStreamer={handleJumpToStreamer}
           />
         )}

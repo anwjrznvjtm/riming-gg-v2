@@ -8,7 +8,7 @@ interface HeaderProps {
   onTabChange: (tab: string) => void;
   matches: Match[];
   allStreamers: string[];
-  onSelectStreamer: (streamerName: string) => void;
+  onSelectStreamer: (streamerName: string, matchId?: string, teamRole?: 'all' | 'ally' | 'enemy') => void;
   isAdmin: boolean;
   onLoginClick: () => void;
   onLogoutClick: () => void;

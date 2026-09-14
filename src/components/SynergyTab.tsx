@@ -7,7 +7,7 @@ import { X, Trophy, TrendingDown, Users, ChevronRight, Calendar, Swords, Zap } f
 interface SynergyTabProps {
   stats: ComputedStats;
   matches: Match[];
-  onJumpToStreamer?: (streamerName: string, matchId?: string) => void;
+  onJumpToStreamer?: (streamerName: string, matchId?: string, teamRole?: 'all' | 'ally' | 'enemy') => void;
 }
 
 export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches, onJumpToStreamer }) => {
@@ -599,7 +599,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches, onJumpTo
                                 onClick={() => {
                                   const name = selectedModal.selectedStreamer || '';
                                   setSelectedModal(null);
-                                  onJumpToStreamer(name, m.id);
+                                  onJumpToStreamer(name, m.id, 'ally');
                                 }}
                                 className="mt-0.5 px-2 py-0.5 rounded bg-[#1e1e30] hover:bg-[#8b5cf6] text-[#c0c0d8] hover:text-white rounded-md text-[10px] font-bold border border-[#2a2a44] transition flex items-center gap-1"
                                 title="CK 일지의 해당 세트 카드로 이동"

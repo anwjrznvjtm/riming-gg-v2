@@ -10,7 +10,7 @@ interface MainTabProps {
   onOpenSummaryModal: () => void;
   onToast: (msg: string) => void;
   allStreamers: string[];
-  onJumpToStreamer?: (streamerName: string) => void;
+  onJumpToStreamer?: (streamerName: string, matchId?: string, teamRole?: 'all' | 'ally' | 'enemy') => void;
 }
 
 type TeamRoster = Record<LineKey, string>;
@@ -635,9 +635,9 @@ export const MainTab: React.FC<MainTabProps> = ({
                       {best.name !== '데이터 없음' && onJumpToStreamer && (
                         <button
                           type="button"
-                          onClick={() => onJumpToStreamer(best.name)}
+                          onClick={() => onJumpToStreamer(best.name, undefined, 'ally')}
                           className="px-2 py-0.5 rounded bg-[#8b5cf6]/20 hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white border border-[#8b5cf6]/35 text-[10px] font-bold transition flex items-center gap-1 shrink-0"
-                          title={`${best.name} 선수의 CK 일지 경기 영역으로 이동`}
+                          title={`${best.name} 선수와 같은 팀(아군)으로 함께한 CK 일지 경기 영역으로 이동`}
                         >
                           <span>일지 이동</span>
                           <Zap size={10} />

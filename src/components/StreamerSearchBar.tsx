@@ -8,7 +8,7 @@ import { Search, X, Zap, ChevronRight, Swords, Users } from 'lucide-react';
 interface StreamerSearchBarProps {
   allStreamers: string[];
   matches: Match[];
-  onSelectStreamer: (streamerName: string) => void;
+  onSelectStreamer: (streamerName: string, matchId?: string, teamRole?: 'all' | 'ally' | 'enemy') => void;
   className?: string;
   placeholder?: string;
 }
@@ -183,8 +183,8 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
     }));
   }, [query, allStreamers, streamerStatsMap]);
 
-  const handleSelect = (streamerName: string) => {
-    onSelectStreamer(streamerName);
+  const handleSelect = (streamerName: string, teamRole: 'all' | 'ally' | 'enemy' = 'all') => {
+    onSelectStreamer(streamerName, undefined, teamRole);
     setIsOpen(false);
     inputRef.current?.blur();
   };
@@ -192,7 +192,7 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       if (suggestions.length > 0) {
-        handleSelect(suggestions[0].name);
+        handleSelect(suggestions[0].name, 'all');
       }
     } else if (e.key === 'Escape') {
       setIsOpen(false);
@@ -259,47 +259,94 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                 return (
                   <div
                     key={item.name}
-                    onClick={() => handleSelect(item.name)}
-                    className="p-2.5 hover:bg-[#1a1a2c] cursor-pointer transition flex items-center justify-between gap-2.5 group"
+                    className="p-2.5 hover:bg-[#1a1a2c] transition flex flex-col gap-2 group"
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <StreamerAvatar name={item.name} size={32} />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-[13px] text-white group-hover:text-[#c4b5fd] transition truncate">
-                            {item.name}
-                          </span>
-                          <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-[#1e1e30] border border-[#2e2e46] text-[#a0a0b8] uppercase shrink-0">
-                            {LINE_LABELS[stat.mainLane] || 'MID'}
-                          </span>
-                          {stat.totalGames > 0 && (
-                            <span className="text-[10px] text-[#8e8ea2] shrink-0 font-medium">
-                              {stat.totalGames}전
+                    <div
+                      className="flex items-center justify-between gap-2.5 cursor-pointer"
+                      onClick={() => handleSelect(item.name, 'all')}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <StreamerAvatar name={item.name} size={32} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-[13px] text-white group-hover:text-[#c4b5fd] transition truncate">
+                              {item.name}
                             </span>
-                          )}
-                        </div>
+                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-[#1e1e30] border border-[#2e2e46] text-[#a0a0b8] uppercase shrink-0">
+                              {LINE_LABELS[stat.mainLane] || 'MID'}
+                            </span>
+                            {stat.totalGames > 0 && (
+                              <span className="text-[10px] text-[#8e8ea2] shrink-0 font-medium">
+                                총 {stat.totalGames}전
+                              </span>
+                            )}
+                          </div>
 
-                        <div className="text-[11px] text-[#82829a] flex items-center gap-2 mt-0.5 truncate">
-                          {stat.vsGames > 0 ? (
-                            <span className="flex items-center gap-1 text-[#f87171] font-medium">
-                              <Swords size={11} />
-                              <span>맞라인 {stat.vsGames}전 ({stat.vsWins}승 {stat.vsLosses}패)</span>
-                            </span>
-                          ) : stat.withGames > 0 ? (
-                            <span className="flex items-center gap-1 text-[#60a5fa] font-medium">
-                              <Users size={11} />
-                              <span>아군 {stat.withGames}전 ({stat.withWins}승 {stat.withLosses}패)</span>
-                            </span>
-                          ) : (
-                            <span>참여 기록</span>
-                          )}
+                          <div className="text-[11px] text-[#82829a] flex items-center gap-2 mt-0.5 truncate">
+                            {stat.vsGames > 0 && (
+                              <span className="flex items-center gap-1 text-[#f87171] font-medium">
+                                <Swords size={11} />
+                                <span>적팀 {stat.vsGames}전 ({stat.vsWins}승 {stat.vsLosses}패)</span>
+                              </span>
+                            )}
+                            {stat.withGames > 0 && (
+                              <span className="flex items-center gap-1 text-[#60a5fa] font-medium">
+                                <Users size={11} />
+                                <span>아군 {stat.withGames}전 ({stat.withWins}승 {stat.withLosses}패)</span>
+                              </span>
+                            )}
+                            {stat.vsGames === 0 && stat.withGames === 0 && (
+                              <span>참여 기록 보유</span>
+                            )}
+                          </div>
                         </div>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelect(item.name, 'all');
+                        }}
+                        className="shrink-0 flex items-center gap-1 bg-[#8b5cf6]/10 hover:bg-[#8b5cf6] border border-[#8b5cf6]/30 hover:border-[#8b5cf6] text-[#c4b5fd] hover:text-white px-2 py-1 rounded-full text-[10px] font-bold transition"
+                        title="전체 참여 경기 일지로 이동"
+                      >
+                        <span>전체 이동</span>
+                        <ChevronRight size={12} />
+                      </button>
                     </div>
 
-                    <div className="shrink-0 flex items-center gap-1 bg-[#8b5cf6]/10 group-hover:bg-[#8b5cf6] border border-[#8b5cf6]/30 group-hover:border-[#8b5cf6] text-[#c4b5fd] group-hover:text-white px-2 py-1 rounded-full text-[10px] font-bold transition">
-                      <span>일지 이동</span>
-                      <ChevronRight size={12} />
+                    {/* 아군 / 적팀 구분 이동 퀵 버튼 */}
+                    <div className="flex items-center gap-1.5 pl-10">
+                      {stat.withGames > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelect(item.name, 'ally');
+                          }}
+                          className="px-2.5 py-0.5 rounded-full bg-[#3b82f6]/15 hover:bg-[#3b82f6] text-[#60a5fa] hover:text-white border border-[#3b82f6]/30 text-[10px] font-semibold flex items-center gap-1 transition shadow-sm"
+                          title="같은 팀(아군)으로 함께한 경기만 필터링하여 일지 이동"
+                        >
+                          <Users size={10} />
+                          <span>아군 경기만 ({stat.withGames})</span>
+                        </button>
+                      )}
+
+                      {stat.vsGames > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelect(item.name, 'enemy');
+                          }}
+                          className="px-2.5 py-0.5 rounded-full bg-[#ef4444]/15 hover:bg-[#ef4444] text-[#f87171] hover:text-white border border-[#ef4444]/30 text-[10px] font-semibold flex items-center gap-1 transition shadow-sm"
+                          title="상대팀(적팀)으로 맞붙은 경기만 필터링하여 일지 이동"
+                        >
+                          <Swords size={10} />
+                          <span>적팀 경기만 ({stat.vsGames})</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
