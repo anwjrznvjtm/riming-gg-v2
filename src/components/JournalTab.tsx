@@ -10,6 +10,7 @@ import {
   getWoorimingLine,
 } from '../lib/stats';
 import { ChampionIcon } from './ChampionIcon';
+import { StreamerAvatar } from './StreamerAvatar';
 import { parseKdaString, normalizeChampionName, SOOP_POPULAR_STREAMERS } from '../lib/champions';
 import { PASSCODE } from '../data/initialMatches';
 import {
@@ -36,40 +37,93 @@ import {
 
 // ============================================================================
 // Team Check Logic: 특정 스트리머가 아군(같은 팀)인지 적팀(상대팀)인지 판별하는 조건문 함수
+// 경기 목록 데이터 구조에서 아군 팀과 적팀 명단에 해당 스트리머의 이름과 포지션이 포함되어 있는지 확인
 // ============================================================================
 export type StreamerTeamRole = 'all' | 'ally' | 'enemy';
 
-export function checkStreamerTeamRole(
+/**
+ * isSameTeam: 특정 스트리머가 해당 경기에서 우리밍_과 같은 팀(아군)이었는지 확인하는 조건문 함수
+ * @param match 경기 데이터 (team_a: Red팀 로스터, team_b: Blue팀 로스터)
+ * @param streamerName 확인할 스트리머 이름
+ * @param position (선택사항) 특정 라인/포지션 ('top' | 'jgl' | 'mid' | 'adc' | 'sup')
+ * @returns 아군 팀 소속 여부 (true/false)
+ */
+export function isSameTeam(
   match: Match,
-  streamerName: string
-): 'ally' | 'enemy' | null {
-  if (!streamerName || !match) return null;
+  streamerName: string,
+  position?: LineKey | string
+): boolean {
+  if (!streamerName || !match) return false;
   const target = streamerName.trim().toLowerCase();
 
-  // 우리밍_ 소속 팀 식별 (Red 또는 Blue)
+  // 우리밍_ 소속 팀 식별 ('Red' 또는 'Blue')
   const wTeam = getWoorimingTeam(match);
   const isWRed = wTeam === 'Red';
 
-  // 아군 명단(우리밍_과 같은 팀)과 적팀 명단(우리밍_의 상대팀)
+  // 아군 팀 로스터 선택 (우리밍_이 Red팀이면 team_a, Blue팀이면 team_b)
   const allyRoster = isWRed ? match.team_a : match.team_b;
-  const enemyRoster = isWRed ? match.team_b : match.team_a;
+  if (!allyRoster) return false;
 
-  // 1. 아군 선수 명단에 있는지 체크하는 조건문 (Ally Check)
-  const isAlly = Object.values(allyRoster || {}).some(
+  // 특정 포지션이 지정된 경우 해당 라인의 선수와 이름 비교
+  if (position) {
+    const posKey = position.toLowerCase() as LineKey;
+    const playerAtPos = String(allyRoster[posKey] || '').trim().toLowerCase();
+    return playerAtPos === target;
+  }
+
+  // 포지션이 지정되지 않은 경우 아군 전체 5개 포지션 중 하나라도 일치하는지 확인
+  return Object.values(allyRoster).some(
     (player) => String(player || '').trim().toLowerCase() === target
   );
-  if (isAlly) {
+}
+
+/**
+ * isEnemyTeam: 특정 스트리머가 해당 경기에서 우리밍_과 상대팀(적팀)이었는지 확인하는 조건문 함수
+ * @param match 경기 데이터
+ * @param streamerName 확인할 스트리머 이름
+ * @param position (선택사항) 특정 라인/포지션
+ * @returns 적팀 소속 여부 (true/false)
+ */
+export function isEnemyTeam(
+  match: Match,
+  streamerName: string,
+  position?: LineKey | string
+): boolean {
+  if (!streamerName || !match) return false;
+  const target = streamerName.trim().toLowerCase();
+
+  const wTeam = getWoorimingTeam(match);
+  const isWRed = wTeam === 'Red';
+
+  // 적팀 로스터 선택 (우리밍_이 Red팀이면 상대는 team_b, Blue팀이면 상대는 team_a)
+  const enemyRoster = isWRed ? match.team_b : match.team_a;
+  if (!enemyRoster) return false;
+
+  if (position) {
+    const posKey = position.toLowerCase() as LineKey;
+    const playerAtPos = String(enemyRoster[posKey] || '').trim().toLowerCase();
+    return playerAtPos === target;
+  }
+
+  return Object.values(enemyRoster).some(
+    (player) => String(player || '').trim().toLowerCase() === target
+  );
+}
+
+/**
+ * checkStreamerTeamRole: 스트리머가 아군인지 적팀인지 판별하여 'ally' | 'enemy' | null 반환
+ */
+export function checkStreamerTeamRole(
+  match: Match,
+  streamerName: string,
+  position?: LineKey | string
+): 'ally' | 'enemy' | null {
+  if (isSameTeam(match, streamerName, position)) {
     return 'ally';
   }
-
-  // 2. 적팀 선수 명단에 있는지 체크하는 조건문 (Enemy Check)
-  const isEnemy = Object.values(enemyRoster || {}).some(
-    (player) => String(player || '').trim().toLowerCase() === target
-  );
-  if (isEnemy) {
+  if (isEnemyTeam(match, streamerName, position)) {
     return 'enemy';
   }
-
   return null;
 }
 
@@ -744,6 +798,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="text-[11px] text-[#6a6a80] font-bold w-[14px]">{idx + 1}</span>
+                      <StreamerAvatar name={item.name} size={22} shape="circle" />
                       <span className="text-[13px] font-semibold text-white group-hover:text-[#a78bfa] transition-colors">
                         {item.name}
                       </span>
@@ -1830,9 +1885,12 @@ export const JournalTab: React.FC<JournalTabProps> = ({
           <div className="w-full max-w-[640px] bg-[#12121a] border border-[#1e1e2a] rounded-[24px] p-6 max-h-[85vh] flex flex-col shadow-2xl">
             <div className="flex justify-between items-center pb-4 border-b border-[#1e1e2a]">
               <div className="flex items-center gap-3">
-                <div className="w-[42px] h-[42px] rounded-full bg-[#8b5cf6]/20 border border-[#8b5cf6]/40 flex items-center justify-center text-[18px]">
-                  ⚔
-                </div>
+                <StreamerAvatar
+                  name={selectedOpponent.name}
+                  size={44}
+                  shape="circle"
+                  className="border-2 border-[#8b5cf6]/50 shadow-md shrink-0"
+                />
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-[17px] text-white">{selectedOpponent.name}</h3>

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Match, LineName, PartnerStat, LINE_KEYS, LINE_LABELS, LineKey } from '../types';
 import { ComputedStats, getWoorimingTeam, getWoorimingLineKey, isWooriming, getPlayerLineChampionStats } from '../lib/stats';
 import { ChampionIcon } from './ChampionIcon';
+import { StreamerAvatar } from './StreamerAvatar';
 import { X, Trophy, TrendingDown, Users, ChevronRight, Calendar, Swords, Zap } from 'lucide-react';
 
 interface SynergyTabProps {
@@ -147,15 +148,18 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches, onJumpTo
                               <span>BEST</span>
                             </div>
                             {best ? (
-                              <div className="text-right">
-                                <div className="text-[13px] font-bold text-white group-hover:text-[#86efac] transition">
-                                  {best.name}
-                                </div>
-                                <div className="text-[11px] text-[#8a8aa0]">
-                                  {best.games}판 {best.wins}승 {best.games - best.wins}패{' '}
-                                  <span className="text-[#10b981] font-bold">
-                                    {((best.wins / best.games) * 100).toFixed(0)}%
-                                  </span>
+                              <div className="flex items-center gap-2">
+                                <StreamerAvatar name={best.name} size={28} shape="circle" className="border border-[#10b981]/40" />
+                                <div className="text-right">
+                                  <div className="text-[13px] font-bold text-white group-hover:text-[#86efac] transition">
+                                    {best.name}
+                                  </div>
+                                  <div className="text-[11px] text-[#8a8aa0]">
+                                    {best.games}판 {best.wins}승 {best.games - best.wins}패{' '}
+                                    <span className="text-[#10b981] font-bold">
+                                      {((best.wins / best.games) * 100).toFixed(0)}%
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             ) : (
@@ -223,15 +227,18 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches, onJumpTo
                               <span>WORST</span>
                             </div>
                             {worst ? (
-                              <div className="text-right">
-                                <div className="text-[13px] font-bold text-white group-hover:text-[#fca5a5] transition">
-                                  {worst.name}
-                                </div>
-                                <div className="text-[11px] text-[#8a8aa0]">
-                                  {worst.games}판 {worst.wins}승 {worst.games - worst.wins}패{' '}
-                                  <span className="text-[#ef4444] font-bold">
-                                    {((worst.wins / worst.games) * 100).toFixed(0)}%
-                                  </span>
+                              <div className="flex items-center gap-2">
+                                <StreamerAvatar name={worst.name} size={28} shape="circle" className="border border-[#ef4444]/40" />
+                                <div className="text-right">
+                                  <div className="text-[13px] font-bold text-white group-hover:text-[#fca5a5] transition">
+                                    {worst.name}
+                                  </div>
+                                  <div className="text-[11px] text-[#8a8aa0]">
+                                    {worst.games}판 {worst.wins}승 {worst.games - worst.wins}패{' '}
+                                    <span className="text-[#ef4444] font-bold">
+                                      {((worst.wins / worst.games) * 100).toFixed(0)}%
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             ) : (
@@ -390,7 +397,8 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches, onJumpTo
                               }`}
                             >
                               <td className="p-2.5 text-[#8a8aa0] font-medium">{idx + 1}</td>
-                              <td className="p-2.5 font-bold text-white flex items-center gap-1.5">
+                              <td className="p-2.5 font-bold text-white flex items-center gap-2">
+                                <StreamerAvatar name={p.name} size={22} shape="circle" />
                                 <span>{p.name}</span>
                                 {isSelected && (
                                   <span className="text-[10px] bg-[#8b5cf6] text-white px-1.5 py-0.2 rounded font-normal">
@@ -475,6 +483,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({ stats, matches, onJumpTo
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div className="text-[13px] font-bold text-white flex items-center gap-2">
                     <Swords size={16} className="text-[#8b5cf6]" />
+                    <StreamerAvatar name={selectedModal.selectedStreamer || ''} size={22} shape="circle" />
                     <span>우리밍_ × {selectedModal.selectedStreamer} 함께 플레이한 경기 목록</span>
                     <span className="text-[11px] bg-[#8b5cf6]/20 text-[#a78bfa] px-2 py-0.5 rounded-full">
                       총 {partnerMatches.length}경기
