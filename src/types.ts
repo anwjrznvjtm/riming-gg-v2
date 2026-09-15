@@ -18,6 +18,46 @@ export type TeamRoster = Record<LineKey, string>;
 export type TeamChamps = Record<LineKey, string>;
 export type TeamKda = Record<LineKey, string>;
 
+export interface PlayerDetailedSpec {
+  name: string;
+  line: LineKey;
+  champ: string;
+  kda: string; // e.g. "8/2/11"
+  kills?: number;
+  deaths?: number;
+  assists?: number;
+  damage?: number; // e.g. 28450
+  damageShare?: number; // % e.g. 32.5
+  cs?: number; // e.g. 240
+  csPerMin?: number; // e.g. 8.4
+  gold?: number; // e.g. 14200
+  items?: string[]; // e.g. ["도란의 검", "무한의 대검", "크라켄 학살자", "고속 연사포", "광전사의 군화", "수호 천사", "망원 개조"]
+  runes?: {
+    primary?: string; // e.g. "치명적 속도"
+    secondary?: string; // e.g. "영감"
+    all?: string[];
+  };
+  spells?: string[]; // e.g. ["점멸", "정화"]
+}
+
+export interface TeamDetailedSpec {
+  teamName?: string;
+  teamKda: string; // e.g. "32/18/65"
+  globalGold: number | string; // e.g. "64.2k" or 64200
+  towerKills?: number;
+  dragonKills?: number;
+  baronKills?: number;
+  players: Record<LineKey, PlayerDetailedSpec>;
+}
+
+export interface MatchDetailedStats {
+  gameDuration?: string; // e.g. "31:42"
+  blueTeam: TeamDetailedSpec;
+  redTeam: TeamDetailedSpec;
+  screenshotUrl?: string;
+  analyzedAt?: string;
+}
+
 export interface Match {
   id: string;
   date: string; // YYYY-MM-DD
@@ -36,6 +76,7 @@ export interface Match {
   set_number: number;
   created_at?: string; // ISO 8601 string for DB/REST synchronization
   updated_at?: string; // ISO 8601 string for DB/REST synchronization
+  details?: MatchDetailedStats;
 }
 
 export interface ChampionStat {

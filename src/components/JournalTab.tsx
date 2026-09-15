@@ -13,6 +13,7 @@ import { ChampionIcon } from './ChampionIcon';
 import { StreamerAvatar } from './StreamerAvatar';
 import { parseKdaString, normalizeChampionName, SOOP_POPULAR_STREAMERS } from '../lib/champions';
 import { PASSCODE } from '../data/initialMatches';
+import { calculateMatchSeriesScores, calculateScoreForSetInSeries, sortMatchesDescending } from '../lib/seriesScores';
 import {
   Plus,
   Search,
@@ -142,7 +143,9 @@ interface JournalTabProps {
   targetStreamer?: string | null;
   targetMatchId?: string | null;
   targetStreamerRole?: 'all' | 'ally' | 'enemy' | null;
+  jumpTimestamp?: number;
   onJumpToStreamer?: (streamerName: string, matchId?: string, teamRole?: 'all' | 'ally' | 'enemy') => void;
+  onOpenMatchDetail?: (match: Match) => void;
 }
 
 export const JournalTab: React.FC<JournalTabProps> = ({
@@ -160,7 +163,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
   targetStreamer,
   targetMatchId,
   targetStreamerRole,
+  jumpTimestamp,
   onJumpToStreamer,
+  onOpenMatchDetail,
 }) => {
   const [filterDate, setFilterDate] = useState('');
   const [filterName, setFilterName] = useState('');
@@ -175,6 +180,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
   const [formError, setFormError] = useState('');
 
   const [seriesWinners, setSeriesWinners] = useState<('Red' | 'Blue')[]>([]);
+  const [seriesHistory, setSeriesHistory] = useState<{ set: number; won: boolean; label: string }[]>([]);
 
   const emptyRoster = { top: '', jgl: '', mid: '', adc: '', sup: '' };
   const [formData, setFormData] = useState<Match>({
@@ -203,59 +209,28 @@ export const JournalTab: React.FC<JournalTabProps> = ({
   const [deleteError, setDeleteError] = useState('');
 
   // === FIXED: Correct cumulative score calculation grouped by date+ck_name ===
-  const correctedScoreMap = useMemo(() => {
-    const groups = new Map<string, Match[]>();
-    for (const m of matches) {
-      const key = `${m.date}__${(m.ck_name || '').trim()}`;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(m);
-    }
-
-    const map = new Map<string, string>();
-    for (const [, group] of groups) {
-      const sortedAsc = [...group].sort((a, b) => (Number(a.set_number) || 1) - (Number(b.set_number) || 1));
-      let redWins = 0;
-      let blueWins = 0;
-      for (const m of sortedAsc) {
-        if (m.winning_team === 'Red') redWins++;
-        else if (m.winning_team === 'Blue') blueWins++;
-        const wTeam = getWoorimingTeam(m);
-        const isWRed = wTeam === 'Red';
-        const allyScore = isWRed ? redWins : blueWins;
-        const enemyScore = isWRed ? blueWins : redWins;
-        map.set(m.id, `${allyScore}:${enemyScore}`);
-      }
-    }
-    return map;
-  }, [matches]);
+  const seriesScoreResult = useMemo(() => calculateMatchSeriesScores(matches), [matches]);
+  const correctedScoreMap = seriesScoreResult.scoreMap;
 
   // === FIXED: Filter + Sort - 날짜 내림차순, 같은 날짜는 세트번호 내림차순 (최신이 위, 1세트가 아래) ===
   const filteredMatches = useMemo(() => {
-    return matches
-      .filter((m) => {
-        if (filterDate && !m.date.includes(filterDate)) return false;
-        if (filterName && !m.ck_name.toLowerCase().includes(filterName.toLowerCase())) return false;
-        if (filterLine !== 'ALL') {
-          const line = getWoorimingLine(m);
-          if (line !== filterLine) return false;
-        }
-        if (filterStreamer) {
-          // Team Check Logic: 해당 선수가 아군/적팀 명단에 있는지 판별
-          const role = checkStreamerTeamRole(m, filterStreamer);
-          if (!role) return false;
-          if (filterStreamerRole === 'ally' && role !== 'ally') return false;
-          if (filterStreamerRole === 'enemy' && role !== 'enemy') return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const dateDiff = b.date.localeCompare(a.date);
-        if (dateDiff !== 0) return dateDiff;
-        // 같은 날짜면 CK명, 그 다음 세트번호 내림차순 (4세트가 위로)
-        const ckDiff = (b.ck_name || '').localeCompare(a.ck_name || '');
-        if (ckDiff !== 0) return ckDiff;
-        return (Number(b.set_number) || 1) - (Number(a.set_number) || 1);
-      });
+    const filtered = matches.filter((m) => {
+      if (filterDate && !m.date.includes(filterDate)) return false;
+      if (filterName && !m.ck_name.toLowerCase().includes(filterName.toLowerCase())) return false;
+      if (filterLine !== 'ALL') {
+        const line = getWoorimingLine(m);
+        if (line !== filterLine) return false;
+      }
+      if (filterStreamer) {
+        // Team Check Logic: 해당 선수가 아군/적팀 명단에 있는지 판별
+        const role = checkStreamerTeamRole(m, filterStreamer);
+        if (!role) return false;
+        if (filterStreamerRole === 'ally' && role !== 'ally') return false;
+        if (filterStreamerRole === 'enemy' && role !== 'enemy') return false;
+      }
+      return true;
+    });
+    return sortMatchesDescending(filtered);
   }, [matches, filterDate, filterName, filterLine, filterStreamer, filterStreamerRole]);
 
   // 스트리머 경기 영역으로 스크롤 점프 함수 (아군/적팀 Team Check Logic 적용)
@@ -355,16 +330,12 @@ export const JournalTab: React.FC<JournalTabProps> = ({
             onToast(`'${cleanName}' 선수의 CK 일지 경기 영역으로 이동했습니다 🎯`);
           }
         }
-      } else if (retryCount < 6) {
+      } else if (retryCount < 8) {
         setTimeout(() => attemptScroll(retryCount + 1), 80);
       }
     };
 
     setTimeout(() => attemptScroll(0), 40);
-
-    if (onJumpToStreamer && cleanName) {
-      onJumpToStreamer(cleanName, specificMatchId, teamRole);
-    }
   };
 
   // 상위(App)에서 targetStreamer나 targetMatchId가 전달되었을 때 자동 점프
@@ -376,7 +347,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
         targetStreamerRole || 'all'
       );
     }
-  }, [targetStreamer, targetMatchId, targetStreamerRole]);
+  }, [targetStreamer, targetMatchId, targetStreamerRole, jumpTimestamp]);
 
   const woorimingLocation = useMemo(() => {
     for (const teamKey of ['team_a', 'team_b'] as const) {
@@ -402,10 +373,23 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       } else {
         nextB[targetLine] = '우리밍_';
       }
+      const calcResult = calculateScoreForSetInSeries({
+        date: prev.date,
+        ck_name: prev.ck_name,
+        set_number: prev.set_number,
+        winning_team: prev.winning_team,
+        team_a: nextA,
+        team_b: nextB,
+        excludeMatchId: prev.id,
+        allMatches: matches,
+      });
+      setSeriesWinners(calcResult.priorWinners);
+      setSeriesHistory(calcResult.priorHistory);
       return {
         ...prev,
         team_a: nextA,
         team_b: nextB,
+        score: calcResult.score,
       };
     });
     setFormError('');
@@ -435,24 +419,36 @@ export const JournalTab: React.FC<JournalTabProps> = ({
 
   const handleOpenAddModal = () => {
     const today = new Date().toISOString().slice(0, 10);
+    const defaultTeamA = { ...emptyRoster, adc: '우리밍_' };
+    const defaultTeamB = { ...emptyRoster };
+    const initialScoreResult = calculateScoreForSetInSeries({
+      date: today,
+      ck_name: '',
+      set_number: 1,
+      winning_team: 'Red',
+      team_a: defaultTeamA,
+      team_b: defaultTeamB,
+      allMatches: matches,
+    });
     setFormData({
       id: `m_${Date.now()}`,
       date: today,
       ck_name: '',
-      team_a: { ...emptyRoster, adc: '우리밍_' },
-      team_b: { ...emptyRoster },
+      team_a: defaultTeamA,
+      team_b: defaultTeamB,
       team_a_champs: { ...emptyRoster },
       team_b_champs: { ...emptyRoster },
       ban_a: ['', '', '', '', ''],
       ban_b: ['', '', '', '', ''],
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
-      score: '1:0',
+      score: initialScoreResult.score,
       winning_team: 'Red',
       match_format: '3판2선승',
       set_number: 1,
     });
-    setSeriesWinners([]);
+    setSeriesWinners(initialScoreResult.priorWinners);
+    setSeriesHistory(initialScoreResult.priorHistory);
     setEditingMatch(null);
     setFormPasscode('');
     setFormError('');
@@ -460,8 +456,19 @@ export const JournalTab: React.FC<JournalTabProps> = ({
   };
 
   const handleOpenEditModal = (m: Match) => {
+    const calcResult = calculateScoreForSetInSeries({
+      date: m.date,
+      ck_name: m.ck_name,
+      set_number: m.set_number,
+      winning_team: m.winning_team,
+      team_a: m.team_a,
+      team_b: m.team_b,
+      excludeMatchId: m.id,
+      allMatches: matches,
+    });
     setFormData({
       ...m,
+      score: calcResult.score,
       team_a: { ...m.team_a },
       team_b: { ...m.team_b },
       team_a_champs: { ...m.team_a_champs },
@@ -471,31 +478,32 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       team_a_kda: { ...m.team_a_kda },
       team_b_kda: { ...m.team_b_kda },
     });
+    setSeriesWinners(calcResult.priorWinners);
+    setSeriesHistory(calcResult.priorHistory);
     setEditingMatch(m);
     setFormPasscode('');
     setFormError('');
     setIsEditModalOpen(true);
   };
 
-  // FIXED: Winner selection - calculate from actual same-series matches, not just state
+  // FIXED: Winner selection - calculate strictly from prior sets in same series
   const handleSelectWinner = (winner: 'Red' | 'Blue') => {
-    const sameSeries = matches
-      .filter((m) => m.date === formData.date && m.ck_name.trim() === formData.ck_name.trim() && m.id !== formData.id)
-      .sort((a, b) => (Number(a.set_number) || 1) - (Number(b.set_number) || 1));
-    
-    let red = 0;
-    let blue = 0;
-    for (const m of sameSeries) {
-      if (m.winning_team === 'Red') red++;
-      else blue++;
-    }
-    if (winner === 'Red') red++;
-    else blue++;
-
+    const calcResult = calculateScoreForSetInSeries({
+      date: formData.date,
+      ck_name: formData.ck_name,
+      set_number: formData.set_number,
+      winning_team: winner,
+      team_a: formData.team_a,
+      team_b: formData.team_b,
+      excludeMatchId: formData.id,
+      allMatches: matches,
+    });
+    setSeriesWinners(calcResult.priorWinners);
+    setSeriesHistory(calcResult.priorHistory);
     setFormData((prev) => ({
       ...prev,
       winning_team: winner,
-      score: `${red}:${blue}`,
+      score: calcResult.score,
     }));
     setFormError('');
   };
@@ -515,15 +523,17 @@ export const JournalTab: React.FC<JournalTabProps> = ({
     const prevMatch = sorted[0];
     const nextSet = (Number(prevMatch.set_number) || 1) + 1;
 
-    const sameSeriesMatches = matches
-      .filter((m) => m.date === prevMatch.date && m.ck_name.trim() === prevMatch.ck_name.trim())
-      .sort((a, b) => (Number(a.set_number) || 1) - (Number(b.set_number) || 1));
-    const prevWinners = sameSeriesMatches.map((m) => m.winning_team as 'Red' | 'Blue');
-    setSeriesWinners(prevWinners);
-
-    // Next set prefill - keep Red as default but score is based on prev + assumed Red win
-    const redWins = prevWinners.filter((w) => w === 'Red').length + 1;
-    const blueWins = prevWinners.filter((w) => w === 'Blue').length;
+    const calcResult = calculateScoreForSetInSeries({
+      date: prevMatch.date || formData.date,
+      ck_name: prevMatch.ck_name || formData.ck_name,
+      set_number: nextSet,
+      winning_team: 'Red',
+      team_a: prevMatch.team_a,
+      team_b: prevMatch.team_b,
+      allMatches: matches,
+    });
+    setSeriesWinners(calcResult.priorWinners);
+    setSeriesHistory(calcResult.priorHistory);
 
     setFormData((curr) => ({
       ...curr,
@@ -538,7 +548,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
       winning_team: 'Red',
-      score: `${redWins}:${blueWins}`,
+      score: calcResult.score,
     }));
 
     onToast(`직전 경기(${prevMatch.ck_name || 'CK'} ${prevMatch.set_number}세트)의 10인 로스터를 불러왔습니다.`);
@@ -555,18 +565,19 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       const nextBanA = [...prev.ban_b];
       const nextBanB = [...prev.ban_a];
       const nextWinner: 'Red' | 'Blue' = prev.winning_team === 'Red' ? 'Blue' : 'Red';
-      
-      // Recalculate score after swap based on same series
-      const sameSeries = matches
-        .filter((m) => m.date === prev.date && m.ck_name.trim() === prev.ck_name.trim() && m.id !== prev.id);
-      let red = 0;
-      let blue = 0;
-      for (const m of sameSeries) {
-        if (m.winning_team === 'Red') red++;
-        else blue++;
-      }
-      if (nextWinner === 'Red') red++;
-      else blue++;
+
+      const calcResult = calculateScoreForSetInSeries({
+        date: prev.date,
+        ck_name: prev.ck_name,
+        set_number: prev.set_number,
+        winning_team: nextWinner,
+        team_a: nextA,
+        team_b: nextB,
+        excludeMatchId: prev.id,
+        allMatches: matches,
+      });
+      setSeriesWinners(calcResult.priorWinners);
+      setSeriesHistory(calcResult.priorHistory);
 
       return {
         ...prev,
@@ -579,7 +590,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
         ban_a: nextBanA,
         ban_b: nextBanB,
         winning_team: nextWinner,
-        score: `${red}:${blue}`,
+        score: calcResult.score,
       };
     });
     onToast('Red팀과 Blue팀 로스터 배치가 맞교환(Swap)되었습니다.');
@@ -718,18 +729,25 @@ export const JournalTab: React.FC<JournalTabProps> = ({
         onAddMatch(matchToSave);
       }
 
-      const nextWinners = [...seriesWinners, formData.winning_team as 'Red' | 'Blue'];
-      setSeriesWinners(nextWinners);
-
       const nextSetNum = (Number(formData.set_number) || 1) + 1;
-      const redWins = nextWinners.filter((w) => w === 'Red').length + 1;
-      const blueWins = nextWinners.filter((w) => w === 'Blue').length;
+      const updatedListForCalc = [...matches.filter((m) => m.id !== matchToSave.id), matchToSave];
+      const calcResult = calculateScoreForSetInSeries({
+        date: formData.date,
+        ck_name: cleanCkName,
+        set_number: nextSetNum,
+        winning_team: 'Red',
+        team_a: formData.team_a,
+        team_b: formData.team_b,
+        allMatches: updatedListForCalc,
+      });
+      setSeriesWinners(calcResult.priorWinners);
+      setSeriesHistory(calcResult.priorHistory);
 
       setFormData((curr) => ({
         ...curr,
         id: `m_${Date.now()}`,
         set_number: nextSetNum,
-        score: `${redWins}:${blueWins}`,
+        score: calcResult.score,
         winning_team: 'Red',
         team_a_kda: { ...emptyRoster },
         team_b_kda: { ...emptyRoster },
@@ -1287,6 +1305,16 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                   </div>
 
                   <div className="flex xl:flex-col items-center justify-end gap-1.5 shrink-0 pl-1">
+                    {onOpenMatchDetail && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenMatchDetail(m)}
+                        className="p-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white rounded-lg transition border border-[#8b5cf6]/40"
+                        title="경기 세부 스펙 & AI 비전 분석 모달 열기"
+                      >
+                        <Sparkles size={13} />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleOpenEditModal(m)}
@@ -1449,7 +1477,22 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                 <input
                   type="date"
                   value={formData.date}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    const calcResult = calculateScoreForSetInSeries({
+                      date: newDate,
+                      ck_name: formData.ck_name,
+                      set_number: formData.set_number,
+                      winning_team: formData.winning_team,
+                      team_a: formData.team_a,
+                      team_b: formData.team_b,
+                      excludeMatchId: formData.id,
+                      allMatches: matches,
+                    });
+                    setSeriesWinners(calcResult.priorWinners);
+                    setSeriesHistory(calcResult.priorHistory);
+                    setFormData((prev) => ({ ...prev, date: newDate, score: calcResult.score }));
+                  }}
                   className="w-full h-[36px] bg-[#08080c] border border-[#1e1e2a] rounded-full px-4 text-[12px] text-white focus:outline-none focus:border-[#8b5cf6]/50"
                 />
               </div>
@@ -1458,7 +1501,22 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                 <label className="text-[11px] text-[#8a8aa0] mb-1 block">CK 명칭</label>
                 <input
                   value={formData.ck_name}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, ck_name: e.target.value }))}
+                  onChange={(e) => {
+                    const newCk = e.target.value;
+                    const calcResult = calculateScoreForSetInSeries({
+                      date: formData.date,
+                      ck_name: newCk,
+                      set_number: formData.set_number,
+                      winning_team: formData.winning_team,
+                      team_a: formData.team_a,
+                      team_b: formData.team_b,
+                      excludeMatchId: formData.id,
+                      allMatches: matches,
+                    });
+                    setSeriesWinners(calcResult.priorWinners);
+                    setSeriesHistory(calcResult.priorHistory);
+                    setFormData((prev) => ({ ...prev, ck_name: newCk, score: calcResult.score }));
+                  }}
                   placeholder="예: 치지직 심야 드래프트 CK"
                   className="w-full h-[36px] bg-[#08080c] border border-[#1e1e2a] rounded-full px-4 text-[12px] text-white placeholder:text-[#5a5a6a] focus:outline-none focus:border-[#8b5cf6]/50"
                 />
@@ -1488,9 +1546,26 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                 <label className="text-[11px] text-[#8a8aa0] mb-1 block">세트 번호</label>
                 <select
                   value={formData.set_number}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, set_number: parseInt(e.target.value, 10) }))
-                  }
+                  onChange={(e) => {
+                    const newSetNum = parseInt(e.target.value, 10) || 1;
+                    const calcResult = calculateScoreForSetInSeries({
+                      date: formData.date,
+                      ck_name: formData.ck_name,
+                      set_number: newSetNum,
+                      winning_team: formData.winning_team,
+                      team_a: formData.team_a,
+                      team_b: formData.team_b,
+                      excludeMatchId: formData.id,
+                      allMatches: matches,
+                    });
+                    setSeriesWinners(calcResult.priorWinners);
+                    setSeriesHistory(calcResult.priorHistory);
+                    setFormData((prev) => ({
+                      ...prev,
+                      set_number: newSetNum,
+                      score: calcResult.score,
+                    }));
+                  }}
                   disabled={formData.match_format === '단판'}
                   className={`w-full h-[36px] bg-[#08080c] border border-[#1e1e2a] rounded-full px-3 text-[12px] text-white focus:outline-none focus:border-[#8b5cf6]/50 ${
                     formData.match_format === '단판' ? 'opacity-50' : ''
@@ -1521,9 +1596,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                   <Trophy size={14} className="text-[#fbbf24]" />
                   <span>승리 팀 선택 & 세트 스코어 자동 계산</span>
                 </div>
-                {seriesWinners.length > 0 && (
+                {seriesHistory.length > 0 && (
                   <div className="text-[11px] text-[#c0c0d0] bg-[#1e1e2a] px-3 py-1 rounded-full border border-[#2a2a3a]">
-                    이전 세트: {seriesWinners.map((w, i) => `${i + 1}세트(${w === 'Red' ? '🔴RED' : '🔵BLUE'})`).join(' → ')}
+                    이전 세트: {seriesHistory.map((h) => h.label).join(' → ')}
                   </div>
                 )}
               </div>
@@ -1971,7 +2046,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                     </span>
                     {m.score && (
                       <span className="text-[10px] text-[#8a8aa0] mt-1 font-mono">
-                        세트 스코어 {m.score}
+                        세트 스코어 {correctedScoreMap.get(m.matchId) || m.score}
                       </span>
                     )}
                     <button

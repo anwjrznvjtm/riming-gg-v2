@@ -212,6 +212,7 @@ export function normalizeMatch(raw: any): Match {
     ban_b: sanitizeBans(raw?.ban_b),
     created_at: raw?.created_at || undefined,
     updated_at: raw?.updated_at || undefined,
+    details: raw?.details ? raw.details : undefined,
   };
 }
 

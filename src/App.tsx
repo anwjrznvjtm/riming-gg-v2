@@ -12,6 +12,7 @@ import {
 import { calculateStats } from './lib/stats';
 import { normalizeChampionName } from './lib/champions';
 import { normalizeMatch } from './lib/matchSchema';
+import { recalculateAllSeriesScores } from './lib/seriesScores';
 import {
   fetchAllMatchesFromApi,
   createMatchOnApi,
@@ -26,6 +27,7 @@ import { JournalTab } from './components/JournalTab';
 import { RollandTab } from './components/RollandTab';
 import { SummaryModal } from './components/SummaryModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
+import { MatchDetailModal } from './components/MatchDetailModal';
 import { BGM_PLAYLIST, BgmTrack, createBgmQueue } from './lib/bgm';
 
 declare global {
@@ -49,7 +51,7 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed.map((m) => normalizeMatch(m));
+          return recalculateAllSeriesScores(parsed.map((m) => normalizeMatch(m)));
         }
       }
     } catch (e) {
@@ -62,17 +64,26 @@ export default function App() {
   const [targetStreamer, setTargetStreamer] = useState<string | null>(null);
   const [targetMatchId, setTargetMatchId] = useState<string | null>(null);
   const [targetStreamerRole, setTargetStreamerRole] = useState<'all' | 'ally' | 'enemy'>('all');
+  const [jumpTimestamp, setJumpTimestamp] = useState<number>(0);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>('');
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
+  const [selectedDetailMatch, setSelectedDetailMatch] = useState<Match | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+
+  const handleOpenMatchDetail = useCallback((match: Match) => {
+    setSelectedDetailMatch(match);
+    setIsDetailModalOpen(true);
+  }, []);
 
   // 스트리머 또는 경기 ID 및 아군/적팀 팀 역할(Team Check)을 받아서 CK 일지 탭으로 전환하고 해당 경기 위치로 스크롤 점프
   const handleJumpToStreamer = useCallback((streamerName: string, matchId?: string, teamRole: 'all' | 'ally' | 'enemy' = 'all') => {
     setTargetStreamer(streamerName);
     setTargetMatchId(matchId || null);
     setTargetStreamerRole(teamRole);
+    setJumpTimestamp(Date.now());
     setCurrentTab('journal');
   }, []);
 
@@ -147,9 +158,10 @@ export default function App() {
     try {
       const { matches: remoteMatches, source } = await fetchAllMatchesFromApi();
       if (Array.isArray(remoteMatches)) {
-        setMatches(remoteMatches);
+        const synced = recalculateAllSeriesScores(remoteMatches);
+        setMatches(synced);
         setSyncStatus('synced');
-        console.log(`[Cloud Sync] Synchronized ${remoteMatches.length} matches from ${source}`);
+        console.log(`[Cloud Sync] Synchronized ${synced.length} matches from ${source}`);
       }
     } catch (err) {
       console.warn('[Cloud Sync] Failed to sync:', err);
@@ -453,12 +465,14 @@ export default function App() {
     return Array.from(set).filter(Boolean).sort();
   }, [matches]);
 
-  // FIXED: Match mutations - delayed sync to prevent reverting to old D1 data
+  // FIXED: Match mutations - auto-recalculate cumulative series scores to prevent number corruption
   const handleAddMatch = async (newMatch: Match) => {
     const normalized = normalizeMatch(newMatch);
-    setMatches((prev) => [normalized, ...prev]);
+    const updatedList = recalculateAllSeriesScores([normalized, ...matches]);
+    setMatches(updatedList);
+    const syncedMatch = updatedList.find((m) => String(m.id) === String(normalized.id)) || normalized;
     try {
-      const res = await createMatchOnApi(normalized);
+      const res = await createMatchOnApi(syncedMatch);
       if (res.success) {
         showToast('경기 등록 완료 (Worker 클라우드 저장 ☁)');
       } else {
@@ -472,10 +486,13 @@ export default function App() {
 
   const handleUpdateMatch = async (updatedMatch: Match) => {
     const normalized = normalizeMatch(updatedMatch);
-    const updatedList = matches.map((m) => (String(m.id) === String(normalized.id) ? normalized : m));
+    const rawUpdatedList = matches.map((m) => (String(m.id) === String(normalized.id) ? normalized : m));
+    // FIXED: Synchronize cumulative scores for the entire series so sets don't get twisted
+    const updatedList = recalculateAllSeriesScores(rawUpdatedList);
     setMatches(updatedList);
+    const syncedMatch = updatedList.find((m) => String(m.id) === String(normalized.id)) || normalized;
     try {
-      const res = await updateMatchOnApi(normalized, matches);
+      const res = await updateMatchOnApi(syncedMatch, updatedList);
       if (res.success) {
         showToast('경기 수정 완료 (Worker 클라우드 반영 ☁)');
       } else {
@@ -491,9 +508,10 @@ export default function App() {
 
   const handleDeleteMatch = async (id: string) => {
     const remaining = matches.filter((m) => String(m.id) !== String(id));
-    setMatches(remaining);
+    const syncedList = recalculateAllSeriesScores(remaining);
+    setMatches(syncedList);
     try {
-      const res = await deleteMatchOnApi(id, remaining);
+      const res = await deleteMatchOnApi(id, syncedList);
       if (res.success) {
         showToast('경기 삭제 완료 (Worker 클라우드 반영 ☁)');
       } else {
@@ -508,8 +526,9 @@ export default function App() {
   const handleImportMatches = (importedList: Match[], mode: 'replace' | 'merge') => {
     const cleanList = importedList.map((m) => normalizeMatch(m));
     if (mode === 'replace') {
-      setMatches(cleanList);
-      showToast(`전적 데이터 전체 복원 완료! (총 ${cleanList.length}경기)`);
+      const synced = recalculateAllSeriesScores(cleanList);
+      setMatches(synced);
+      showToast(`전적 데이터 전체 복원 완료! (총 ${synced.length}경기)`);
     } else {
       setMatches((prev) => {
         const existingIds = new Set(prev.map((m) => String(m.id)));
@@ -517,8 +536,9 @@ export default function App() {
         const combined = [...newOnes, ...prev].sort(
           (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
         );
+        const synced = recalculateAllSeriesScores(combined);
         showToast(`전적 데이터 병합 완료! (+${newOnes.length}경기 추가)`);
-        return combined;
+        return synced;
       });
     }
     fetch('/api/matches', {
@@ -582,12 +602,15 @@ export default function App() {
             onToast={showToast}
             allStreamers={allStreamers}
             onJumpToStreamer={handleJumpToStreamer}
+            onOpenMatchDetail={handleOpenMatchDetail}
           />
         )}
         {currentTab === 'synergy' && (
           <SynergyTab
             stats={stats}
             matches={matches}
+            allStreamers={allStreamers}
+            onToast={showToast}
             onJumpToStreamer={handleJumpToStreamer}
           />
         )}
@@ -606,7 +629,9 @@ export default function App() {
             targetStreamer={targetStreamer}
             targetMatchId={targetMatchId}
             targetStreamerRole={targetStreamerRole}
+            jumpTimestamp={jumpTimestamp}
             onJumpToStreamer={handleJumpToStreamer}
+            onOpenMatchDetail={handleOpenMatchDetail}
           />
         )}
         {currentTab === 'rolland' && (
@@ -617,6 +642,17 @@ export default function App() {
         stats={stats}
         isOpen={isSummaryModalOpen}
         onClose={() => setIsSummaryModalOpen(false)}
+      />
+      <MatchDetailModal
+        match={selectedDetailMatch}
+        isOpen={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedDetailMatch(null);
+        }}
+        onSaveMatch={handleUpdateMatch}
+        onToast={showToast}
+        allChampions={allChampions}
       />
       <AdminLoginModal
         isOpen={isAdminModalOpen}
