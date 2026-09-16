@@ -210,9 +210,14 @@ export function normalizeMatch(raw: any): Match {
     team_b_kda: sanitizeRoster(raw?.team_b_kda),
     ban_a: sanitizeBans(raw?.ban_a),
     ban_b: sanitizeBans(raw?.ban_b),
+    game_duration: typeof raw?.game_duration === 'string' ? raw.game_duration : undefined,
+    team_a_detail: raw?.team_a_detail || undefined,
+    team_b_detail: raw?.team_b_detail || undefined,
+    red_screenshot: typeof raw?.red_screenshot === 'string' ? raw.red_screenshot : undefined,
+    blue_screenshot: typeof raw?.blue_screenshot === 'string' ? raw.blue_screenshot : undefined,
+    extracted_data: raw?.extracted_data || undefined,
     created_at: raw?.created_at || undefined,
     updated_at: raw?.updated_at || undefined,
-    details: raw?.details ? raw.details : undefined,
   };
 }
 

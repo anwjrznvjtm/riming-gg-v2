@@ -62,11 +62,60 @@ function aistudioMediaPlugin(): Plugin {
     },
   };
 }
+
+function aiVisionApiPlugin(): Plugin {
+  return {
+    name: 'vite-plugin-ai-vision-api',
+    configureServer(server) {
+      server.middlewares.use('/api/analyze-screenshot', async (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+          return;
+        }
+
+        try {
+          const chunks: any[] = [];
+          for await (const chunk of req) {
+            chunks.push(chunk);
+          }
+          const raw = Buffer.concat(chunks).toString('utf-8');
+          const body = JSON.parse(raw);
+          const { image, team, fileName } = body || {};
+
+          if (!image) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: '이미지 데이터(base64)가 필요합니다.' }));
+            return;
+          }
+
+          const { analyzeScreenshotWithGemini } = await import('./server/geminiVision');
+          const result = await analyzeScreenshotWithGemini({
+            imageBase64: image,
+            teamTarget: team,
+            fileName,
+          });
+
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: any) {
+          console.error('[API Error] Screenshot analysis failed:', err);
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: err?.message || '스크린샷 분석 중 오류가 발생했습니다.' }));
+        }
+      });
+    },
+  };
+}
 // LINT.ThenChange(//depot/google3/java/com/google/alkali/boq/makersuite/applet_dev_service/templates/initializers/react_theme/vite.config.ts:aistudio_media_plugin)
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), aistudioMediaPlugin()],
+    plugins: [react(), tailwindcss(), aistudioMediaPlugin(), aiVisionApiPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -18,44 +18,36 @@ export type TeamRoster = Record<LineKey, string>;
 export type TeamChamps = Record<LineKey, string>;
 export type TeamKda = Record<LineKey, string>;
 
-export interface PlayerDetailedSpec {
-  name: string;
+export interface PlayerGameDetail {
+  player: string;
+  champion: string;
   line: LineKey;
-  champ: string;
-  kda: string; // e.g. "8/2/11"
-  kills?: number;
-  deaths?: number;
-  assists?: number;
-  damage?: number; // e.g. 28450
-  damageShare?: number; // % e.g. 32.5
-  cs?: number; // e.g. 240
-  csPerMin?: number; // e.g. 8.4
-  gold?: number; // e.g. 14200
-  items?: string[]; // e.g. ["도란의 검", "무한의 대검", "크라켄 학살자", "고속 연사포", "광전사의 군화", "수호 천사", "망원 개조"]
-  runes?: {
-    primary?: string; // e.g. "치명적 속도"
-    secondary?: string; // e.g. "영감"
-    all?: string[];
+  kills: number;
+  deaths: number;
+  assists: number;
+  kda: string;
+  damage_dealt: number; // 딜량 (총 챔피언 피해량)
+  gold_per_minute: number; // 분당 골드
+  runes: string[]; // 특성 (이미지 원본 명칭 그대로 저장)
+  spells: string[]; // 스펠 (이미지 원본 명칭 그대로 저장)
+  items: string[]; // 아이템 (이미지 원본 명칭 그대로 저장)
+}
+
+export interface TeamGameDetail {
+  team_kda: string; // 팀 KDA
+  global_gold: string | number; // 글로벌 골드
+  players: Record<LineKey, PlayerGameDetail>;
+}
+
+export interface MatchExtractedData {
+  game_duration?: string; // 경기 시간 (예: "32:15")
+  winning_team?: WinningTeam;
+  red_team?: TeamGameDetail;
+  blue_team?: TeamGameDetail;
+  screenshots?: {
+    red?: string;
+    blue?: string;
   };
-  spells?: string[]; // e.g. ["점멸", "정화"]
-}
-
-export interface TeamDetailedSpec {
-  teamName?: string;
-  teamKda: string; // e.g. "32/18/65"
-  globalGold: number | string; // e.g. "64.2k" or 64200
-  towerKills?: number;
-  dragonKills?: number;
-  baronKills?: number;
-  players: Record<LineKey, PlayerDetailedSpec>;
-}
-
-export interface MatchDetailedStats {
-  gameDuration?: string; // e.g. "31:42"
-  blueTeam: TeamDetailedSpec;
-  redTeam: TeamDetailedSpec;
-  screenshotUrl?: string;
-  analyzedAt?: string;
 }
 
 export interface Match {
@@ -74,9 +66,14 @@ export interface Match {
   winning_team: WinningTeam;
   match_format: MatchFormat;
   set_number: number;
+  game_duration?: string; // 경기시간 (원본 명칭/텍스트)
+  team_a_detail?: TeamGameDetail; // Red팀 상세 통계 (딜량, 분당골드, 특성, 스펠, 아이템, 팀KDA, 글로벌골드)
+  team_b_detail?: TeamGameDetail; // Blue팀 상세 통계
+  red_screenshot?: string; // 첨부된 Red팀 결과 스크린샷 이미지
+  blue_screenshot?: string; // 첨부된 Blue팀 결과 스크린샷 이미지
+  extracted_data?: MatchExtractedData; // AI 비전 추출 원본 데이터 보존
   created_at?: string; // ISO 8601 string for DB/REST synchronization
   updated_at?: string; // ISO 8601 string for DB/REST synchronization
-  details?: MatchDetailedStats;
 }
 
 export interface ChampionStat {

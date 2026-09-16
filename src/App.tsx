@@ -27,7 +27,6 @@ import { JournalTab } from './components/JournalTab';
 import { RollandTab } from './components/RollandTab';
 import { SummaryModal } from './components/SummaryModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
-import { MatchDetailModal } from './components/MatchDetailModal';
 import { BGM_PLAYLIST, BgmTrack, createBgmQueue } from './lib/bgm';
 
 declare global {
@@ -69,14 +68,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string>('');
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
-  const [selectedDetailMatch, setSelectedDetailMatch] = useState<Match | null>(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
-
-  const handleOpenMatchDetail = useCallback((match: Match) => {
-    setSelectedDetailMatch(match);
-    setIsDetailModalOpen(true);
-  }, []);
 
   // 스트리머 또는 경기 ID 및 아군/적팀 팀 역할(Team Check)을 받아서 CK 일지 탭으로 전환하고 해당 경기 위치로 스크롤 점프
   const handleJumpToStreamer = useCallback((streamerName: string, matchId?: string, teamRole: 'all' | 'ally' | 'enemy' = 'all') => {
@@ -602,7 +594,6 @@ export default function App() {
             onToast={showToast}
             allStreamers={allStreamers}
             onJumpToStreamer={handleJumpToStreamer}
-            onOpenMatchDetail={handleOpenMatchDetail}
           />
         )}
         {currentTab === 'synergy' && (
@@ -631,7 +622,6 @@ export default function App() {
             targetStreamerRole={targetStreamerRole}
             jumpTimestamp={jumpTimestamp}
             onJumpToStreamer={handleJumpToStreamer}
-            onOpenMatchDetail={handleOpenMatchDetail}
           />
         )}
         {currentTab === 'rolland' && (
@@ -642,17 +632,6 @@ export default function App() {
         stats={stats}
         isOpen={isSummaryModalOpen}
         onClose={() => setIsSummaryModalOpen(false)}
-      />
-      <MatchDetailModal
-        match={selectedDetailMatch}
-        isOpen={isDetailModalOpen}
-        onClose={() => {
-          setIsDetailModalOpen(false);
-          setSelectedDetailMatch(null);
-        }}
-        onSaveMatch={handleUpdateMatch}
-        onToast={showToast}
-        allChampions={allChampions}
       />
       <AdminLoginModal
         isOpen={isAdminModalOpen}

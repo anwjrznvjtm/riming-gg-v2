@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Match, LineKey, MatchFormat, WinningTeam, LINE_KEYS, LINE_LABELS } from '../types';
+import { Match, LineKey, MatchFormat, WinningTeam, LINE_KEYS, LINE_LABELS, PlayerGameDetail, TeamGameDetail } from '../types';
 import {
   ComputedStats,
   OpponentStat,
@@ -14,6 +14,7 @@ import { StreamerAvatar } from './StreamerAvatar';
 import { parseKdaString, normalizeChampionName, SOOP_POPULAR_STREAMERS } from '../lib/champions';
 import { PASSCODE } from '../data/initialMatches';
 import { calculateMatchSeriesScores, calculateScoreForSetInSeries, sortMatchesDescending } from '../lib/seriesScores';
+import { ScreenshotUploadSection } from './ScreenshotUploadSection';
 import {
   Plus,
   Search,
@@ -145,7 +146,6 @@ interface JournalTabProps {
   targetStreamerRole?: 'all' | 'ally' | 'enemy' | null;
   jumpTimestamp?: number;
   onJumpToStreamer?: (streamerName: string, matchId?: string, teamRole?: 'all' | 'ally' | 'enemy') => void;
-  onOpenMatchDetail?: (match: Match) => void;
 }
 
 export const JournalTab: React.FC<JournalTabProps> = ({
@@ -165,7 +165,6 @@ export const JournalTab: React.FC<JournalTabProps> = ({
   targetStreamerRole,
   jumpTimestamp,
   onJumpToStreamer,
-  onOpenMatchDetail,
 }) => {
   const [filterDate, setFilterDate] = useState('');
   const [filterName, setFilterName] = useState('');
@@ -199,6 +198,12 @@ export const JournalTab: React.FC<JournalTabProps> = ({
     winning_team: 'Red',
     match_format: '3판2선승',
     set_number: 1,
+    game_duration: '31:40',
+    team_a_detail: undefined,
+    team_b_detail: undefined,
+    red_screenshot: undefined,
+    blue_screenshot: undefined,
+    extracted_data: undefined,
   });
 
   const [formPasscode, setFormPasscode] = useState('');
@@ -446,6 +451,12 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       winning_team: 'Red',
       match_format: '3판2선승',
       set_number: 1,
+      game_duration: '31:40',
+      team_a_detail: undefined,
+      team_b_detail: undefined,
+      red_screenshot: undefined,
+      blue_screenshot: undefined,
+      extracted_data: undefined,
     });
     setSeriesWinners(initialScoreResult.priorWinners);
     setSeriesHistory(initialScoreResult.priorHistory);
@@ -477,6 +488,12 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       ban_b: [...m.ban_b],
       team_a_kda: { ...m.team_a_kda },
       team_b_kda: { ...m.team_b_kda },
+      game_duration: m.game_duration || '31:40',
+      team_a_detail: m.team_a_detail,
+      team_b_detail: m.team_b_detail,
+      red_screenshot: m.red_screenshot,
+      blue_screenshot: m.blue_screenshot,
+      extracted_data: m.extracted_data,
     });
     setSeriesWinners(calcResult.priorWinners);
     setSeriesHistory(calcResult.priorHistory);
@@ -681,9 +698,42 @@ export const JournalTab: React.FC<JournalTabProps> = ({
     const cleanCkName =
       formData.ck_name.trim() || `${formData.date} CK 경기 (${formData.winning_team}팀 승)`;
 
+    // Ensure team_a_detail and team_b_detail player keys match the exact streamer names in team_a and team_b
+    let sanitizedTeamADetail = formData.team_a_detail;
+    if (sanitizedTeamADetail?.players) {
+      const updatedPlayers = { ...sanitizedTeamADetail.players };
+      for (const lk of LINE_KEYS) {
+        if (updatedPlayers[lk]) {
+          updatedPlayers[lk] = {
+            ...updatedPlayers[lk],
+            player: formData.team_a[lk] || updatedPlayers[lk].player,
+            line: lk,
+          };
+        }
+      }
+      sanitizedTeamADetail = { ...sanitizedTeamADetail, players: updatedPlayers };
+    }
+
+    let sanitizedTeamBDetail = formData.team_b_detail;
+    if (sanitizedTeamBDetail?.players) {
+      const updatedPlayers = { ...sanitizedTeamBDetail.players };
+      for (const lk of LINE_KEYS) {
+        if (updatedPlayers[lk]) {
+          updatedPlayers[lk] = {
+            ...updatedPlayers[lk],
+            player: formData.team_b[lk] || updatedPlayers[lk].player,
+            line: lk,
+          };
+        }
+      }
+      sanitizedTeamBDetail = { ...sanitizedTeamBDetail, players: updatedPlayers };
+    }
+
     const matchToSave: Match = {
       ...formData,
       ck_name: cleanCkName,
+      team_a_detail: sanitizedTeamADetail,
+      team_b_detail: sanitizedTeamBDetail,
     };
 
     try {
@@ -717,9 +767,42 @@ export const JournalTab: React.FC<JournalTabProps> = ({
 
     const cleanCkName = formData.ck_name.trim() || `${formData.date} CK 경기`;
 
+    // Ensure team_a_detail and team_b_detail player keys match the exact streamer names in team_a and team_b
+    let sanitizedTeamADetail = formData.team_a_detail;
+    if (sanitizedTeamADetail?.players) {
+      const updatedPlayers = { ...sanitizedTeamADetail.players };
+      for (const lk of LINE_KEYS) {
+        if (updatedPlayers[lk]) {
+          updatedPlayers[lk] = {
+            ...updatedPlayers[lk],
+            player: formData.team_a[lk] || updatedPlayers[lk].player,
+            line: lk,
+          };
+        }
+      }
+      sanitizedTeamADetail = { ...sanitizedTeamADetail, players: updatedPlayers };
+    }
+
+    let sanitizedTeamBDetail = formData.team_b_detail;
+    if (sanitizedTeamBDetail?.players) {
+      const updatedPlayers = { ...sanitizedTeamBDetail.players };
+      for (const lk of LINE_KEYS) {
+        if (updatedPlayers[lk]) {
+          updatedPlayers[lk] = {
+            ...updatedPlayers[lk],
+            player: formData.team_b[lk] || updatedPlayers[lk].player,
+            line: lk,
+          };
+        }
+      }
+      sanitizedTeamBDetail = { ...sanitizedTeamBDetail, players: updatedPlayers };
+    }
+
     const matchToSave: Match = {
       ...formData,
       ck_name: cleanCkName,
+      team_a_detail: sanitizedTeamADetail,
+      team_b_detail: sanitizedTeamBDetail,
     };
 
     try {
@@ -1305,16 +1388,6 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                   </div>
 
                   <div className="flex xl:flex-col items-center justify-end gap-1.5 shrink-0 pl-1">
-                    {onOpenMatchDetail && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenMatchDetail(m)}
-                        className="p-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white rounded-lg transition border border-[#8b5cf6]/40"
-                        title="경기 세부 스펙 & AI 비전 분석 모달 열기"
-                      >
-                        <Sparkles size={13} />
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={() => handleOpenEditModal(m)}
@@ -1447,6 +1520,117 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                 <span>🔒 관리자 인증 완료 (패스코드 입력 불필요)</span>
               </div>
             )}
+
+            {/* 📸 스크린샷 업로드 영역 (UI) 및 AI 비전 자동 입력 (1·2·3단계 구현) */}
+            <ScreenshotUploadSection
+              redScreenshot={formData.red_screenshot}
+              blueScreenshot={formData.blue_screenshot}
+              onRedScreenshotChange={(dataUrl) =>
+                setFormData((prev) => ({ ...prev, red_screenshot: dataUrl }))
+              }
+              onBlueScreenshotChange={(dataUrl) =>
+                setFormData((prev) => ({ ...prev, blue_screenshot: dataUrl }))
+              }
+              gameDuration={formData.game_duration}
+              onGameDurationChange={(dur) =>
+                setFormData((prev) => ({ ...prev, game_duration: dur }))
+              }
+              teamADetail={formData.team_a_detail}
+              teamBDetail={formData.team_b_detail}
+              onTeamADetailChange={(detail) =>
+                setFormData((prev) => ({ ...prev, team_a_detail: detail }))
+              }
+              onTeamBDetailChange={(detail) =>
+                setFormData((prev) => ({ ...prev, team_b_detail: detail }))
+              }
+              onApplyAiExtraction={(extracted, notice) => {
+                setFormData((prev) => {
+                  // [CK 일지] 핵심 원칙: 기존 '스트리머명'은 절대 변경하지 않고 기준 키로 고정 보존!
+                  // 스크린샷에서 추출된 라인별(TOP, JGL, MID, ADC, SUP) 실적(챔피언, KDA, 딜량, 분당골드, 룬, 스펠, 아이템)만 1:1 매칭
+                  const newAChamps = { ...prev.team_a_champs };
+                  const newBChamps = { ...prev.team_b_champs };
+                  const newAKda = { ...prev.team_a_kda };
+                  const newBKda = { ...prev.team_b_kda };
+
+                  const newTeamAPlayers: Record<LineKey, PlayerGameDetail> = {} as any;
+                  const newTeamBPlayers: Record<LineKey, PlayerGameDetail> = {} as any;
+
+                  for (const l of LINE_KEYS) {
+                    const streamerA = prev.team_a[l];
+                    const extractedA = extracted.red_team?.players?.[l];
+                    if (extractedA?.champion) newAChamps[l] = extractedA.champion;
+                    if (extractedA?.kda) newAKda[l] = extractedA.kda;
+
+                    if (extractedA) {
+                      newTeamAPlayers[l] = {
+                        ...extractedA,
+                        player: streamerA || extractedA.player, // 기존 스트리머명 절대 유지
+                        line: l,
+                      };
+                    } else if (prev.team_a_detail?.players?.[l]) {
+                      newTeamAPlayers[l] = {
+                        ...prev.team_a_detail.players[l],
+                        player: streamerA || prev.team_a_detail.players[l].player,
+                      };
+                    }
+
+                    const streamerB = prev.team_b[l];
+                    const extractedB = extracted.blue_team?.players?.[l];
+                    if (extractedB?.champion) newBChamps[l] = extractedB.champion;
+                    if (extractedB?.kda) newBKda[l] = extractedB.kda;
+
+                    if (extractedB) {
+                      newTeamBPlayers[l] = {
+                        ...extractedB,
+                        player: streamerB || extractedB.player, // 기존 스트리머명 절대 유지
+                        line: l,
+                      };
+                    } else if (prev.team_b_detail?.players?.[l]) {
+                      newTeamBPlayers[l] = {
+                        ...prev.team_b_detail.players[l],
+                        player: streamerB || prev.team_b_detail.players[l].player,
+                      };
+                    }
+                  }
+
+                  const newTeamADetail: TeamGameDetail = {
+                    team_kda: extracted.red_team?.team_kda || prev.team_a_detail?.team_kda || '',
+                    global_gold: extracted.red_team?.global_gold || prev.team_a_detail?.global_gold || '',
+                    players: newTeamAPlayers,
+                  };
+
+                  const newTeamBDetail: TeamGameDetail = {
+                    team_kda: extracted.blue_team?.team_kda || prev.team_b_detail?.team_kda || '',
+                    global_gold: extracted.blue_team?.global_gold || prev.team_b_detail?.global_gold || '',
+                    players: newTeamBPlayers,
+                  };
+
+                  return {
+                    ...prev,
+                    // prev.team_a 및 prev.team_b(스트리머명)는 변경 없이 그대로 유지
+                    team_a_champs: newAChamps,
+                    team_b_champs: newBChamps,
+                    team_a_kda: newAKda,
+                    team_b_kda: newBKda,
+                    game_duration: extracted.game_duration || prev.game_duration,
+                    winning_team: extracted.winning_team || prev.winning_team,
+                    team_a_detail: newTeamADetail,
+                    team_b_detail: newTeamBDetail,
+                    extracted_data: {
+                      ...extracted,
+                      red_team: newTeamADetail,
+                      blue_team: newTeamBDetail,
+                    },
+                  };
+                });
+                if (notice) {
+                  onToast(notice);
+                }
+              }}
+              onToast={onToast}
+              currentTeamA={formData.team_a}
+              currentTeamB={formData.team_b}
+            />
 
             <div className="mb-4 p-3 bg-[#0a0a12] border border-[#1e1e2a] rounded-[14px] flex flex-wrap items-center justify-between gap-2.5">
               <div className="flex items-center gap-2">
