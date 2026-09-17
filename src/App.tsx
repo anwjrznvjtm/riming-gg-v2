@@ -23,7 +23,6 @@ import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { MainTab } from './components/MainTab';
 import { SynergyTab } from './components/SynergyTab';
-import { JournalTab } from './components/JournalTab';
 import { RollandTab } from './components/RollandTab';
 import { SummaryModal } from './components/SummaryModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
@@ -70,13 +69,13 @@ export default function App() {
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
-  // 스트리머 또는 경기 ID 및 아군/적팀 팀 역할(Team Check)을 받아서 CK 일지 탭으로 전환하고 해당 경기 위치로 스크롤 점프
+  // 스트리머 또는 경기 ID 및 아군/적팀 팀 역할을 받아서 메인(CK 일지)으로 전환하고 해당 경기 위치로 스크롤 점프
   const handleJumpToStreamer = useCallback((streamerName: string, matchId?: string, teamRole: 'all' | 'ally' | 'enemy' = 'all') => {
     setTargetStreamer(streamerName);
     setTargetMatchId(matchId || null);
     setTargetStreamerRole(teamRole);
     setJumpTimestamp(Date.now());
-    setCurrentTab('journal');
+    setCurrentTab('main');
   }, []);
 
   const [isBgmPlaying, setIsBgmPlaying] = useState<boolean>(false);
@@ -585,15 +584,25 @@ export default function App() {
         bgmVolume={bgmVolume}
         onChangeVolume={handleVolumeChange}
       />
-      <main className="max-w-[1100px] w-full mx-auto px-4 md:px-6 py-6 md:py-10 flex-1">
-        {currentTab === 'main' && (
+      <main className="max-w-[1280px] w-full mx-auto px-3 sm:px-4 md:px-6 py-4 md:py-8 flex-1">
+        {(currentTab === 'main' || currentTab === 'journal') && (
           <MainTab
             stats={stats}
             matches={matches}
             onOpenSummaryModal={() => setIsSummaryModalOpen(true)}
             onToast={showToast}
             allStreamers={allStreamers}
+            allChampions={allChampions}
             onJumpToStreamer={handleJumpToStreamer}
+            onAddMatch={handleAddMatch}
+            onUpdateMatch={handleUpdateMatch}
+            onDeleteMatch={handleDeleteMatch}
+            isAdmin={isAdmin}
+            onAdminLoginSuccess={handleAdminLoginSuccess}
+            targetStreamer={targetStreamer || undefined}
+            targetMatchId={targetMatchId || undefined}
+            targetStreamerRole={targetStreamerRole}
+            jumpTimestamp={jumpTimestamp}
           />
         )}
         {currentTab === 'synergy' && (
@@ -602,25 +611,6 @@ export default function App() {
             matches={matches}
             allStreamers={allStreamers}
             onToast={showToast}
-            onJumpToStreamer={handleJumpToStreamer}
-          />
-        )}
-        {currentTab === 'journal' && (
-          <JournalTab
-            stats={stats}
-            matches={matches}
-            onAddMatch={handleAddMatch}
-            onUpdateMatch={handleUpdateMatch}
-            onDeleteMatch={handleDeleteMatch}
-            isAdmin={isAdmin}
-            onAdminLoginSuccess={handleAdminLoginSuccess}
-            onToast={showToast}
-            allStreamers={allStreamers}
-            allChampions={allChampions}
-            targetStreamer={targetStreamer}
-            targetMatchId={targetMatchId}
-            targetStreamerRole={targetStreamerRole}
-            jumpTimestamp={jumpTimestamp}
             onJumpToStreamer={handleJumpToStreamer}
           />
         )}

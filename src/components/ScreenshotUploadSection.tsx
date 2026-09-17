@@ -102,6 +102,7 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
   currentTeamB,
 }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showDetailInspector, setShowDetailInspector] = useState(false);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
 
@@ -145,6 +146,7 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
     }
 
     setIsAnalyzing(true);
+    setErrorMessage(null);
     try {
       const res = await fetch('/api/analyze-screenshot', {
         method: 'POST',
@@ -199,7 +201,9 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
       onToast('🤖 AI 비전 분석 완료! 기존 스트리머명을 기준 키로 삼아 딜량, 분당골드, 아이템이 1:1 매칭되었습니다.');
     } catch (err: any) {
       console.error('AI Vision error:', err);
-      onToast(`분석 실패: ${err?.message || '네트워크 오류가 발생했습니다.'}`);
+      const msg = err?.message || '네트워크 오류가 발생했습니다.';
+      setErrorMessage(msg);
+      onToast(`분석 실패: ${msg}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -240,11 +244,11 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
             <h4 className="text-[13px] font-bold text-white flex items-center gap-1.5">
               <span>게임 결과 스크린샷 첨부 & AI 비전 자동 입력</span>
               <span className="text-[9px] bg-[#8b5cf6]/20 text-[#c4b5fd] border border-[#8b5cf6]/30 px-1.5 py-0.5 rounded-full font-bold">
-                스트리머명 기준 키 1:1 매칭
+                스트리머명·챔피언 절대 락(Lock) · 1~5행 직진 매칭
               </span>
             </h4>
             <p className="text-[10px] text-[#8a8aa0]">
-              [CK 일지]에 입력된 '스트리머명'은 그대로 유지되며, 스크린샷 라인별 KDA·딜량·분당골드·룬·스펠·아이템이 1:1 실적으로 자동 매칭됩니다.
+              기존 입력된 '스트리머명'과 '챔피언'은 절대 수정되지 않으며, 스크린샷 위에서 아래로(1행=TOP ~ 5행=SUP) 순서대로 KDA·딜량·분당골드·특성·스펠·아이템만 1:1 직진 복사됩니다.
             </p>
           </div>
         </div>
@@ -275,6 +279,38 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
           )}
         </button>
       </div>
+
+      {/* Error / Quota exhausted banner */}
+      {errorMessage && (
+        <div className="mb-3 p-3 bg-red-950/40 border border-red-500/40 rounded-xl flex items-start gap-2.5 text-[11px] text-red-200">
+          <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-bold text-red-300 mb-0.5">AI 분석 오류 안내</div>
+            <div>{errorMessage}</div>
+            {errorMessage.includes('선불 크레딧') || errorMessage.includes('소진') ? (
+              <div className="mt-1 text-[10px] text-red-300/80">
+                💡 <span className="font-semibold text-white">해결 방법:</span> Gemini API의 선불 크레딧(Prepayment credits)이 소진되었습니다.{' '}
+                <a
+                  href="https://ai.studio/projects"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-indigo-400 underline hover:text-indigo-300 font-semibold inline-flex items-center gap-0.5 ml-1"
+                >
+                  AI Studio 프로젝트 설정
+                </a>{' '}
+                또는 Google Cloud 콘솔 결제 계정에서 크레딧을 추가하시거나 수동으로 지표를 입력/수정하실 수 있습니다.
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="text-red-400 hover:text-white text-xs p-1"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* 1단계 요청: 스크린샷 업로드 영역 (UI) - Red팀과 Blue팀 각각 게임 결과 스크린샷 첨부 영역 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">

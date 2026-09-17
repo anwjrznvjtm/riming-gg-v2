@@ -121,6 +121,21 @@ export function recalculateAllSeriesScores(matches: Match[]): Match[] {
   return calculateMatchSeriesScores(matches).updatedMatches;
 }
 
+/**
+ * Gets the cumulative series score string (e.g. "1:0", "2:1") for a given match.
+ */
+export function getSeriesCumulativeScore(match: Match, allMatches?: Match[]): string {
+  if (match.score && /^\d+:\d+$/.test(match.score)) {
+    return match.score;
+  }
+  if (allMatches && allMatches.length > 0) {
+    const res = calculateMatchSeriesScores(allMatches);
+    const calculated = res.scoreMap.get(match.id);
+    if (calculated) return calculated;
+  }
+  return match.score || '1:0';
+}
+
 export interface SetScoreCalculationParams {
   date: string;
   ck_name: string;

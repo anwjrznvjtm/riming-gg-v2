@@ -1453,8 +1453,8 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       </div>
 
       {isChampsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-[fadeIn_0.15s]">
-          <div className="w-full max-w-[520px] bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-6 max-h-[80vh] overflow-y-auto shadow-2xl">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]">
+          <div className="relative z-[10000] w-full max-w-[520px] bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-6 max-h-[80vh] overflow-y-auto shadow-2xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-[16px] text-white">우리밍_ 전체 챔피언 픽 통계</h3>
               <button
@@ -1495,8 +1495,8 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       )}
 
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto bg-black/70 backdrop-blur-sm animate-[fadeIn_0.15s]">
-          <div className="w-full max-w-[850px] bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-6 my-8 shadow-2xl">
+        <div className="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]">
+          <div className="relative z-[10000] w-full max-w-[850px] bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-6 my-8 shadow-2xl">
             <div className="flex justify-between items-center mb-3">
               <div className="flex items-center gap-2.5">
                 <h3 className="font-bold text-[16px] text-white">
@@ -1545,8 +1545,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
               }
               onApplyAiExtraction={(extracted, notice) => {
                 setFormData((prev) => {
-                  // [CK 일지] 핵심 원칙: 기존 '스트리머명'은 절대 변경하지 않고 기준 키로 고정 보존!
-                  // 스크린샷에서 추출된 라인별(TOP, JGL, MID, ADC, SUP) 실적(챔피언, KDA, 딜량, 분당골드, 룬, 스펠, 아이템)만 1:1 매칭
+                  // [CK 일지] 절대 보존 영역 (수정 금지):
+                  // 폼에 이미 입력되어 있는 '스트리머명'과 '챔피언' 값은 어떠한 경우에도 AI가 건드리거나 덮어씌우지 않도록 완전히 락(Lock)
+                  // 오직 포지션 순서(위에서 아래로 1~5행: TOP, JGL, MID, ADC, SUP)대로만 통계 수치(KDA, 딜량, 분당골드, 특성, 스펠, 아이템) 1:1 직진 복사
                   const newAChamps = { ...prev.team_a_champs };
                   const newBChamps = { ...prev.team_b_champs };
                   const newAKda = { ...prev.team_a_kda };
@@ -1556,39 +1557,59 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                   const newTeamBPlayers: Record<LineKey, PlayerGameDetail> = {} as any;
 
                   for (const l of LINE_KEYS) {
-                    const streamerA = prev.team_a[l];
+                    // 1. 기존 스트리머명 및 기존 챔피언 값 보존 (락 처리)
+                    const lockedStreamerA = prev.team_a[l];
+                    const lockedChampA = prev.team_a_champs[l];
                     const extractedA = extracted.red_team?.players?.[l];
-                    if (extractedA?.champion) newAChamps[l] = extractedA.champion;
-                    if (extractedA?.kda) newAKda[l] = extractedA.kda;
+                    
+                    // 챔피언은 기존 폼에 값이 비어있을 때만 채우고 이미 입력된 값은 절대 덮어쓰지 않음
+                    if (!lockedChampA && extractedA?.champion) {
+                      newAChamps[l] = extractedA.champion;
+                    }
+                    if (extractedA?.kda) {
+                      newAKda[l] = extractedA.kda;
+                    }
 
                     if (extractedA) {
                       newTeamAPlayers[l] = {
                         ...extractedA,
-                        player: streamerA || extractedA.player, // 기존 스트리머명 절대 유지
+                        player: lockedStreamerA || extractedA.player, // 기존 스트리머명 락(Lock)
+                        champion: lockedChampA || extractedA.champion, // 기존 챔피언 락(Lock)
                         line: l,
                       };
                     } else if (prev.team_a_detail?.players?.[l]) {
                       newTeamAPlayers[l] = {
                         ...prev.team_a_detail.players[l],
-                        player: streamerA || prev.team_a_detail.players[l].player,
+                        player: lockedStreamerA || prev.team_a_detail.players[l].player,
+                        champion: lockedChampA || prev.team_a_detail.players[l].champion,
                       };
                     }
 
-                    const streamerB = prev.team_b[l];
+                    // 2. 블루팀 기존 스트리머명 및 챔피언 값 보존 (락 처리)
+                    const lockedStreamerB = prev.team_b[l];
+                    const lockedChampB = prev.team_b_champs[l];
                     const extractedB = extracted.blue_team?.players?.[l];
-                    if (extractedB?.champion) newBChamps[l] = extractedB.champion;
-                    if (extractedB?.kda) newBKda[l] = extractedB.kda;
+
+                    // 챔피언은 기존 폼에 값이 비어있을 때만 채우고 이미 입력된 값은 절대 덮어쓰지 않음
+                    if (!lockedChampB && extractedB?.champion) {
+                      newBChamps[l] = extractedB.champion;
+                    }
+                    if (extractedB?.kda) {
+                      newBKda[l] = extractedB.kda;
+                    }
 
                     if (extractedB) {
                       newTeamBPlayers[l] = {
                         ...extractedB,
-                        player: streamerB || extractedB.player, // 기존 스트리머명 절대 유지
+                        player: lockedStreamerB || extractedB.player, // 기존 스트리머명 락(Lock)
+                        champion: lockedChampB || extractedB.champion, // 기존 챔피언 락(Lock)
                         line: l,
                       };
                     } else if (prev.team_b_detail?.players?.[l]) {
                       newTeamBPlayers[l] = {
                         ...prev.team_b_detail.players[l],
-                        player: streamerB || prev.team_b_detail.players[l].player,
+                        player: lockedStreamerB || prev.team_b_detail.players[l].player,
+                        champion: lockedChampB || prev.team_b_detail.players[l].champion,
                       };
                     }
                   }
@@ -1607,7 +1628,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
 
                   return {
                     ...prev,
-                    // prev.team_a 및 prev.team_b(스트리머명)는 변경 없이 그대로 유지
+                    // prev.team_a 및 prev.team_b(스트리머명)는 변경 없이 그대로 완전 보존
                     team_a_champs: newAChamps,
                     team_b_champs: newBChamps,
                     team_a_kda: newAKda,
@@ -2266,8 +2287,8 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       )}
 
       {deleteTargetId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-[fadeIn_0.15s]">
-          <div className="w-full max-w-[360px] bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]">
+          <div className="relative z-[10000] w-full max-w-[360px] bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-6 shadow-2xl">
             <div className="flex justify-between items-center mb-3">
               <h4 className="font-bold text-[14px] text-white flex items-center gap-1.5">
                 <ShieldAlert size={16} className="text-[#ef4444]" />

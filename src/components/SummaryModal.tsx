@@ -13,11 +13,11 @@ export const SummaryModal: React.FC<SummaryModalProps> = ({ stats, isOpen, onClo
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-[fadeIn_0.15s]"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[420px] bg-[#12121a] border border-[#1e1e2a] rounded-[24px] p-6 shadow-2xl"
+        className="relative z-[10000] w-full max-w-[420px] bg-[#12121a] border border-[#1e1e2a] rounded-[24px] p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-start mb-5">

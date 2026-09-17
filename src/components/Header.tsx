@@ -46,13 +46,12 @@ export const Header: React.FC<HeaderProps> = ({
   const tabs = [
     { id: 'main', label: '메인' },
     { id: 'synergy', label: '시너지' },
-    { id: 'journal', label: 'CK 일지' },
     { id: 'rolland', label: '롤랜드' },
   ];
 
   return (
     <header className="sticky top-0 z-40 bg-[#08080c]/95 backdrop-blur-xl border-b border-[#1e1e2a]">
-      <div className="max-w-[1100px] mx-auto px-3 md:px-6 py-2.5 md:py-0 md:h-[56px] flex flex-col md:flex-row md:items-center justify-between gap-2.5 md:gap-3">
+      <div className="max-w-[1280px] mx-auto px-3 md:px-6 py-2.5 md:py-0 md:h-[56px] flex flex-col md:flex-row md:items-center justify-between gap-2.5 md:gap-3">
         
         {/* 첫 줄: 로고 + 메뉴 탭 (모바일에서도 항상 보임) */}
         <div className="flex items-center gap-2.5 w-full md:w-auto min-w-0">
