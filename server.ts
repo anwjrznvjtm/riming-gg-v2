@@ -19,7 +19,7 @@ async function startServer() {
     try {
       const { image, team, fileName, teamAStreamers, teamBStreamers } = req.body || {};
       if (!image) {
-        return res.status(400).json({ error: '이미지 데이터(base64)가 필요합니다.' });
+        return res.status(400).json({ success: false, error: '이미지 데이터(base64)가 필요합니다.' });
       }
 
       const result = await analyzeScreenshotWithGemini({
@@ -32,8 +32,21 @@ async function startServer() {
 
       return res.json(result);
     } catch (err: any) {
-      console.error('API Error /api/analyze-screenshot:', err);
-      return res.status(500).json({ error: err?.message || '분석 중 오류가 발생했습니다.' });
+      const msg = err?.message || '분석 중 오류가 발생했습니다.';
+      const isQuota =
+        msg.includes('크레딧') ||
+        msg.includes('할당량') ||
+        msg.includes('prepayment') ||
+        msg.includes('RESOURCE_EXHAUSTED') ||
+        msg.includes('429');
+      return res.status(200).json({
+        success: false,
+        isQuotaExhausted: isQuota,
+        error: msg,
+        message: isQuota
+          ? 'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다. AI Studio(https://ai.studio/projects)에서 확인 또는 충전 후 이용하실 수 있습니다.'
+          : msg,
+      });
     }
   });
 

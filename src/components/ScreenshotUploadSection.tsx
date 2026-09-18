@@ -137,6 +137,43 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
     }
   };
 
+  const [fallbackData, setFallbackData] = useState<MatchExtractedData | null>(null);
+
+  const applyExtractedData = (extracted: MatchExtractedData, notice?: string) => {
+    // Ensure existing streamer names are 100% strictly matched as the key
+    if (extracted.red_team?.players) {
+      for (const lk of LINE_KEYS) {
+        if (extracted.red_team.players[lk]) {
+          extracted.red_team.players[lk].player = currentTeamA?.[lk] || extracted.red_team.players[lk].player;
+          extracted.red_team.players[lk].line = lk;
+        }
+      }
+    }
+    if (extracted.blue_team?.players) {
+      for (const lk of LINE_KEYS) {
+        if (extracted.blue_team.players[lk]) {
+          extracted.blue_team.players[lk].player = currentTeamB?.[lk] || extracted.blue_team.players[lk].player;
+          extracted.blue_team.players[lk].line = lk;
+        }
+      }
+    }
+
+    // Update parent match form state with the extracted data
+    onApplyAiExtraction(extracted, notice);
+
+    if (extracted.game_duration) {
+      onGameDurationChange(extracted.game_duration);
+    }
+    if (extracted.red_team) {
+      onTeamADetailChange(extracted.red_team);
+    }
+    if (extracted.blue_team) {
+      onTeamBDetailChange(extracted.blue_team);
+    }
+
+    setShowDetailInspector(true);
+  };
+
   // Run AI Vision Analysis using server API
   const handleRunAiVision = async () => {
     const targetImage = redScreenshot || blueScreenshot;
@@ -161,49 +198,29 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
 
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || 'AI 비전 분석에 실패했습니다.');
+        if (json.isQuotaExhausted) {
+          setErrorMessage(
+            json.message ||
+            'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다. AI Studio(https://ai.studio/projects)에서 크레딧 충전 또는 결제 계정 확인이 필요합니다.'
+          );
+          if (json.data) {
+            setFallbackData(json.data);
+          }
+          onToast('⚠️ Gemini API 크레딧이 소진되었습니다. 수동 입력 또는 [샘플 지표 채우기]로 바로 등록할 수 있습니다.');
+          return;
+        }
+        setErrorMessage(json.error || json.message || 'AI 비전 분석에 실패했습니다.');
+        onToast(`분석 안내: ${json.error || json.message || '오류가 발생했습니다.'}`);
+        return;
       }
 
       const extracted: MatchExtractedData = json.data;
-
-      // Ensure existing streamer names are 100% strictly matched as the key
-      if (extracted.red_team?.players) {
-        for (const lk of LINE_KEYS) {
-          if (extracted.red_team.players[lk]) {
-            extracted.red_team.players[lk].player = currentTeamA?.[lk] || extracted.red_team.players[lk].player;
-            extracted.red_team.players[lk].line = lk;
-          }
-        }
-      }
-      if (extracted.blue_team?.players) {
-        for (const lk of LINE_KEYS) {
-          if (extracted.blue_team.players[lk]) {
-            extracted.blue_team.players[lk].player = currentTeamB?.[lk] || extracted.blue_team.players[lk].player;
-            extracted.blue_team.players[lk].line = lk;
-          }
-        }
-      }
-
-      // Update parent match form state with the extracted data
-      onApplyAiExtraction(extracted, json.message);
-
-      if (extracted.game_duration) {
-        onGameDurationChange(extracted.game_duration);
-      }
-      if (extracted.red_team) {
-        onTeamADetailChange(extracted.red_team);
-      }
-      if (extracted.blue_team) {
-        onTeamBDetailChange(extracted.blue_team);
-      }
-
-      setShowDetailInspector(true);
+      applyExtractedData(extracted, json.message);
       onToast('🤖 AI 비전 분석 완료! 기존 스트리머명을 기준 키로 삼아 딜량, 분당골드, 아이템이 1:1 매칭되었습니다.');
     } catch (err: any) {
-      console.error('AI Vision error:', err);
       const msg = err?.message || '네트워크 오류가 발생했습니다.';
       setErrorMessage(msg);
-      onToast(`분석 실패: ${msg}`);
+      onToast(`분석 안내: ${msg}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -299,6 +316,22 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
                   AI Studio 프로젝트 설정
                 </a>{' '}
                 또는 Google Cloud 콘솔 결제 계정에서 크레딧을 추가하시거나 수동으로 지표를 입력/수정하실 수 있습니다.
+                {fallbackData && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        applyExtractedData(fallbackData, '샘플 지표 데이터가 적용되었습니다.');
+                        setErrorMessage(null);
+                        onToast('✨ 샘플 지표 데이터가 모달 및 대시보드에 적용되었습니다.');
+                      }}
+                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-md transition shadow flex items-center gap-1"
+                    >
+                      <Sparkles size={11} />
+                      <span>⚡ 샘플 통계 데이터 즉시 적용하기 (우리밍_ 딜량/골드/스탯)</span>
+                    </button>
+                  </div>
+                )}
               </div>
             ) : null}
           </div>

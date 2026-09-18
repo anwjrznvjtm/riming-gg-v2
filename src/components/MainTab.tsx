@@ -5,10 +5,11 @@ import {
   LINE_KEYS,
   LINE_LABELS,
 } from '../types';
-import { ComputedStats, isMatchWonByWooriming, getWoorimingTeam, getWoorimingLineKey, parseKda, isWooriming } from '../lib/stats';
+import { ComputedStats, isMatchWonByWooriming, getWoorimingTeam, getWoorimingLineKey, parseKda, isWooriming, calculateLaneOpponentStats, normalizeStreamerName } from '../lib/stats';
 import { getSeriesCumulativeScore } from '../lib/seriesScores';
 import { OpggMatchCard } from './OpggMatchCard';
 import { ChampionIcon } from './ChampionIcon';
+import { StreamerAvatar } from './StreamerAvatar';
 import { MatchEditModal } from './MatchEditModal';
 import { DeleteMatchModal } from './DeleteMatchModal';
 import {
@@ -22,10 +23,12 @@ import {
   BarChart3,
   TrendingUp,
   Flame,
+  Swords,
   ChevronDown,
   ChevronUp,
   X,
   Users,
+  ExternalLink,
 } from 'lucide-react';
 
 interface MainTabProps {
@@ -82,6 +85,8 @@ export const MainTab: React.FC<MainTabProps> = ({
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isAllChampsModalOpen, setIsAllChampsModalOpen] = useState(false);
+  const [allChampsModalRole, setAllChampsModalRole] = useState<'adc' | 'sup' | 'all'>('adc');
+  const [laneOpponentRole, setLaneOpponentRole] = useState<'adc' | 'sup'>('adc');
 
   // Jump to streamer effect from external triggers
   useEffect(() => {
@@ -196,8 +201,8 @@ export const MainTab: React.FC<MainTabProps> = ({
     };
   }, [matches]);
 
-  // --- 2. '모스트 챔피언' CK 통계 (오직 CK 데이터 기반) ---
-  const mostChampions = useMemo(() => {
+  // --- 2. '모스트 챔피언' CK 통계 (포지션별 집계: 원딜 / 서포터 / 전체) ---
+  const getChampionStatsForLine = (targetLine?: 'adc' | 'sup' | 'all') => {
     const champMap = new Map<
       string,
       {
@@ -214,6 +219,11 @@ export const MainTab: React.FC<MainTabProps> = ({
     for (const m of matches) {
       const isWRed = getWoorimingTeam(m) === 'Red';
       const wLineKey = getWoorimingLineKey(m);
+
+      if (targetLine && targetLine !== 'all' && wLineKey !== targetLine) {
+        continue;
+      }
+
       const myChamps = isWRed ? m.team_a_champs : m.team_b_champs;
       const myKdas = isWRed ? m.team_a_kda : m.team_b_kda;
 
@@ -268,7 +278,22 @@ export const MainTab: React.FC<MainTabProps> = ({
         if (b.games !== a.games) return b.games - a.games;
         return b.winRate - a.winRate;
       });
-  }, [matches]);
+  };
+
+  const adcChampions = useMemo(() => getChampionStatsForLine('adc'), [matches]);
+  const supChampions = useMemo(() => getChampionStatsForLine('sup'), [matches]);
+  const allChampionsList = useMemo(() => getChampionStatsForLine('all'), [matches]);
+
+  const modalChampionsList = useMemo(() => {
+    if (allChampsModalRole === 'adc') return adcChampions;
+    if (allChampsModalRole === 'sup') return supChampions;
+    return allChampionsList;
+  }, [allChampsModalRole, adcChampions, supChampions, allChampionsList]);
+
+  // --- 2-2. '맞라인 상대 승률' 통계 (CK 경기 데이터 기반 포지션별 100% 정밀 집계) ---
+  const adcOpponents = useMemo(() => calculateLaneOpponentStats(matches, 'adc'), [matches]);
+  const supOpponents = useMemo(() => calculateLaneOpponentStats(matches, 'sup'), [matches]);
+  const currentOpponents = laneOpponentRole === 'adc' ? adcOpponents : supOpponents;
 
   // Overall CK Lifetime Statistics for Top Profile Card
   const lifetimeStats = useMemo(() => {
@@ -286,16 +311,25 @@ export const MainTab: React.FC<MainTabProps> = ({
   const filteredMatches = useMemo(() => {
     let list = [...matches];
 
-    // Search query
+    // Search query with streamer normalization support
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
+      const qNorm = normalizeStreamerName(q).toLowerCase();
+
       list = list.filter((m) => {
         const ckMatch = (m.ck_name || '').toLowerCase().includes(q);
-        const allPlayers = [
+        const rawPlayers = [
           ...Object.values(m.team_a || {}),
           ...Object.values(m.team_b || {}),
-        ].join(' ').toLowerCase();
-        return ckMatch || allPlayers.includes(q);
+        ];
+        const playerMatch = rawPlayers.some((p) => {
+          if (!p) return false;
+          const pLower = String(p).toLowerCase();
+          if (pLower.includes(q)) return true;
+          const pNorm = normalizeStreamerName(String(p)).toLowerCase();
+          return pNorm.includes(q) || (qNorm && pNorm.includes(qNorm));
+        });
+        return ckMatch || playerMatch;
       });
     }
 
@@ -429,21 +463,36 @@ export const MainTab: React.FC<MainTabProps> = ({
           <div className="bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-4 shadow-lg relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-[#8b5cf6]/10 rounded-full blur-2xl pointer-events-none" />
             <div className="flex items-center gap-3 relative z-10">
-              <div className="relative">
+              <a
+                href="https://www.sooplive.com/station/kmj05317"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="SOOP 우리밍 방송국 바로가기 (새 창)"
+                className="relative block group shrink-0 cursor-pointer"
+              >
                 <img
-                  src="https://res.cloudinary.com/dfqsbvupq/image/upload/v1738734614/wooriming_avatar.png"
-                  alt="우리밍_"
+                  src="https://profile.img.sooplive.co.kr/LOGO/km/kmj05317/kmj05317.jpg"
+                  alt="우리밍_ SOOP 방송국"
                   onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src =
-                      'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/profile-icons/548.jpg';
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (!target.dataset.triedStimg) {
+                      target.dataset.triedStimg = 'true';
+                      target.src = 'https://stimg.sooplive.co.kr/LOGO/km/kmj05317/kmj05317.jpg';
+                    } else {
+                      target.src =
+                        'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/profile-icons/548.jpg';
+                    }
                   }}
-                  className="w-14 h-14 rounded-full border-2 border-[#8b5cf6] object-cover shadow-md"
+                  className="w-14 h-14 rounded-full border-2 border-[#8b5cf6] object-cover shadow-md group-hover:scale-105 group-hover:border-[#a78bfa] group-hover:ring-2 group-hover:ring-[#8b5cf6]/40 transition-all duration-200"
                   referrerPolicy="no-referrer"
                 />
-                <span className="absolute -bottom-1 -right-1 bg-[#8b5cf6] text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-black">
+                <span className="absolute -bottom-1 -right-1 bg-[#8b5cf6] text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-black group-hover:bg-[#7c3aed] transition">
                   ADC
                 </span>
-              </div>
+                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200 pointer-events-none">
+                  <ExternalLink size={14} className="text-white drop-shadow" />
+                </div>
+              </a>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <h2 className="text-[17px] font-black text-white tracking-tight">우리밍_</h2>
@@ -451,9 +500,6 @@ export const MainTab: React.FC<MainTabProps> = ({
                     CK 전적
                   </span>
                 </div>
-                <p className="text-[11px] text-[#8a8aa0] truncate mt-0.5">
-                  롤 CK 커스텀 경기 전문 일지
-                </p>
                 <div className="text-[11px] text-white font-semibold mt-1">
                   총 {lifetimeStats.total}전 {lifetimeStats.wins}승 {lifetimeStats.losses}패{' '}
                   <span className="text-[#8b5cf6] font-bold">({lifetimeStats.winRate}%)</span>
@@ -613,25 +659,31 @@ export const MainTab: React.FC<MainTabProps> = ({
             )}
           </div>
 
-          {/* 2. '모스트 챔피언' CK 통계 카드 (오직 CK 데이터 기반) */}
+          {/* 2. '모스트 챔피언' CK 통계 카드 (오직 CK 데이터 기반 - 원딜 포지션 상위 5개) */}
           <div className="bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-4 shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5">
                 <Flame size={15} className="text-[#fbbf24]" />
                 <h3 className="font-black text-[13px] text-white tracking-tight">모스트 챔피언 (CK)</h3>
+                <span className="text-[10px] font-bold text-[#a78bfa] bg-[#8b5cf6]/15 border border-[#8b5cf6]/30 px-1.5 py-0.5 rounded">
+                  원딜
+                </span>
               </div>
               <button
                 type="button"
-                onClick={() => setIsAllChampsModalOpen(true)}
-                className="text-[10.5px] text-[#a78bfa] hover:underline"
+                onClick={() => {
+                  setAllChampsModalRole('adc');
+                  setIsAllChampsModalOpen(true);
+                }}
+                className="text-[10.5px] text-[#a78bfa] hover:underline font-semibold"
               >
-                전체보기 ({mostChampions.length})
+                전체보기 ({adcChampions.length})
               </button>
             </div>
 
-            {mostChampions.length > 0 ? (
+            {adcChampions.length > 0 ? (
               <div className="space-y-2">
-                {mostChampions.slice(0, 7).map((c) => {
+                {adcChampions.slice(0, 5).map((c) => {
                   const isFiltered = selectedChampFilter === c.name;
 
                   return (
@@ -688,7 +740,140 @@ export const MainTab: React.FC<MainTabProps> = ({
               </div>
             ) : (
               <div className="text-center py-6 text-[12px] text-[#6b6b80]">
-                플레이한 CK 챔피언 데이터가 없습니다.
+                플레이한 원딜 CK 챔피언 데이터가 없습니다.
+              </div>
+            )}
+          </div>
+
+          {/* 3. '맞라인 상대 승률' 카드 */}
+          <div className="bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-4 shadow-lg">
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Swords size={15} className="text-[#a78bfa] shrink-0" />
+                <h3 className="font-black text-[13px] text-white tracking-tight truncate">맞라인 상대 승률</h3>
+              </div>
+
+              {/* 포지션 전환 토글: [원딜 (ADC)] / [서폿 (SUP)] */}
+              <div className="flex items-center bg-[#0a0a12] p-0.5 rounded-lg border border-white/5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setLaneOpponentRole('adc')}
+                  className={`px-2 py-1 rounded-md text-[10.5px] font-bold transition ${
+                    laneOpponentRole === 'adc'
+                      ? 'bg-[#8b5cf6] text-white shadow-sm'
+                      : 'text-[#8e8ea8] hover:text-white'
+                  }`}
+                >
+                  원딜 (ADC)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLaneOpponentRole('sup')}
+                  className={`px-2 py-1 rounded-md text-[10.5px] font-bold transition ${
+                    laneOpponentRole === 'sup'
+                      ? 'bg-[#06b6d4] text-white shadow-sm'
+                      : 'text-[#8e8ea8] hover:text-white'
+                  }`}
+                >
+                  서폿 (SUP)
+                </button>
+              </div>
+            </div>
+
+            {currentOpponents.length > 0 ? (
+              <div className="space-y-2">
+                {currentOpponents.slice(0, 5).map((item, idx) => {
+                  const isFiltered =
+                    (searchQuery.trim() === item.name || selectedStreamerFilter === item.name) &&
+                    (selectedLine === 'ALL' || selectedLine === laneOpponentRole);
+
+                  return (
+                    <div
+                      key={item.name}
+                      onClick={() => {
+                        if (searchQuery.trim() === item.name && selectedLine === laneOpponentRole) {
+                          setSearchQuery('');
+                          setSelectedLine('ALL');
+                          onToast(`맞라인 상대 필터가 해제되었습니다.`);
+                        } else {
+                          setSearchQuery(item.name);
+                          setSelectedLine(laneOpponentRole);
+                          onToast(
+                            `'${item.name}' 선수와의 ${
+                              laneOpponentRole === 'adc' ? '원딜(ADC)' : '서폿(SUP)'
+                            } 맞라인 전적으로 필터링되었습니다.`
+                          );
+                        }
+                      }}
+                      className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer transition ${
+                        isFiltered
+                          ? 'bg-[#8b5cf6]/20 border-[#8b5cf6] shadow-sm ring-1 ring-[#8b5cf6]/50'
+                          : 'bg-[#0a0a12] border-white/5 hover:border-white/15 hover:bg-[#151522]'
+                      }`}
+                      title={`클릭 시 '${item.name}' 선수와의 ${
+                        laneOpponentRole === 'adc' ? '원딜' : '서폿'
+                      } 맞라인 경기만 필터링 (다시 클릭하면 해제)`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {/* 순위 (1~5) */}
+                        <span
+                          className={`text-[11px] font-black w-4 text-center shrink-0 ${
+                            idx === 0
+                              ? 'text-[#fbbf24]'
+                              : idx === 1
+                              ? 'text-[#e2e8f0]'
+                              : idx === 2
+                              ? 'text-[#cd7f32]'
+                              : 'text-[#6b6b80]'
+                          }`}
+                        >
+                          {idx + 1}
+                        </span>
+
+                        <StreamerAvatar name={item.name} size={28} shape="circle" className="shrink-0" />
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[12px] font-bold text-white truncate">{item.name}</span>
+                            {/* 포지션 태그 */}
+                            <span
+                              className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded border shrink-0 ${
+                                laneOpponentRole === 'adc'
+                                  ? 'text-[#a78bfa] bg-[#8b5cf6]/15 border-[#8b5cf6]/30'
+                                  : 'text-[#22d3ee] bg-[#06b6d4]/15 border-[#06b6d4]/30'
+                              }`}
+                            >
+                              {laneOpponentRole === 'adc' ? '원딜' : '서폿'}
+                            </span>
+                          </div>
+                          {/* 판수 (전/승/패) */}
+                          <div className="text-[10px] text-[#787890]">
+                            {item.games}전 {item.wins}승 {item.losses}패
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 승률 (%) 배지 */}
+                      <div className="text-right shrink-0">
+                        <span
+                          className={`text-[11.5px] font-black px-2 py-0.5 rounded-md inline-block border ${
+                            item.winRate >= 60
+                              ? 'bg-[#3b82f6]/20 text-[#60a5fa] border-[#3b82f6]/30'
+                              : item.winRate >= 50
+                              ? 'bg-[#8b5cf6]/20 text-[#c4b5fd] border-[#8b5cf6]/30'
+                              : 'bg-[#ef4444]/20 text-[#f87171] border-[#ef4444]/30'
+                          }`}
+                        >
+                          {item.winRate}%
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-[12px] text-[#6b6b80]">
+                기록된 {laneOpponentRole === 'adc' ? '원딜' : '서폿'} 맞라인 상대 데이터가 없습니다.
               </div>
             )}
           </div>
@@ -705,9 +890,9 @@ export const MainTab: React.FC<MainTabProps> = ({
             
             {/* Row 1: Line Chips & Search & Add Button */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-              {/* Line Filter Chips */}
+              {/* Line Filter Chips: Only 전체, ADC, SUP */}
               <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-                {(['ALL', ...LINE_KEYS] as const).map((line) => {
+                {(['ALL', 'adc', 'sup'] as const).map((line) => {
                   const isActive = selectedLine === line;
                   const label = line === 'ALL' ? '전체' : LINE_LABELS[line];
 
@@ -973,60 +1158,166 @@ export const MainTab: React.FC<MainTabProps> = ({
         />
       )}
 
-      {/* 3. All Champions Modal */}
+      {/* 3. All Champions Modal with Role Toggle (원딜 / 서포터 / 전체) */}
       {isAllChampsModalOpen && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]"
           onClick={() => setIsAllChampsModalOpen(false)}
         >
           <div
-            className="relative z-[10000] w-full max-w-[600px] bg-[#12121a] border border-[#1e1e2a] rounded-[22px] p-5 shadow-2xl max-h-[85vh] flex flex-col"
+            className="relative z-[10000] w-full max-w-[620px] bg-[#12121a] border border-[#1e1e2a] rounded-[24px] p-5 shadow-2xl max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Modal Header */}
             <div className="flex justify-between items-center pb-3 border-b border-[#1e1e2a]">
-              <div className="flex items-center gap-2">
-                <Flame size={18} className="text-[#fbbf24]" />
-                <h3 className="font-bold text-[16px] text-white">전체 CK 플레이 챔피언 ({mostChampions.length})</h3>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                  <Flame size={18} className="text-[#fbbf24]" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[16px] text-white flex items-center gap-2">
+                    <span>전체 CK 챔피언 전적</span>
+                    <span className="text-[12px] text-[#a78bfa] font-semibold">
+                      ({modalChampionsList.length}개)
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-[#717188]">
+                    포지션별 챔피언 승률, 판수 및 상세 KDA 전적
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsAllChampsModalOpen(false)}
-                className="w-7 h-7 bg-[#1e1e2a] hover:bg-[#2a2a3a] rounded-full flex items-center justify-center text-white"
+                className="w-8 h-8 bg-[#1e1e2a] hover:bg-[#2a2a3a] rounded-full flex items-center justify-center text-white transition"
               >
-                <X size={14} />
+                <X size={15} />
               </button>
             </div>
 
-            <div className="overflow-y-auto py-3 space-y-2 flex-1 pr-1">
-              {mostChampions.map((c) => (
-                <div
-                  key={c.name}
-                  onClick={() => {
-                    setSelectedChampFilter(c.name);
-                    setIsAllChampsModalOpen(false);
-                    onToast(`${c.name} 전적으로 필터링되었습니다.`);
-                  }}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-[#0a0a12] border border-white/5 hover:border-[#8b5cf6]/50 hover:bg-[#151522] cursor-pointer transition"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <ChampionIcon name={c.name} size={36} shape="square" className="rounded-lg" />
-                    <div>
-                      <div className="text-[13px] font-bold text-white">{c.name}</div>
-                      <div className="text-[11px] text-[#8e8ea8]">
-                        KDA {c.avgK} / <span className="text-[#f87171]">{c.avgD}</span> /{' '}
-                        <span className="text-[#60a5fa]">{c.avgA}</span> ({c.ratio}:1)
+            {/* Position Toggle Buttons: [원딜] / [서포터] / [전체] */}
+            <div className="flex items-center gap-1.5 pt-3 pb-2">
+              <button
+                type="button"
+                onClick={() => setAllChampsModalRole('adc')}
+                className={`flex-1 py-2 px-3 rounded-xl text-[12px] font-bold flex items-center justify-center gap-1.5 transition ${
+                  allChampsModalRole === 'adc'
+                    ? 'bg-[#8b5cf6] text-white shadow-md shadow-[#8b5cf6]/20'
+                    : 'bg-[#181824] text-[#8e8ea8] hover:text-white hover:bg-[#222234] border border-white/5'
+                }`}
+              >
+                <span>🏹 원딜 (ADC)</span>
+                <span className="text-[10.5px] px-1.5 py-0.2 rounded-full bg-black/30 font-bold">
+                  {adcChampions.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllChampsModalRole('sup')}
+                className={`flex-1 py-2 px-3 rounded-xl text-[12px] font-bold flex items-center justify-center gap-1.5 transition ${
+                  allChampsModalRole === 'sup'
+                    ? 'bg-[#06b6d4] text-white shadow-md shadow-[#06b6d4]/20'
+                    : 'bg-[#181824] text-[#8e8ea8] hover:text-white hover:bg-[#222234] border border-white/5'
+                }`}
+              >
+                <span>🛡️ 서포터 (SUP)</span>
+                <span className="text-[10.5px] px-1.5 py-0.2 rounded-full bg-black/30 font-bold">
+                  {supChampions.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllChampsModalRole('all')}
+                className={`py-2 px-3 rounded-xl text-[12px] font-bold flex items-center justify-center gap-1.5 transition ${
+                  allChampsModalRole === 'all'
+                    ? 'bg-[#3b82f6] text-white shadow-md shadow-[#3b82f6]/20'
+                    : 'bg-[#181824] text-[#8e8ea8] hover:text-white hover:bg-[#222234] border border-white/5'
+                }`}
+              >
+                <span>전체 ({allChampionsList.length})</span>
+              </button>
+            </div>
+
+            {/* Champions List */}
+            <div className="overflow-y-auto py-2 space-y-2 flex-1 pr-1">
+              {modalChampionsList.length > 0 ? (
+                modalChampionsList.map((c) => {
+                  const isFiltered = selectedChampFilter === c.name;
+                  return (
+                    <div
+                      key={c.name}
+                      onClick={() => {
+                        setSelectedChampFilter(c.name);
+                        setIsAllChampsModalOpen(false);
+                        onToast(`'${c.name}' 전적으로 메인 경기 목록이 필터링되었습니다.`);
+                      }}
+                      className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition ${
+                        isFiltered
+                          ? 'bg-[#8b5cf6]/20 border-[#8b5cf6] shadow-sm'
+                          : 'bg-[#0a0a12] border-white/5 hover:border-[#8b5cf6]/40 hover:bg-[#151522]'
+                      }`}
+                      title={`클릭 시 '${c.name}' 경기로 메인 목록 필터링`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <ChampionIcon
+                          name={c.name}
+                          size={38}
+                          shape="square"
+                          className="rounded-xl shrink-0 border border-white/10"
+                        />
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-bold text-white flex items-center gap-1.5">
+                            <span className="truncate">{c.name}</span>
+                            {isFiltered && (
+                              <span className="text-[9px] bg-[#8b5cf6] text-white px-1.5 py-0.2 rounded font-semibold">
+                                필터중
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-[#8e8ea8] mt-0.5">
+                            KDA {c.avgK} / <span className="text-[#f87171]">{c.avgD}</span> /{' '}
+                            <span className="text-[#60a5fa]">{c.avgA}</span>
+                            <span className="text-[#a78bfa] font-bold ml-1.5">({c.ratio}:1)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div
+                          className={`text-[14px] font-black ${
+                            c.winRate >= 60
+                              ? 'text-[#f87171]'
+                              : c.winRate >= 50
+                              ? 'text-[#60a5fa]'
+                              : 'text-[#9090a8]'
+                          }`}
+                        >
+                          {c.winRate}%
+                        </div>
+                        <div className="text-[11px] text-[#7a7a92]">
+                          {c.games}전 {c.wins}승 {c.losses}패
+                        </div>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-[13px] font-black text-white">{c.winRate}%</div>
-                    <div className="text-[11px] text-[#7a7a92]">
-                      {c.games}전 {c.wins}승 {c.losses}패
-                    </div>
-                  </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-12 text-[#6b6b80] text-[13px]">
+                  해당 포지션으로 플레이한 챔피언 데이터가 없습니다.
                 </div>
-              ))}
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-[#1e1e2a] flex items-center justify-between text-[11px] text-[#6b6b80]">
+              <span>💡 챔피언 클릭 시 해당 챔피언 전적으로 메인 경기 일지가 필터링됩니다.</span>
+              <button
+                type="button"
+                onClick={() => setIsAllChampsModalOpen(false)}
+                className="px-3 py-1 bg-[#181824] hover:bg-[#222234] text-[#a0a0b8] hover:text-white rounded-lg transition font-medium"
+              >
+                닫기
+              </button>
             </div>
           </div>
         </div>

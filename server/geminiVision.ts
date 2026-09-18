@@ -18,13 +18,89 @@ function getGeminiClient(): GoogleGenAI | null {
 /**
  * Real-time vision-only processing
  */
-export function generateHeuristicMatchData(): MatchExtractedData {
-  return {
-    game_duration: '',
-    winning_team: 'Blue',
-    red_team: { team_kda: '', global_gold: '', players: {} as any },
-    blue_team: { team_kda: '', global_gold: '', players: {} as any },
+/**
+ * Generate realistic match statistics for local simulation fallback or quota-exhausted state
+ */
+export function generateRealisticMatchData(params?: {
+  teamAStreamers?: Record<LineKey, string>;
+  teamBStreamers?: Record<LineKey, string>;
+  teamTarget?: 'Red' | 'Blue' | 'both';
+}): MatchExtractedData {
+  const lineKeys: LineKey[] = ['top', 'jgl', 'mid', 'adc', 'sup'];
+
+  const redDefaults: Record<LineKey, { dmg: number; gpm: number; kda: string; runes: string[]; spells: string[]; items: string[] }> = {
+    top: { dmg: 24800, gpm: 435, kda: '6/3/8', runes: ['정복자', '결의'], spells: ['점멸', '순간이동'], items: ['삼위일체', '스테락의 도전', '죽음의 무도'] },
+    jgl: { dmg: 15400, gpm: 370, kda: '4/4/14', runes: ['여진', '정밀'], spells: ['점멸', '강타'], items: ['태양불꽃 방패', '워모그의 갑옷'] },
+    mid: { dmg: 29500, gpm: 460, kda: '9/2/7', runes: ['감전', '영감'], spells: ['점멸', '점화'], items: ['루덴의 동반자', '존야의 모래시계', '라바돈의 죽음모자'] },
+    adc: { dmg: 37200, gpm: 540, kda: '10/1/11', runes: ['정복자', '영감'], spells: ['점멸', '정화'], items: ['크라켄 학살자', '나보리 명멸검', '도미닉 경의 인사'] },
+    sup: { dmg: 8200, gpm: 265, kda: '2/4/18', runes: ['빙결 강화', '결의'], spells: ['점멸', '탈진'], items: ['태양의 썰매', '기사의 맹세', '지크의 융합'] },
   };
+
+  const blueDefaults: Record<LineKey, { dmg: number; gpm: number; kda: string; runes: string[]; spells: string[]; items: string[] }> = {
+    top: { dmg: 21500, gpm: 395, kda: '3/6/4', runes: ['착취의 손아귀', '정밀'], spells: ['점멸', '순간이동'], items: ['강철심장', '태양불꽃 방패'] },
+    jgl: { dmg: 14200, gpm: 350, kda: '3/5/6', runes: ['정복자', '영감'], spells: ['점멸', '강타'], items: ['월식', '칠흑의 양날 도끼'] },
+    mid: { dmg: 26800, gpm: 420, kda: '5/7/3', runes: ['난입', '영감'], spells: ['점멸', '순간이동'], items: ['대천사의 포옹', '존야의 모래시계'] },
+    adc: { dmg: 28400, gpm: 450, kda: '2/6/5', runes: ['치명적 속도', '영감'], spells: ['점멸', '회복'], items: ['무한의 대검', '고속 연사포'] },
+    sup: { dmg: 6900, gpm: 245, kda: '1/7/8', runes: ['여진', '영감'], spells: ['점멸', '점화'], items: ['개척자', '강철의 솔라리 펜던트'] },
+  };
+
+  const redPlayers: Record<LineKey, PlayerGameDetail> = {} as any;
+  const bluePlayers: Record<LineKey, PlayerGameDetail> = {} as any;
+
+  for (const lk of lineKeys) {
+    const rd = redDefaults[lk];
+    const kdaP = rd.kda.split('/').map(n => parseInt(n, 10) || 0);
+    redPlayers[lk] = {
+      player: params?.teamAStreamers?.[lk] || lk.toUpperCase(),
+      champion: '',
+      line: lk,
+      kills: kdaP[0],
+      deaths: kdaP[1],
+      assists: kdaP[2],
+      kda: rd.kda,
+      damage_dealt: rd.dmg,
+      gold_per_minute: rd.gpm,
+      runes: rd.runes,
+      spells: rd.spells,
+      items: rd.items,
+    };
+
+    const bd = blueDefaults[lk];
+    const bKdaP = bd.kda.split('/').map(n => parseInt(n, 10) || 0);
+    bluePlayers[lk] = {
+      player: params?.teamBStreamers?.[lk] || lk.toUpperCase(),
+      champion: '',
+      line: lk,
+      kills: bKdaP[0],
+      deaths: bKdaP[1],
+      assists: bKdaP[2],
+      kda: bd.kda,
+      damage_dealt: bd.dmg,
+      gold_per_minute: bd.gpm,
+      runes: bd.runes,
+      spells: bd.spells,
+      items: bd.items,
+    };
+  }
+
+  return {
+    game_duration: '31:40',
+    winning_team: 'Red',
+    red_team: {
+      team_kda: '31 / 14 / 58',
+      global_gold: '65,800',
+      players: redPlayers,
+    },
+    blue_team: {
+      team_kda: '14 / 31 / 26',
+      global_gold: '51,200',
+      players: bluePlayers,
+    },
+  };
+}
+
+export function generateHeuristicMatchData(): MatchExtractedData {
+  return generateRealisticMatchData();
 }
 
 /**
@@ -40,8 +116,10 @@ export async function analyzeScreenshotWithGemini(params: {
   success: boolean;
   data: MatchExtractedData;
   isSimulationFallback: boolean;
+  isQuotaExhausted?: boolean;
   message?: string;
   rawResponse?: string;
+  error?: string;
 }> {
   const { imageBase64, teamTarget = 'both', fileName, teamAStreamers, teamBStreamers } = params;
 
@@ -170,6 +248,7 @@ export async function analyzeScreenshotWithGemini(params: {
     };
 
     let responseText = '';
+    let isQuotaDepleted = false;
     
     try {
       const response = await ai.models.generateContent({
@@ -190,29 +269,66 @@ export async function analyzeScreenshotWithGemini(params: {
       });
       responseText = response.text || '';
     } catch (primaryErr: any) {
-      console.warn('[GeminiVision] Primary model gemini-3.8-flash error, retrying with gemini-flash-latest:', primaryErr?.message);
-      // Fallback to gemini-flash-latest in case of model-specific rate limits or transient issues
-      const fallbackResponse = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: { parts: [imagePart, textPart] },
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              game_duration: { type: Type.STRING },
-              winning_team: { type: Type.STRING },
-              red_team: teamSchema,
-              blue_team: teamSchema,
+      const pMsg = primaryErr?.message || String(primaryErr);
+      if (
+        pMsg.includes('prepayment credits are depleted') ||
+        pMsg.includes('RESOURCE_EXHAUSTED') ||
+        pMsg.includes('429')
+      ) {
+        isQuotaDepleted = true;
+      } else {
+        // Only retry fallback if it wasn't an account quota/credit exhaustion error
+        try {
+          const fallbackResponse = await ai.models.generateContent({
+            model: 'gemini-flash-latest',
+            contents: { parts: [imagePart, textPart] },
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  game_duration: { type: Type.STRING },
+                  winning_team: { type: Type.STRING },
+                  red_team: teamSchema,
+                  blue_team: teamSchema,
+                },
+              },
             },
-          },
-        },
-      });
-      responseText = fallbackResponse.text || '';
+          });
+          responseText = fallbackResponse.text || '';
+        } catch (fallbackErr: any) {
+          const fMsg = fallbackErr?.message || String(fallbackErr);
+          if (
+            fMsg.includes('prepayment credits are depleted') ||
+            fMsg.includes('RESOURCE_EXHAUSTED') ||
+            fMsg.includes('429')
+          ) {
+            isQuotaDepleted = true;
+          }
+        }
+      }
+    }
+
+    if (isQuotaDepleted) {
+      return {
+        success: false,
+        isQuotaExhausted: true,
+        isSimulationFallback: true,
+        data: generateRealisticMatchData(params),
+        message:
+          'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다. AI Studio(https://ai.studio/projects)에서 크레딧을 충전하거나, 모달 하단의 통계 수동 입력 또는 [샘플 지표 채우기]로 바로 등록할 수 있습니다.',
+        error: 'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다.',
+      };
     }
 
     if (!responseText) {
-      throw new Error('Gemini AI 모델로부터 응답 텍스트를 수신하지 못했습니다.');
+      return {
+        success: false,
+        isSimulationFallback: true,
+        data: generateRealisticMatchData(params),
+        message: 'Gemini AI 모델 응답을 수신하지 못했습니다. 수동 입력 또는 샘플 데이터를 적용해 주세요.',
+        error: 'Gemini AI 모델 응답을 수신하지 못했습니다.',
+      };
     }
 
     const parsed = JSON.parse(responseText);
@@ -267,8 +383,6 @@ export async function analyzeScreenshotWithGemini(params: {
       rawResponse: responseText,
     };
   } catch (err: any) {
-    console.error('[GeminiVision] 실시간 이미지 분석 중 오류 발생:', err);
-
     const rawMessage = err?.message || String(err);
     const isCreditDepleted =
       rawMessage.includes('prepayment credits are depleted') ||
@@ -276,11 +390,23 @@ export async function analyzeScreenshotWithGemini(params: {
       rawMessage.includes('429');
 
     if (isCreditDepleted) {
-      throw new Error(
-        'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다. (AI Studio 또는 Google Cloud 콘솔에서 크레딧 충전 또는 결제 계정 확인이 필요합니다.)'
-      );
+      return {
+        success: false,
+        isQuotaExhausted: true,
+        isSimulationFallback: true,
+        data: generateRealisticMatchData(params),
+        message:
+          'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다. AI Studio(https://ai.studio/projects)에서 크레딧 충전 또는 결제 계정 확인이 필요합니다.',
+        error: 'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다.',
+      };
     }
 
-    throw new Error(`[AI 비전 실시간 분석 실패] ${rawMessage}`);
+    return {
+      success: false,
+      isSimulationFallback: true,
+      data: generateRealisticMatchData(params),
+      message: `AI 비전 분석 처리 중 오류가 발생했습니다: ${rawMessage}`,
+      error: rawMessage,
+    };
   }
 }

@@ -385,37 +385,14 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                       <div className="flex items-center gap-3 min-w-0">
                         <StreamerAvatar name={item.name} size={36} />
                         <div className="min-w-0">
+                          {/* 상단 영역: '상어녀 (ADC) · 통산 43전' 형태로 한 줄로 심플하게 요약 */}
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-bold text-[13px] text-white group-hover:text-[#c4b5fd] transition-colors">
+                            <span className="font-bold text-[13.5px] text-white group-hover:text-[#c4b5fd] transition-colors">
                               {item.name}
                             </span>
-                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-[#1e1e30] border border-[#2e2e46] text-[#a0a0b8] uppercase shrink-0">
-                              {LINE_LABELS[stat.mainLane] || 'MID'}
+                            <span className="text-[12px] text-[#9ca3af] font-medium">
+                              ({LINE_LABELS[stat.mainLane] || 'MID'}) · 통산 {stat.totalGames}전
                             </span>
-                            {stat.totalGames > 0 && (
-                              <span className="text-[11px] text-[#8e8ea2] font-semibold shrink-0">
-                                총 {stat.totalGames}전
-                              </span>
-                            )}
-                          </div>
-
-                          {/* 아군 / 적팀 전적 (여유 있는 패딩과 배지 형태로 잘림 현상 방지) */}
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[11px]">
-                            {stat.withGames > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[#60a5fa] font-bold bg-[#3b82f6]/15 border border-[#3b82f6]/30 px-2 py-0.5 rounded-md text-[11px] shrink-0">
-                                <Users size={11} className="shrink-0" />
-                                <span>아군 {stat.withGames}전 ({stat.withWins}승 {stat.withLosses}패 · {stat.withWinrate}%)</span>
-                              </span>
-                            )}
-                            {stat.vsGames > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[#f87171] font-bold bg-[#ef4444]/15 border border-[#ef4444]/30 px-2 py-0.5 rounded-md text-[11px] shrink-0">
-                                <Swords size={11} className="shrink-0" />
-                                <span>적팀 {stat.vsGames}전 ({stat.vsWins}승 {stat.vsLosses}패 · {stat.vsWinrate}%)</span>
-                              </span>
-                            )}
-                            {stat.vsGames === 0 && stat.withGames === 0 && (
-                              <span className="text-[11px] text-[#7a7a92]">참여 기록 보유</span>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -426,8 +403,8 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                       </div>
                     </div>
 
-                    {/* 아군 경기만 / 적팀 경기만 인라인 리스트업 토글 버튼 (불필요한 '전체 이동' 버튼은 과감히 삭제됨) */}
-                    <div className="flex items-center gap-2 pl-0.5">
+                    {/* 하단 클릭 버튼: 승률 정보를 포함한 [ 🤝 아군 X전 Y승 (Z%) ], [ ⚔️ 적팀 X전 Y승 (Z%) ] 기능성 버튼 */}
+                    <div className="flex items-center gap-2 pl-0.5 flex-wrap">
                       {stat.withGames > 0 && (
                         <button
                           type="button"
@@ -435,19 +412,19 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                             e.stopPropagation();
                             handleToggleMatches(item.name, 'ally');
                           }}
-                          className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition shadow-sm ${
+                          className={`px-3 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition shadow-sm ${
                             isExpanded && currentRole === 'ally'
                               ? 'bg-[#3b82f6] text-white ring-2 ring-[#3b82f6]/50 shadow-md'
-                              : 'bg-[#3b82f6]/15 hover:bg-[#3b82f6]/30 text-[#60a5fa] border border-[#3b82f6]/35'
+                              : 'bg-[#3b82f6]/15 hover:bg-[#3b82f6]/25 text-[#60a5fa] border border-[#3b82f6]/35'
                           }`}
-                          title="해당 선수와 아군으로 함께한 경기 목록 펼치기"
+                          title={`클릭하여 ${item.name} 선수와 아군 경기 목록 확인 및 CK 일지 이동`}
                         >
-                          <Users size={11} />
-                          <span>아군 경기만 ({stat.withGames})</span>
+                          <span>🤝</span>
+                          <span>아군 {stat.withGames}전 {stat.withWins}승 ({stat.withWinrate}%)</span>
                           {isExpanded && currentRole === 'ally' ? (
-                            <ChevronUp size={11} />
+                            <ChevronUp size={12} className="ml-0.5" />
                           ) : (
-                            <ChevronDown size={11} />
+                            <ChevronDown size={12} className="ml-0.5 opacity-70" />
                           )}
                         </button>
                       )}
@@ -459,28 +436,32 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                             e.stopPropagation();
                             handleToggleMatches(item.name, 'enemy');
                           }}
-                          className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition shadow-sm ${
+                          className={`px-3 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition shadow-sm ${
                             isExpanded && currentRole === 'enemy'
                               ? 'bg-[#ef4444] text-white ring-2 ring-[#ef4444]/50 shadow-md'
-                              : 'bg-[#ef4444]/15 hover:bg-[#ef4444]/30 text-[#f87171] border border-[#ef4444]/35'
+                              : 'bg-[#ef4444]/15 hover:bg-[#ef4444]/25 text-[#f87171] border border-[#ef4444]/35'
                           }`}
-                          title="해당 선수와 적팀으로 맞붙은 경기 목록 펼치기"
+                          title={`클릭하여 ${item.name} 선수와 적팀 경기 목록 확인 및 CK 일지 이동`}
                         >
-                          <Swords size={11} />
-                          <span>적팀 경기만 ({stat.vsGames})</span>
+                          <span>⚔️</span>
+                          <span>적팀 {stat.vsGames}전 {stat.vsWins}승 ({stat.vsWinrate}%)</span>
                           {isExpanded && currentRole === 'enemy' ? (
-                            <ChevronUp size={11} />
+                            <ChevronUp size={12} className="ml-0.5" />
                           ) : (
-                            <ChevronDown size={11} />
+                            <ChevronDown size={12} className="ml-0.5 opacity-70" />
                           )}
                         </button>
+                      )}
+
+                      {stat.withGames === 0 && stat.vsGames === 0 && (
+                        <span className="text-[11px] text-[#7a7a92] px-1">참여 기록 보유</span>
                       )}
                     </div>
 
                     {/* 인라인 매치 리스트업 팝업 영역 (그 자리에서 펼쳐지며 경기 클릭 시 일지 해당 위치로 스크롤 점프) */}
                     {isExpanded && (
                       <div className="mt-1 bg-[#0b0b14] border border-[#26263a] rounded-xl p-2.5 flex flex-col gap-2 animate-[fadeIn_0.15s] shadow-inner">
-                        {/* 인라인 헤더: 역할 전환 탭 및 닫기 */}
+                        {/* 인라인 헤더: 역할 전환 탭 및 일지 전체 이동 */}
                         <div className="flex items-center justify-between pb-1.5 border-b border-white/5">
                           <div className="flex items-center gap-1.5">
                             <span className="text-[11px] font-bold text-[#c4b5fd]">
@@ -491,34 +472,51 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                             </span>
                           </div>
 
-                          {/* 아군/적팀 즉시 전환 탭 */}
-                          <div className="flex items-center gap-1 bg-[#161624] p-0.5 rounded-lg border border-white/5">
-                            {stat.withGames > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleMatches(item.name, 'ally')}
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
-                                  currentRole === 'ally'
-                                    ? 'bg-[#3b82f6] text-white shadow-sm'
-                                    : 'text-[#8a8aa0] hover:text-white'
-                                }`}
-                              >
-                                아군 ({stat.withGames})
-                              </button>
-                            )}
-                            {stat.vsGames > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleMatches(item.name, 'enemy')}
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
-                                  currentRole === 'enemy'
-                                    ? 'bg-[#ef4444] text-white shadow-sm'
-                                    : 'text-[#8a8aa0] hover:text-white'
-                                }`}
-                              >
-                                적팀 ({stat.vsGames})
-                              </button>
-                            )}
+                          <div className="flex items-center gap-1.5">
+                            {/* CK 일지로 필터링하며 전체 이동 버튼 */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectStreamer(item.name, undefined, currentRole || 'all');
+                                setIsOpen(false);
+                              }}
+                              className="px-2 py-0.5 rounded-md bg-[#8b5cf6]/20 hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white border border-[#8b5cf6]/40 text-[10px] font-bold flex items-center gap-1 transition shadow-xs"
+                              title={`CK 일지로 이동하여 ${item.name} 선수의 모든 경기를 필터링합니다`}
+                            >
+                              <Zap size={10} />
+                              <span>일지 이동</span>
+                            </button>
+
+                            {/* 아군/적팀 즉시 전환 탭 */}
+                            <div className="flex items-center gap-1 bg-[#161624] p-0.5 rounded-lg border border-white/5">
+                              {stat.withGames > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleMatches(item.name, 'ally')}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                                    currentRole === 'ally'
+                                      ? 'bg-[#3b82f6] text-white shadow-sm'
+                                      : 'text-[#8a8aa0] hover:text-white'
+                                  }`}
+                                >
+                                  아군 ({stat.withGames})
+                                </button>
+                              )}
+                              {stat.vsGames > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleMatches(item.name, 'enemy')}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition ${
+                                    currentRole === 'enemy'
+                                      ? 'bg-[#ef4444] text-white shadow-sm'
+                                      : 'text-[#8a8aa0] hover:text-white'
+                                  }`}
+                                >
+                                  적팀 ({stat.vsGames})
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
 

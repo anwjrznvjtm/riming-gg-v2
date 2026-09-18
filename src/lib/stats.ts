@@ -1,11 +1,58 @@
 import { Match, LineKey, LineName, ChampionStat, PlayerChampionStat, PartnerStat, LINE_KEYS, LINE_LABELS } from '../types';
+import { STREAMER_ALIASES } from './championSearch';
 
 export const WOORIMING = '우리밍_';
 
 export function isWooriming(name?: string | null): boolean {
   if (!name) return false;
-  const clean = name.trim().replace(/\s+/g, '');
-  return clean === '우리밍_' || clean === '우리밍' || clean.startsWith('우리밍');
+  const clean = String(name).trim().replace(/\s+/g, '');
+  return clean === '우리밍_' || clean === '우리밍' || clean.includes('우리밍');
+}
+
+/**
+ * Strips champion names in parentheses, brackets, tags, and resolves streamer nicknames/aliases.
+ * e.g. "오뀨(이즈리얼)" -> "오뀨", "상윤" -> "나는상윤", "선비" -> "임선비"
+ */
+export function normalizeStreamerName(raw?: string | null): string {
+  if (!raw) return '';
+  let name = String(raw).trim();
+  if (!name || name === '-' || name === '미정' || name === 'null' || name === 'undefined') {
+    return '';
+  }
+
+  // 1. Remove bracket prefixes like [광동], (원딜), [ADC], etc.
+  name = name.replace(/^\[[^\]]*\]\s*/g, '').trim();
+  name = name.replace(/^\([^)]*\)\s*/g, '').trim();
+
+  // 2. Remove parenthesized champion or info like "오뀨(이즈리얼)", "이상호 (쓰레쉬)"
+  name = name.replace(/\s*\([^)]*\)/g, '').trim();
+
+  // 3. Remove slash notations like "오뀨/이즈리얼" if champion is attached
+  if (name.includes('/')) {
+    const parts = name.split('/');
+    if (parts[0] && parts[0].trim()) {
+      name = parts[0].trim();
+    }
+  }
+
+  // 4. Clean extra spaces
+  name = name.replace(/\s+/g, ' ').trim();
+
+  // 5. If it's Wooriming, always normalize to canonical '우리밍_'
+  if (name.includes('우리밍')) {
+    return '우리밍_';
+  }
+
+  // 6. Apply STREAMER_ALIASES if matched (e.g. '상윤' -> '나는상윤', '민교' -> '김민교')
+  const cleanKey = name.replace(/\s+/g, '');
+  if (STREAMER_ALIASES[cleanKey]) {
+    return STREAMER_ALIASES[cleanKey];
+  }
+  if (STREAMER_ALIASES[name]) {
+    return STREAMER_ALIASES[name];
+  }
+
+  return name;
 }
 
 export function parseKda(kda?: string): { k: number; d: number; a: number } {
@@ -26,67 +73,222 @@ export function isKdaEmpty(kda?: string): boolean {
   return trimmed === '' || trimmed === '0/0/0';
 }
 
-export function getWoorimingTeam(match: Match): 'Red' | 'Blue' {
-  if (!match) return 'Red';
+/**
+ * Extracts a roster player for a given lane key safely handling alt naming/casing (e.g. bot/bottom/spt)
+ */
+export function getRosterPlayerAtRole(roster: any, role: LineKey): string {
+  if (!roster) return '';
+  if (typeof roster[role] === 'string' && roster[role].trim()) {
+    return roster[role].trim();
+  }
+  const upper = role.toUpperCase();
+  if (typeof roster[upper] === 'string' && roster[upper].trim()) {
+    return roster[upper].trim();
+  }
+  if (role === 'adc') {
+    for (const alt of ['bot', 'bottom', 'BOT', 'BOTTOM']) {
+      if (typeof roster[alt] === 'string' && roster[alt].trim()) {
+        return roster[alt].trim();
+      }
+    }
+  }
+  if (role === 'sup') {
+    for (const alt of ['support', 'spt', 'SUPPORT', 'SPT']) {
+      if (typeof roster[alt] === 'string' && roster[alt].trim()) {
+        return roster[alt].trim();
+      }
+    }
+  }
+  return '';
+}
+
+/**
+ * Accurately finds Wooriming's team and played position in a match.
+ * Returns null if Wooriming was not in this match.
+ */
+export function findWoorimingInMatch(match: Match): { team: 'Red' | 'Blue'; line: LineKey } | null {
+  if (!match) return null;
+
+  // Check Team A (Red)
   if (match.team_a) {
     for (const key of LINE_KEYS) {
-      if (isWooriming(match.team_a[key])) return 'Red';
+      if (isWooriming(match.team_a[key])) {
+        return { team: 'Red', line: key };
+      }
     }
+    const a = match.team_a as any;
+    if (isWooriming(a.bot || a.bottom || a.BOT || a.BOTTOM || a.ADC)) return { team: 'Red', line: 'adc' };
+    if (isWooriming(a.support || a.spt || a.SUPPORT || a.SPT || a.SUP)) return { team: 'Red', line: 'sup' };
+    if (isWooriming(a.TOP || a.top)) return { team: 'Red', line: 'top' };
+    if (isWooriming(a.JGL || a.jug || a.jungle)) return { team: 'Red', line: 'jgl' };
+    if (isWooriming(a.MID || a.mid)) return { team: 'Red', line: 'mid' };
   }
+
+  // Check Team B (Blue)
   if (match.team_b) {
     for (const key of LINE_KEYS) {
-      if (isWooriming(match.team_b[key])) return 'Blue';
+      if (isWooriming(match.team_b[key])) {
+        return { team: 'Blue', line: key };
+      }
     }
+    const b = match.team_b as any;
+    if (isWooriming(b.bot || b.bottom || b.BOT || b.BOTTOM || b.ADC)) return { team: 'Blue', line: 'adc' };
+    if (isWooriming(b.support || b.spt || b.SUPPORT || b.SPT || b.SUP)) return { team: 'Blue', line: 'sup' };
+    if (isWooriming(b.TOP || b.top)) return { team: 'Blue', line: 'top' };
+    if (isWooriming(b.JGL || b.jug || b.jungle)) return { team: 'Blue', line: 'jgl' };
+    if (isWooriming(b.MID || b.mid)) return { team: 'Blue', line: 'mid' };
   }
-  const inA = Object.values(match.team_a || {}).some(isWooriming);
-  const inB = Object.values(match.team_b || {}).some(isWooriming);
-  if (inA) return 'Red';
-  if (inB) return 'Blue';
+
+  return null;
+}
+
+export function getWoorimingTeam(match: Match): 'Red' | 'Blue' {
+  const found = findWoorimingInMatch(match);
+  if (found) return found.team;
   return 'Red';
 }
 
-// Strictly check whether Wooriming won the match (regardless of casing, Korean '레드'/'블루', etc.)
+// Strictly check whether Wooriming won the match (regardless of casing, Korean '레드'/'블루', score, etc.)
 export function isMatchWonByWooriming(match: Match): boolean {
   if (!match) return false;
   const wTeam = getWoorimingTeam(match); // 'Red' | 'Blue'
   const win = (match.winning_team || '').trim().toLowerCase();
 
   if (wTeam === 'Red') {
-    return win === 'red' || win === '레드' || win === 'team_a' || win === 'a' || win === '1';
+    if (
+      win === 'red' ||
+      win === '레드' ||
+      win === 'team_a' ||
+      win === 'a' ||
+      win === '1' ||
+      win.startsWith('red') ||
+      win.startsWith('레드') ||
+      win.includes('red') ||
+      win.includes('레드')
+    ) {
+      return true;
+    }
+    if (!win && match.score) {
+      const parts = match.score.split(':').map((s) => parseInt(s.trim(), 10));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        return parts[0] > parts[1];
+      }
+    }
+    return false;
   } else if (wTeam === 'Blue') {
-    return win === 'blue' || win === '블루' || win === 'team_b' || win === 'b' || win === '2';
+    if (
+      win === 'blue' ||
+      win === '블루' ||
+      win === 'team_b' ||
+      win === 'b' ||
+      win === '2' ||
+      win.startsWith('blue') ||
+      win.startsWith('블루') ||
+      win.includes('blue') ||
+      win.includes('블루')
+    ) {
+      return true;
+    }
+    if (!win && match.score) {
+      const parts = match.score.split(':').map((s) => parseInt(s.trim(), 10));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        return parts[1] > parts[0];
+      }
+    }
+    return false;
   }
   return false;
 }
 
 export function getWoorimingLine(match: Match): LineName | null {
-  if (!match) return 'ADC';
-  for (const teamKey of ['team_a', 'team_b'] as const) {
-    const roster = match[teamKey];
-    if (roster) {
-      for (const key of LINE_KEYS) {
-        if (isWooriming(roster[key])) {
-          return LINE_LABELS[key];
-        }
-      }
-    }
-  }
-  return null;
+  const found = findWoorimingInMatch(match);
+  if (found) return LINE_LABELS[found.line];
+  return 'ADC';
 }
 
 export function getWoorimingLineKey(match: Match): LineKey {
-  if (!match) return 'adc';
-  for (const teamKey of ['team_a', 'team_b'] as const) {
-    const roster = match[teamKey];
-    if (roster) {
-      for (const key of LINE_KEYS) {
-        if (isWooriming(roster[key])) {
-          return key;
-        }
-      }
+  const found = findWoorimingInMatch(match);
+  if (found) return found.line;
+  return 'adc';
+}
+
+export interface LaneOpponentStat {
+  name: string;
+  role: 'adc' | 'sup';
+  games: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+}
+
+/**
+ * Aggregates exact head-to-head lane opponent stats for Wooriming at a specific position (ADC or SUP).
+ * Matches are tracked where Wooriming played the given position, paired with the enemy player at the exact same position.
+ */
+export function calculateLaneOpponentStats(matches: Match[], role: 'adc' | 'sup'): LaneOpponentStat[] {
+  const map = new Map<
+    string,
+    {
+      name: string;
+      games: number;
+      wins: number;
+      losses: number;
+    }
+  >();
+
+  for (const m of matches) {
+    if (!m) continue;
+
+    // 1. 우리밍_의 출전 여부 및 포지션 확인
+    const wInfo = findWoorimingInMatch(m);
+    if (!wInfo) continue;
+
+    // 2. 우리밍_이 플레이한 포지션이 요청된 포지션(원딜 또는 서폿)과 정확히 일치하는지 확인
+    if (wInfo.line !== role) continue;
+
+    // 3. 적팀의 동일 포지션(맞라인) 상대 플레이어 추출
+    const oppRoster = wInfo.team === 'Red' ? m.team_b : m.team_a;
+    const rawOppName = getRosterPlayerAtRole(oppRoster, role);
+    const oppName = normalizeStreamerName(rawOppName);
+
+    // 상대 플레이어 이름이 없거나, 우리밍_ 본인인 경우 제외
+    if (!oppName || isWooriming(oppName)) continue;
+
+    // 4. 승패 판정 (우리밍_ 승리 여부)
+    const won = isMatchWonByWooriming(m);
+
+    if (!map.has(oppName)) {
+      map.set(oppName, {
+        name: oppName,
+        games: 0,
+        wins: 0,
+        losses: 0,
+      });
+    }
+
+    const stat = map.get(oppName)!;
+    stat.games += 1;
+    if (won) {
+      stat.wins += 1;
+    } else {
+      stat.losses += 1;
     }
   }
-  return 'adc';
+
+  return Array.from(map.values())
+    .map((item) => ({
+      ...item,
+      role,
+      winRate: item.games > 0 ? Math.round((item.wins / item.games) * 100) : 0,
+    }))
+    .sort((a, b) => {
+      // 1순위: 판수(games) 많은 순 DESC
+      if (b.games !== a.games) return b.games - a.games;
+      // 2순위: 승률(winRate) 높은 순 DESC
+      if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+      // 3순위: 승리 수(wins) 많은 순 DESC
+      return b.wins - a.wins;
+    });
 }
 
 export function getCombinations<T>(arr: T[], k: number): T[][] {

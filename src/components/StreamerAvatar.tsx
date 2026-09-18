@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 
 // Known SOOP (AfreecaTV) streamer IDs / avatar mappings
 export const SOOP_STREAMER_IDS: Record<string, string> = {
-  '우리밍_': 'wooriming',
-  '우리밍': 'wooriming',
+  '우리밍_': 'kmj05317',
+  '우리밍': 'kmj05317',
   '김민교': 'minkyo1994',
   '이상호': 'opklol',
   '김봉준': 'khm11903',

@@ -1,17 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Match,
   LineKey,
   LINE_KEYS,
   LINE_LABELS,
   MatchFormat,
-  TeamGameDetail,
-  PlayerGameDetail,
 } from '../types';
 import { normalizeChampionName } from '../lib/champions';
 import { isWooriming } from '../lib/stats';
 import { calculateScoreForSetInSeries } from '../lib/seriesScores';
-import { ScreenshotUploadSection } from './ScreenshotUploadSection';
 import {
   X,
   Copy,
@@ -83,8 +80,25 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   const [persistAdminInForm, setPersistAdminInForm] = useState(true);
   const [formError, setFormError] = useState('');
 
+  // Local state isolation: Do not reset form data during typing or parent re-renders
+  const isInitializedRef = useRef(false);
+  const editingIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      isInitializedRef.current = false;
+      editingIdRef.current = null;
+      return;
+    }
+
+    const currentEditingId = editingMatch ? editingMatch.id : 'new';
+    if (isInitializedRef.current && editingIdRef.current === currentEditingId) {
+      // Already initialized for this modal session, strictly avoid wiping user inputs
+      return;
+    }
+
+    isInitializedRef.current = true;
+    editingIdRef.current = currentEditingId;
 
     if (editingMatch) {
       const calcResult = calculateScoreForSetInSeries({
@@ -540,130 +554,6 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
             <span>관리자 인증 완료 (패스코드 입력 불필요)</span>
           </div>
         )}
-
-        {/* 📸 Screenshot Upload & AI Vision Section */}
-        <ScreenshotUploadSection
-          redScreenshot={formData.red_screenshot}
-          blueScreenshot={formData.blue_screenshot}
-          onRedScreenshotChange={(dataUrl) =>
-            setFormData((prev) => ({ ...prev, red_screenshot: dataUrl }))
-          }
-          onBlueScreenshotChange={(dataUrl) =>
-            setFormData((prev) => ({ ...prev, blue_screenshot: dataUrl }))
-          }
-          gameDuration={formData.game_duration}
-          onGameDurationChange={(dur) =>
-            setFormData((prev) => ({ ...prev, game_duration: dur }))
-          }
-          teamADetail={formData.team_a_detail}
-          teamBDetail={formData.team_b_detail}
-          onTeamADetailChange={(detail) =>
-            setFormData((prev) => ({ ...prev, team_a_detail: detail }))
-          }
-          onTeamBDetailChange={(detail) =>
-            setFormData((prev) => ({ ...prev, team_b_detail: detail }))
-          }
-          onApplyAiExtraction={(extracted, notice) => {
-            setFormData((prev) => {
-              const newAChamps = { ...prev.team_a_champs };
-              const newBChamps = { ...prev.team_b_champs };
-              const newAKda = { ...prev.team_a_kda };
-              const newBKda = { ...prev.team_b_kda };
-
-              const newTeamAPlayers: Record<LineKey, PlayerGameDetail> = {} as any;
-              const newTeamBPlayers: Record<LineKey, PlayerGameDetail> = {} as any;
-
-              for (const l of LINE_KEYS) {
-                const lockedStreamerA = prev.team_a[l];
-                const lockedChampA = prev.team_a_champs[l];
-                const extractedA = extracted.red_team?.players?.[l];
-
-                if (!lockedChampA && extractedA?.champion) {
-                  newAChamps[l] = extractedA.champion;
-                }
-                if (extractedA?.kda) {
-                  newAKda[l] = extractedA.kda;
-                }
-
-                if (extractedA) {
-                  newTeamAPlayers[l] = {
-                    ...extractedA,
-                    player: lockedStreamerA || extractedA.player,
-                    champion: lockedChampA || extractedA.champion,
-                    line: l,
-                  };
-                } else if (prev.team_a_detail?.players?.[l]) {
-                  newTeamAPlayers[l] = {
-                    ...prev.team_a_detail.players[l],
-                    player: lockedStreamerA || prev.team_a_detail.players[l].player,
-                    champion: lockedChampA || prev.team_a_detail.players[l].champion,
-                  };
-                }
-
-                const lockedStreamerB = prev.team_b[l];
-                const lockedChampB = prev.team_b_champs[l];
-                const extractedB = extracted.blue_team?.players?.[l];
-
-                if (!lockedChampB && extractedB?.champion) {
-                  newBChamps[l] = extractedB.champion;
-                }
-                if (extractedB?.kda) {
-                  newBKda[l] = extractedB.kda;
-                }
-
-                if (extractedB) {
-                  newTeamBPlayers[l] = {
-                    ...extractedB,
-                    player: lockedStreamerB || extractedB.player,
-                    champion: lockedChampB || extractedB.champion,
-                    line: l,
-                  };
-                } else if (prev.team_b_detail?.players?.[l]) {
-                  newTeamBPlayers[l] = {
-                    ...prev.team_b_detail.players[l],
-                    player: lockedStreamerB || prev.team_b_detail.players[l].player,
-                    champion: lockedChampB || prev.team_b_detail.players[l].champion,
-                  };
-                }
-              }
-
-              const newTeamADetail: TeamGameDetail = {
-                team_kda: extracted.red_team?.team_kda || prev.team_a_detail?.team_kda || '',
-                global_gold: extracted.red_team?.global_gold || prev.team_a_detail?.global_gold || '',
-                players: newTeamAPlayers,
-              };
-
-              const newTeamBDetail: TeamGameDetail = {
-                team_kda: extracted.blue_team?.team_kda || prev.team_b_detail?.team_kda || '',
-                global_gold: extracted.blue_team?.global_gold || prev.team_b_detail?.global_gold || '',
-                players: newTeamBPlayers,
-              };
-
-              return {
-                ...prev,
-                team_a_champs: newAChamps,
-                team_b_champs: newBChamps,
-                team_a_kda: newAKda,
-                team_b_kda: newBKda,
-                game_duration: extracted.game_duration || prev.game_duration,
-                winning_team: extracted.winning_team || prev.winning_team,
-                team_a_detail: newTeamADetail,
-                team_b_detail: newTeamBDetail,
-                extracted_data: {
-                  ...extracted,
-                  red_team: newTeamADetail,
-                  blue_team: newTeamBDetail,
-                },
-              };
-            });
-            if (notice) {
-              onToast(notice);
-            }
-          }}
-          onToast={onToast}
-          currentTeamA={formData.team_a}
-          currentTeamB={formData.team_b}
-        />
 
         {/* Action Row: Load previous roster & Swap */}
         <div className="mb-4 p-3 bg-[#0a0a12] border border-[#1e1e2a] rounded-[14px] flex flex-wrap items-center justify-between gap-2.5">
