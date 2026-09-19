@@ -24,8 +24,6 @@ import {
   TrendingUp,
   Flame,
   Swords,
-  ChevronDown,
-  ChevronUp,
   X,
   Users,
   ExternalLink,
@@ -77,9 +75,6 @@ export const MainTab: React.FC<MainTabProps> = ({
   const [streamerRoleFilter, setStreamerRoleFilter] = useState<'all' | 'ally' | 'enemy'>('all');
   const [dateFilter, setDateFilter] = useState<string>('');
 
-  // Accordion expanded match IDs
-  const [expandedMatchIds, setExpandedMatchIds] = useState<Set<string>>(new Set());
-
   // Modal states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
@@ -97,7 +92,6 @@ export const MainTab: React.FC<MainTabProps> = ({
       }
     }
     if (targetMatchId) {
-      setExpandedMatchIds((prev) => new Set([...prev, targetMatchId]));
       setTimeout(() => {
         const el = document.getElementById(`match-${targetMatchId}`);
         if (el) {
@@ -411,23 +405,6 @@ export const MainTab: React.FC<MainTabProps> = ({
     return { total, wins, losses, winRate };
   }, [filteredMatches]);
 
-  const toggleExpandMatch = (id: string) => {
-    setExpandedMatchIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleToggleAllExpand = () => {
-    if (expandedMatchIds.size === filteredMatches.length && filteredMatches.length > 0) {
-      setExpandedMatchIds(new Set());
-    } else {
-      setExpandedMatchIds(new Set(filteredMatches.map((m) => m.id)));
-    }
-  };
-
   const resetAllFilters = () => {
     setSearchQuery('');
     setSelectedLine('ALL');
@@ -460,9 +437,9 @@ export const MainTab: React.FC<MainTabProps> = ({
         <div className="lg:col-span-4 xl:col-span-3 space-y-4">
           
           {/* 우리밍_ 프로필 카드 */}
-          <div className="bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-4 shadow-lg relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-[#8b5cf6]/10 rounded-full blur-2xl pointer-events-none" />
-            <div className="flex items-center gap-3 relative z-10">
+          <div className="bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-5 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-36 h-36 bg-[#8b5cf6]/15 rounded-full blur-2xl pointer-events-none" />
+            <div className="flex items-center gap-4 relative z-10">
               <a
                 href="https://www.sooplive.com/station/kmj05317"
                 target="_blank"
@@ -483,38 +460,37 @@ export const MainTab: React.FC<MainTabProps> = ({
                         'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/profile-icons/548.jpg';
                     }
                   }}
-                  className="w-14 h-14 rounded-full border-2 border-[#8b5cf6] object-cover shadow-md group-hover:scale-105 group-hover:border-[#a78bfa] group-hover:ring-2 group-hover:ring-[#8b5cf6]/40 transition-all duration-200"
+                  className="w-[88px] h-[88px] rounded-full border-[2.5px] border-[#8b5cf6] object-cover shadow-lg ring-4 ring-[#8b5cf6]/20 group-hover:scale-105 group-hover:border-[#a78bfa] group-hover:ring-[#8b5cf6]/40 transition-all duration-200"
                   referrerPolicy="no-referrer"
                 />
-                <span className="absolute -bottom-1 -right-1 bg-[#8b5cf6] text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-black group-hover:bg-[#7c3aed] transition">
-                  ADC
+                <span className="absolute -bottom-1 -right-1 bg-gradient-to-r from-[#8b5cf6] to-[#7c3aed] text-white text-[11.5px] font-black px-2.5 py-0.5 rounded-full border-2 border-[#12121a] shadow-md group-hover:from-[#7c3aed] group-hover:to-[#6d28d9] transition">
+                  원딜
                 </span>
                 <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200 pointer-events-none">
-                  <ExternalLink size={14} className="text-white drop-shadow" />
+                  <ExternalLink size={20} className="text-white drop-shadow" />
                 </div>
               </a>
+
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <h2 className="text-[17px] font-black text-white tracking-tight">우리밍_</h2>
-                  <span className="bg-[#8b5cf6]/20 text-[#c4b5fd] text-[10px] font-bold px-1.5 py-0.5 rounded border border-[#8b5cf6]/40">
-                    CK 전적
-                  </span>
+                <div>
+                  <h2 className="text-[24px] font-black text-white tracking-tight leading-none">우리밍_</h2>
                 </div>
-                <div className="text-[11px] text-white font-semibold mt-1">
+                
+                <div className="text-[14px] text-white font-semibold mt-2 leading-snug">
                   총 {lifetimeStats.total}전 {lifetimeStats.wins}승 {lifetimeStats.losses}패{' '}
-                  <span className="text-[#8b5cf6] font-bold">({lifetimeStats.winRate}%)</span>
+                  <span className="text-[#a78bfa] font-black text-[15.5px]">({lifetimeStats.winRate}%)</span>
                 </div>
               </div>
             </div>
 
             {/* Quick Action Button: 새 경기 등록 */}
-            <div className="mt-3.5 pt-3 border-t border-[#1e1e2a] flex items-center gap-2">
+            <div className="mt-4 pt-3.5 border-t border-[#1e1e2a] flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleOpenAddModal}
-                className="w-full h-[36px] bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:from-[#7c3aed] hover:to-[#4f46e5] text-white rounded-xl text-[12px] font-bold shadow-md transition flex items-center justify-center gap-1.5"
+                className="w-full h-[40px] bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:from-[#7c3aed] hover:to-[#4f46e5] text-white rounded-xl text-[13px] font-bold shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <Plus size={15} />
+                <Plus size={16} />
                 <span>+ 새 CK 경기 등록</span>
               </button>
             </div>
@@ -1049,25 +1025,6 @@ export const MainTab: React.FC<MainTabProps> = ({
                   </button>
                 )}
               </div>
-
-              {/* Toggle All Accordions */}
-              <button
-                type="button"
-                onClick={handleToggleAllExpand}
-                className="h-[30px] px-3 bg-white/5 hover:bg-white/10 text-[#a0a0b8] hover:text-white border border-white/10 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition"
-              >
-                {expandedMatchIds.size === filteredMatches.length && filteredMatches.length > 0 ? (
-                  <>
-                    <ChevronUp size={13} />
-                    <span>전체 상세 접기</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown size={13} />
-                    <span>전체 상세 펼치기</span>
-                  </>
-                )}
-              </button>
             </div>
 
             {/* Filter Result Status Bar */}
@@ -1086,7 +1043,6 @@ export const MainTab: React.FC<MainTabProps> = ({
             <div className="space-y-2.5">
               {filteredMatches.map((m) => {
                 const scoreText = getSeriesCumulativeScore(m, matches);
-                const isExpanded = expandedMatchIds.has(m.id);
 
                 return (
                   <OpggMatchCard
@@ -1096,8 +1052,6 @@ export const MainTab: React.FC<MainTabProps> = ({
                     onEdit={handleOpenEditModal}
                     onDelete={(id) => setDeleteTargetId(id)}
                     onJumpToStreamer={onJumpToStreamer}
-                    isExpanded={isExpanded}
-                    onToggleExpand={() => toggleExpandMatch(m.id)}
                   />
                 );
               })}

@@ -88,11 +88,12 @@ export function getChampionEnName(krName: string): string | null {
 
 export const getChampionKey = getChampionEnName;
 
-export function getChampionIconUrl(krName: string): string | null {
+export function getChampionIconUrl(krName: string, version?: string): string | null {
   const enName = getChampionEnName(krName);
   if (!enName) return null;
   if (CUSTOM_ICONS[enName]) return CUSTOM_ICONS[enName];
-  return `${DDRAGON_BASE}/${enName}.png`;
+  const ver = version || DDRAGON_VERSION;
+  return `https://ddragon.leagueoflegends.com/cdn/${ver}/img/champion/${enName}.png`;
 }
 
 export function getChampionFallbackUrl(krName: string): string | null {

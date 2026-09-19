@@ -1161,6 +1161,10 @@ export const JournalTab: React.FC<JournalTabProps> = ({
             // FIXED: Use correctedScoreMap instead of m.score parsing
             const allyEnemyScoreText = correctedScoreMap.get(m.id) || '1:0';
 
+            // Winner faction formatting for score display
+            const isWinnerRed = m.winning_team === 'Red';
+            const winnerTeamName = isWinnerRed ? 'RED' : 'BLUE';
+
             const cardBgClass = won
               ? 'bg-gradient-to-r from-[#0e213b]/95 via-[#0e192c]/95 to-[#0b1321]/95'
               : 'bg-gradient-to-r from-[#2c1218]/95 via-[#1d1016]/95 to-[#140b10]/95';
@@ -1210,12 +1214,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                         >
                           {won ? '승리' : '패배'}
                         </span>
-                        <span className="text-[11px] text-[#a0a0b8] font-bold" title="[아군 점수 : 적팀 점수]">
-                          {allyEnemyScoreText}{' '}
-                          <span className="text-[10px] text-[#6a6a80] font-normal">
-                            ({won ? '아군 승' : '적팀 승'})
-                          </span>
-                        </span>
+                        <div className="text-[11px] font-bold text-[#b4b4cb]">
+                          스코어 {allyEnemyScoreText}
+                        </div>
                       </div>
                     </div>
                   </div>

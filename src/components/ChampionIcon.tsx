@@ -6,19 +6,28 @@ interface Props {
   size?: number;
   shape?: "circle" | "square";
   showLock?: boolean;
+  className?: string;
+  version?: string;
 }
 
-export const ChampionIcon: React.FC<Props> = ({ name, size = 24, shape = "circle", showLock = false }) => {
+export const ChampionIcon: React.FC<Props> = ({
+  name,
+  size = 24,
+  shape = "circle",
+  showLock = false,
+  className = "",
+  version,
+}) => {
   const [failed, setFailed] = useState(false);
   const [useFallback, setUseFallback] = useState(false);
   
   const cleanName = (name || "").trim();
   if (!cleanName) {
-    return <div style={{ width: size, height: size }} className="bg-[#1e1e2a] rounded-full" />;
+    return <div style={{ width: size, height: size }} className={`bg-[#1e1e2a] rounded-full ${className}`} />;
   }
 
   const enName = getChampionEnName(cleanName);
-  const primaryUrl = getChampionIconUrl(cleanName);
+  const primaryUrl = getChampionIconUrl(cleanName, version);
   const fallbackUrl = getChampionFallbackUrl(cleanName);
   const url = useFallback && fallbackUrl ? fallbackUrl : primaryUrl;
 
@@ -26,7 +35,7 @@ export const ChampionIcon: React.FC<Props> = ({ name, size = 24, shape = "circle
     return (
       <div
         style={{ width: size, height: size }}
-        className={`${shape === "circle" ? "rounded-full" : "rounded-[4px]"} bg-[#1e1e2a] border border-[#2a2a3a] flex items-center justify-center text-[8px] text-[#a0a6bd] font-bold`}
+        className={`${shape === "circle" ? "rounded-full" : "rounded-[4px]"} bg-[#1e1e2a] border border-[#2a2a3a] flex items-center justify-center text-[8px] text-[#a0a6bd] font-bold ${className}`}
         title={cleanName}
       >
         {cleanName.slice(0, 2)}
@@ -35,13 +44,13 @@ export const ChampionIcon: React.FC<Props> = ({ name, size = 24, shape = "circle
   }
 
   return (
-    <div style={{ width: size, height: size }} className="relative shrink-0">
+    <div style={{ width: size, height: size }} className={`relative shrink-0 ${className}`}>
       <img
         src={url}
         alt={cleanName}
         width={size}
         height={size}
-        className={`${shape === "circle" ? "rounded-full" : "rounded-[4px]"} border border-[#2a2a3a] object-cover bg-[#12121a]`}
+        className={`${shape === "circle" ? "rounded-full" : "rounded-[4px]"} border border-[#2a2a3a] object-cover bg-[#12121a] w-full h-full`}
         onError={() => {
           if (!useFallback && fallbackUrl && fallbackUrl !== primaryUrl) {
             setUseFallback(true);
