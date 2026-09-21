@@ -22,6 +22,7 @@ interface HeaderProps {
   onToggleMute: () => void;
   bgmVolume: number;
   onChangeVolume: (v: number) => void;
+  currentPatch?: string;
 }
 
 // FINAL FIX: 모바일에서도 메뉴 절대 안 사라지는 헤더 + 스트리머 전적 검색창
@@ -42,12 +43,16 @@ export const Header: React.FC<HeaderProps> = ({
   bgmVolume,
   onChangeVolume,
   currentTrack,
+  currentPatch = '15.1.1',
 }) => {
   const tabs = [
     { id: 'main', label: '메인' },
+    { id: 'champions', label: '챔피언' },
     { id: 'synergy', label: '시너지' },
     { id: 'rolland', label: '롤랜드' },
   ];
+
+  const patchShort = currentPatch.split('.').slice(0, 2).join('.') || '15.1';
 
   return (
     <header className="sticky top-0 z-40 bg-[#08080c]/95 backdrop-blur-xl border-b border-[#1e1e2a]">
@@ -58,6 +63,10 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-2 shrink-0">
             <div className="font-black text-[17px] md:text-[18px] tracking-[0.15em] text-[#c0c0d0]">
               RIMING.GG
+            </div>
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#141420] border border-[#262638] text-[10px] font-bold text-[#8a8aa0] shadow-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse" />
+              <span>{patchShort} 패치 기준</span>
             </div>
           </div>
           
