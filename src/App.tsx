@@ -21,7 +21,6 @@ import {
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { MainTab } from './components/MainTab';
-import { ChampionsTab } from './components/ChampionsTab';
 import { SynergyTab } from './components/SynergyTab';
 import { RollandTab } from './components/RollandTab';
 import { SummaryModal } from './components/SummaryModal';
@@ -612,15 +611,6 @@ export default function App() {
             targetMatchId={targetMatchId || undefined}
             targetStreamerRole={targetStreamerRole}
             jumpTimestamp={jumpTimestamp}
-          />
-        )}
-        {currentTab === 'champions' && (
-          <ChampionsTab
-            matches={matches}
-            allChampions={allChampions}
-            allStreamers={allStreamers}
-            onJumpToStreamer={handleJumpToStreamer}
-            onToast={showToast}
           />
         )}
         {currentTab === 'synergy' && (
