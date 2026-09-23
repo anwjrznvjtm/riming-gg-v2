@@ -27,7 +27,6 @@ import { RollandTab } from './components/RollandTab';
 import { SummaryModal } from './components/SummaryModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { BGM_PLAYLIST, BgmTrack, createBgmQueue } from './lib/bgm';
-import { fetchLatestPatchVersion } from './lib/riotPatch';
 
 declare global {
   interface Window {
@@ -60,7 +59,6 @@ export default function App() {
   });
 
   const [currentTab, setCurrentTab] = useState<string>('main');
-  const [currentPatch, setCurrentPatch] = useState<string>('');
   const [targetStreamer, setTargetStreamer] = useState<string | null>(null);
   const [targetMatchId, setTargetMatchId] = useState<string | null>(null);
   const [targetStreamerRole, setTargetStreamerRole] = useState<'all' | 'ally' | 'enemy'>('all');
@@ -182,12 +180,6 @@ export default function App() {
       window.removeEventListener('focus', handleVisibilityChange);
     };
   }, [syncFromApi]);
-
-  useEffect(() => {
-    fetchLatestPatchVersion().then((version) => {
-      if (version) setCurrentPatch(version);
-    });
-  }, []);
 
   useEffect(() => {
     try {
@@ -591,7 +583,6 @@ export default function App() {
         onToggleMute={toggleMute}
         bgmVolume={bgmVolume}
         onChangeVolume={handleVolumeChange}
-        currentPatch={currentPatch}
       />
       <main className="max-w-[1280px] w-full mx-auto px-3 sm:px-4 md:px-6 py-4 md:py-8 flex-1">
         {(currentTab === 'main' || currentTab === 'journal') && (

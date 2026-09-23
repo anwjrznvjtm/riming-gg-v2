@@ -196,21 +196,28 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
         }),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        if (json.isQuotaExhausted) {
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch (jsonErr) {
+        console.warn('Response was not JSON:', jsonErr);
+      }
+
+      if (!res.ok || !json?.success) {
+        if (json?.data) {
+          setFallbackData(json.data);
+        }
+        if (json?.isQuotaExhausted) {
           setErrorMessage(
-            json.message ||
+            json?.message ||
             'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다. AI Studio(https://ai.studio/projects)에서 크레딧 충전 또는 결제 계정 확인이 필요합니다.'
           );
-          if (json.data) {
-            setFallbackData(json.data);
-          }
           onToast('⚠️ Gemini API 크레딧이 소진되었습니다. 수동 입력 또는 [샘플 지표 채우기]로 바로 등록할 수 있습니다.');
           return;
         }
-        setErrorMessage(json.error || json.message || 'AI 비전 분석에 실패했습니다.');
-        onToast(`분석 안내: ${json.error || json.message || '오류가 발생했습니다.'}`);
+        const errorMsg = json?.error || json?.message || `AI 분석 서버 응답 오류 (HTTP ${res.status})`;
+        setErrorMessage(errorMsg);
+        onToast(`분석 안내: ${errorMsg}`);
         return;
       }
 
@@ -316,24 +323,24 @@ export const ScreenshotUploadSection: React.FC<ScreenshotUploadSectionProps> = (
                   AI Studio 프로젝트 설정
                 </a>{' '}
                 또는 Google Cloud 콘솔 결제 계정에서 크레딧을 추가하시거나 수동으로 지표를 입력/수정하실 수 있습니다.
-                {fallbackData && (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        applyExtractedData(fallbackData, '샘플 지표 데이터가 적용되었습니다.');
-                        setErrorMessage(null);
-                        onToast('✨ 샘플 지표 데이터가 모달 및 대시보드에 적용되었습니다.');
-                      }}
-                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-md transition shadow flex items-center gap-1"
-                    >
-                      <Sparkles size={11} />
-                      <span>⚡ 샘플 통계 데이터 즉시 적용하기 (우리밍_ 딜량/골드/스탯)</span>
-                    </button>
-                  </div>
-                )}
               </div>
             ) : null}
+            {fallbackData && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    applyExtractedData(fallbackData, '샘플 지표 데이터가 적용되었습니다.');
+                    setErrorMessage(null);
+                    onToast('✨ 샘플 지표 데이터가 모달 및 대시보드에 적용되었습니다.');
+                  }}
+                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] rounded-md transition shadow flex items-center gap-1"
+                >
+                  <Sparkles size={11} />
+                  <span>⚡ 샘플 통계 데이터 즉시 적용하기 (우리밍_ 딜량/골드/스탯)</span>
+                </button>
+              </div>
+            )}
           </div>
           <button
             type="button"

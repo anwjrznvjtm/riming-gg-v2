@@ -79,6 +79,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   const [formPasscode, setFormPasscode] = useState('');
   const [persistAdminInForm, setPersistAdminInForm] = useState(true);
   const [formError, setFormError] = useState('');
+  const [activeEditingMatch, setActiveEditingMatch] = useState<Match | null>(editingMatch);
 
   // Local state isolation: Do not reset form data during typing or parent re-renders
   const isInitializedRef = useRef(false);
@@ -88,17 +89,18 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     if (!isOpen) {
       isInitializedRef.current = false;
       editingIdRef.current = null;
+      setActiveEditingMatch(null);
       return;
     }
 
-    const currentEditingId = editingMatch ? editingMatch.id : 'new';
-    if (isInitializedRef.current && editingIdRef.current === currentEditingId) {
+    if (isInitializedRef.current) {
       // Already initialized for this modal session, strictly avoid wiping user inputs
       return;
     }
 
     isInitializedRef.current = true;
-    editingIdRef.current = currentEditingId;
+    editingIdRef.current = editingMatch ? editingMatch.id : 'new';
+    setActiveEditingMatch(editingMatch);
 
     if (editingMatch) {
       const calcResult = calculateScoreForSetInSeries({
@@ -409,6 +411,48 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     return { isValid: true, errorMsg: '' };
   };
 
+  const buildMatchToSave = (currentData: Match): Match => {
+    const cleanCkName = (currentData.ck_name || '').trim();
+
+    // Sanitize player names in detail
+    let sanitizedTeamADetail = currentData.team_a_detail;
+    if (sanitizedTeamADetail?.players) {
+      const updatedPlayers = { ...sanitizedTeamADetail.players };
+      for (const lk of LINE_KEYS) {
+        if (updatedPlayers[lk]) {
+          updatedPlayers[lk] = {
+            ...updatedPlayers[lk],
+            player: currentData.team_a[lk] || updatedPlayers[lk].player,
+            line: lk,
+          };
+        }
+      }
+      sanitizedTeamADetail = { ...sanitizedTeamADetail, players: updatedPlayers };
+    }
+
+    let sanitizedTeamBDetail = currentData.team_b_detail;
+    if (sanitizedTeamBDetail?.players) {
+      const updatedPlayers = { ...sanitizedTeamBDetail.players };
+      for (const lk of LINE_KEYS) {
+        if (updatedPlayers[lk]) {
+          updatedPlayers[lk] = {
+            ...updatedPlayers[lk],
+            player: currentData.team_b[lk] || updatedPlayers[lk].player,
+            line: lk,
+          };
+        }
+      }
+      sanitizedTeamBDetail = { ...sanitizedTeamBDetail, players: updatedPlayers };
+    }
+
+    return {
+      ...currentData,
+      ck_name: cleanCkName,
+      team_a_detail: sanitizedTeamADetail,
+      team_b_detail: sanitizedTeamBDetail,
+    };
+  };
+
   const handleSaveMatch = () => {
     const val = validateMatchForm(formData);
     if (!val.isValid) {
@@ -421,48 +465,10 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       onAdminLoginSuccess();
     }
 
-    const cleanCkName = (formData.ck_name || '').trim();
-
-    // Sanitize player names in detail
-    let sanitizedTeamADetail = formData.team_a_detail;
-    if (sanitizedTeamADetail?.players) {
-      const updatedPlayers = { ...sanitizedTeamADetail.players };
-      for (const lk of LINE_KEYS) {
-        if (updatedPlayers[lk]) {
-          updatedPlayers[lk] = {
-            ...updatedPlayers[lk],
-            player: formData.team_a[lk] || updatedPlayers[lk].player,
-            line: lk,
-          };
-        }
-      }
-      sanitizedTeamADetail = { ...sanitizedTeamADetail, players: updatedPlayers };
-    }
-
-    let sanitizedTeamBDetail = formData.team_b_detail;
-    if (sanitizedTeamBDetail?.players) {
-      const updatedPlayers = { ...sanitizedTeamBDetail.players };
-      for (const lk of LINE_KEYS) {
-        if (updatedPlayers[lk]) {
-          updatedPlayers[lk] = {
-            ...updatedPlayers[lk],
-            player: formData.team_b[lk] || updatedPlayers[lk].player,
-            line: lk,
-          };
-        }
-      }
-      sanitizedTeamBDetail = { ...sanitizedTeamBDetail, players: updatedPlayers };
-    }
-
-    const matchToSave: Match = {
-      ...formData,
-      ck_name: cleanCkName,
-      team_a_detail: sanitizedTeamADetail,
-      team_b_detail: sanitizedTeamBDetail,
-    };
+    const matchToSave = buildMatchToSave(formData);
 
     try {
-      if (editingMatch) {
+      if (activeEditingMatch) {
         onUpdateMatch(matchToSave);
         onToast('경기가 성공적으로 수정되었습니다.');
       } else {
@@ -490,32 +496,83 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       onAdminLoginSuccess();
     }
 
-    handleSaveMatch();
+    const matchToSave = buildMatchToSave(formData);
 
-    const nextSet = Number(formData.set_number || 1) + 1;
+    try {
+      if (activeEditingMatch) {
+        onUpdateMatch(matchToSave);
+      } else {
+        onAddMatch(matchToSave);
+      }
+    } catch (err) {
+      console.error('Save match error', err);
+      setFormError('경기 저장 중 예기치 않은 오류가 발생했습니다.');
+      onToast('저장 실패');
+      return;
+    }
+
+    const currentSetNum = Number(formData.set_number || 1);
+    const nextSet = currentSetNum + 1;
+
+    const nextMatchFormat: MatchFormat =
+      formData.match_format === '단판'
+        ? '3판2선승'
+        : formData.match_format === '3판2선승' && nextSet > 3
+        ? '5판3선승'
+        : formData.match_format;
+
+    // Immediately incorporate current saved set for next set series calculation
+    const updatedMatches = activeEditingMatch
+      ? allMatches.map((m) => (String(m.id) === String(matchToSave.id) ? matchToSave : m))
+      : [matchToSave, ...allMatches.filter((m) => String(m.id) !== String(matchToSave.id))];
+
     const calcResult = calculateScoreForSetInSeries({
       date: formData.date,
-      ck_name: formData.ck_name,
+      ck_name: matchToSave.ck_name,
       set_number: nextSet,
       winning_team: 'Red',
       team_a: formData.team_a,
       team_b: formData.team_b,
-      allMatches,
+      allMatches: updatedMatches,
     });
 
+    setSeriesWinners(calcResult.priorWinners);
+    setSeriesHistory(calcResult.priorHistory);
+
+    // Any subsequent save from now on is registered as a new match
+    setActiveEditingMatch(null);
+
+    const nextId = `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    // Retain streamer nicknames and team roster; reset champs, kda, bans, screenshots
     setFormData((prev) => ({
-      ...prev,
-      id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: nextId,
+      date: prev.date,
+      ck_name: matchToSave.ck_name,
+      match_format: nextMatchFormat,
       set_number: nextSet,
+      // Retain 10 streamer nicknames and team roster
+      team_a: { ...prev.team_a },
+      team_b: { ...prev.team_b },
+      // Reset champions, KDA, bans, and screenshots for the new set
       team_a_champs: { ...emptyRoster },
       team_b_champs: { ...emptyRoster },
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
+      ban_a: ['', '', '', '', ''],
+      ban_b: ['', '', '', '', ''],
+      game_duration: '31:40',
+      winning_team: 'Red',
+      score: calcResult.score,
+      team_a_detail: undefined,
+      team_b_detail: undefined,
       red_screenshot: undefined,
       blue_screenshot: undefined,
       extracted_data: undefined,
-      score: calcResult.score,
     }));
+
+    setFormError('');
+    onToast(`${currentSetNum}세트 저장 완료! ${nextSet}세트 작성 모드로 연속 진행됩니다. (10인 로스터 유지)`);
   };
 
   if (!isOpen) return null;
@@ -532,8 +589,11 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
         {/* Header */}
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center gap-2.5">
-            <h3 className="font-bold text-[17px] text-white">
-              {editingMatch ? 'CK 경기 수정' : '새 CK 경기 등록'}
+            <h3 className="font-bold text-[17px] text-white flex items-center gap-1.5">
+              <span>{activeEditingMatch ? 'CK 경기 수정' : '새 CK 경기 등록'}</span>
+              <span className="text-[#8b5cf6] text-[14px] font-semibold">
+                ({formData.set_number || 1}세트)
+              </span>
             </h3>
             <span className="text-[10px] bg-[#8b5cf6]/15 border border-[#8b5cf6]/30 text-[#c4b5fd] px-2.5 py-0.5 rounded-full font-semibold">
               스마트 세트 시스템
@@ -681,12 +741,14 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
             >
               {Array.from(
                 {
-                  length:
+                  length: Math.max(
+                    formData.set_number || 1,
                     formData.match_format === '5판3선승'
                       ? 5
                       : formData.match_format === '3판2선승'
                       ? 3
-                      : 1,
+                      : 1
+                  ),
                 },
                 (_, i) => i + 1
               ).map((num) => (
