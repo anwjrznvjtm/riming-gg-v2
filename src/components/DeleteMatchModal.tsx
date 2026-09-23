@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Trash2, X, AlertTriangle } from 'lucide-react';
+import { PASSCODE } from '../data/initialMatches';
 
 interface DeleteMatchModalProps {
   isOpen: boolean;
@@ -9,8 +10,6 @@ interface DeleteMatchModalProps {
   onConfirmDelete: (id: string) => void;
   onToast: (msg: string) => void;
 }
-
-const PASSCODE = '0928';
 
 export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
   isOpen,
@@ -48,10 +47,12 @@ export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]"
-      onClick={onClose}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         className="relative z-[10000] w-full max-w-[400px] bg-[#12121a] border border-[#2a1a1e] rounded-[20px] p-6 shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-start mb-4">
