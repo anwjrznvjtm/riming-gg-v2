@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PASSCODE } from '../data/initialMatches';
+import { verifyAdminPasscode } from '../data/initialMatches';
 import { Lock, X } from 'lucide-react';
 
 interface AdminLoginModalProps {
@@ -21,7 +21,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   if (!isOpen) return null;
 
   const handleLogin = () => {
-    if (passcode.trim().toLowerCase() === PASSCODE.toLowerCase()) {
+    if (verifyAdminPasscode(passcode)) {
       onSuccess();
       onToast('관리자로 로그인되었습니다 (24시간 유지).');
       onClose();
