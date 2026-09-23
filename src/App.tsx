@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Match } from './types';
 import {
+  PASSCODE,
   ADMIN_SESSION_KEY,
   STORAGE_KEY_MATCHES,
   STORAGE_KEY_BACKUP,

@@ -6,7 +6,6 @@ import {
   LINE_LABELS,
   MatchFormat,
 } from '../types';
-import { PASSCODE } from '../data/initialMatches';
 import { normalizeChampionName } from '../lib/champions';
 import { isWooriming } from '../lib/stats';
 import { calculateScoreForSetInSeries } from '../lib/seriesScores';
@@ -35,6 +34,8 @@ interface MatchEditModalProps {
   allStreamers: string[];
   allChampions: string[];
 }
+
+const PASSCODE = '0928';
 
 export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   isOpen,
@@ -522,12 +523,10 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-[9999] flex items-center sm:items-start justify-center p-3 sm:p-4 overflow-y-auto bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]"
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
+      onClick={onClose}
     >
       <div
         className="relative z-[10000] w-full max-w-[850px] bg-[#12121a] border border-[#1e1e2a] rounded-[22px] p-5 sm:p-6 my-4 sm:my-6 shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

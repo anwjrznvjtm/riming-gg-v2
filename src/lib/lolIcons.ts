@@ -1,9 +1,7 @@
 // Mapping LoL Official Data Dragon icon assets for Runes, Spells, and Items
 // CommunityDragon & DataDragon URLs provide 100% reliable high-res official icons.
-import { getActivePatch } from './riotPatch';
 
-export const DD_VERSION = '16.18.1';
-export const getDDragonBase = (version?: string) => `https://ddragon.leagueoflegends.com/cdn/${version || getActivePatch() || '16.18.1'}`;
+export const DD_VERSION = '14.1.1';
 export const DD_BASE = `https://ddragon.leagueoflegends.com/cdn/${DD_VERSION}`;
 export const CDRAGON_BASE = 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1';
 
@@ -194,18 +192,6 @@ export function resolveRunePair(runes: string[]): {
 }
 
 // Official Summoner Spells (소환사 주문) mapping
-export const SPELL_FILE_MAP: Record<string, string> = {
-  점멸: 'SummonerFlash',
-  회복: 'SummonerHeal',
-  정화: 'SummonerBoost',
-  유체화: 'SummonerHaste',
-  탈진: 'SummonerExhaust',
-  점화: 'SummonerDot',
-  순간이동: 'SummonerTeleport',
-  강타: 'SummonerSmite',
-  방어막: 'SummonerBarrier',
-};
-
 export const SPELL_ICONS: Record<string, string> = {
   점멸: `${DD_BASE}/img/spell/SummonerFlash.png`,
   회복: `${DD_BASE}/img/spell/SummonerHeal.png`,
@@ -218,19 +204,13 @@ export const SPELL_ICONS: Record<string, string> = {
   방어막: `${DD_BASE}/img/spell/SummonerBarrier.png`,
 };
 
-export function getSpellIcon(spellName: string, patchVersion?: string): string {
-  const clean = (spellName || '').trim();
-  const file = SPELL_FILE_MAP[clean];
-  const base = getDDragonBase(patchVersion);
-  if (file) {
-    return `${base}/img/spell/${file}.png`;
+export function getSpellIcon(spellName: string): string {
+  const clean = spellName.trim();
+  if (SPELL_ICONS[clean]) return SPELL_ICONS[clean];
+  for (const [key, url] of Object.entries(SPELL_ICONS)) {
+    if (clean.includes(key)) return url;
   }
-  for (const [key, f] of Object.entries(SPELL_FILE_MAP)) {
-    if (clean.includes(key) || key.includes(clean)) {
-      return `${base}/img/spell/${f}.png`;
-    }
-  }
-  return `${base}/img/spell/SummonerFlash.png`;
+  return SPELL_ICONS['점멸'];
 }
 
 // Official LoL Items (아이템) Data Dragon ID mapping
@@ -303,51 +283,6 @@ export const ITEM_ID_MAP: Record<string, string> = {
   '명석함의 아이오니아 장화': '3158',
   '신속의 장화': '3009',
 
-  // Component / Sub Items (재료템)
-  'B.F. 대검': '1038',
-  'BF 대검': '1038',
-  '곡괭이': '1037',
-  '롱소드': '1036',
-  '민첩성의 망토': '1018',
-  '단검': '1042',
-  '루비 수정': '1028',
-  '증폭의 고서': '1052',
-  '사파이어 수정': '1027',
-  '천 갑옷': '1029',
-  '마법무효화의 망토': '1033',
-  '정오의 화살': '6670',
-  '사라진 양피지': '3802',
-  '톱날 단검': '3134',
-  '콜필드의 전투 망치': '3133',
-  '마법공학 교류발전기': '3145',
-  '쓸데없이 큰 지팡이': '1058',
-  '악마의 마법서': '3108',
-  '에테르 환영': '3113',
-  '덤불 조끼': '3076',
-  '점화석': '3067',
-  '거인의 허리띠': '1011',
-  '파수꾼의 갑옷': '3082',
-  '쇠사슬 조끼': '1031',
-  '음전자 망토': '1057',
-  '망령의 두건': '3211',
-  '군단의 방패': '3105',
-  '탐식의 망치': '3044',
-  '광휘의 검': '3057',
-  '온기가 담긴 쐐기': '3057',
-  '쐐기검': '3101',
-  '흡혈의 낫': '1053',
-  '주문포식자': '3155',
-  '처형인의 대검': '3123',
-  '최후의 속삭임': '3035',
-  '밴들유리 거울': '4642',
-  '방출의 마법봉': '1026',
-  '티아맷': '3077',
-  '열정의 검': '3086',
-  '추적자의 팔목보호대': '2420',
-  '기괴한 가면': '3136',
-  '바미의 불씨': '3751',
-  '비상의 월갑': '6671',
-
   // Starter Items (Filtered out from Core 3-item builds)
   '도란의 검': '1055',
   '도란의 방패': '1054',
@@ -377,19 +312,18 @@ export const NON_CORE_ITEMS = new Set([
   '예언자의 렌즈',
 ]);
 
-export function getItemIcon(itemName: string, patchVersion?: string): string {
-  const clean = (itemName || '').trim();
+export function getItemIcon(itemName: string): string {
+  const clean = itemName.trim();
   const id = ITEM_ID_MAP[clean];
-  const base = getDDragonBase(patchVersion);
   if (id) {
-    return `${base}/img/item/${id}.png`;
+    return `${DD_BASE}/img/item/${id}.png`;
   }
   // Loose match
   for (const [key, code] of Object.entries(ITEM_ID_MAP)) {
     if (clean.includes(key) || key.includes(clean)) {
-      return `${base}/img/item/${code}.png`;
+      return `${DD_BASE}/img/item/${code}.png`;
     }
   }
   // Default to Kraken Slayer / generic item if not found
-  return `${base}/img/item/6672.png`;
+  return `${DD_BASE}/img/item/6672.png`;
 }
