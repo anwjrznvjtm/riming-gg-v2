@@ -1,9 +1,6 @@
 import { Match } from '../types';
 
 export const PASSCODE = 'riming2026';
-export const verifyAdminPasscode = (input: string): boolean => {
-  return (input || '').trim().toLowerCase() === PASSCODE.toLowerCase();
-};
 export const ADMIN_SESSION_KEY = 'riming_admin_session';
 export const STORAGE_KEY_MATCHES = 'riming_matches';
 export const STORAGE_KEY_BACKUP = 'wooriming_matches';
