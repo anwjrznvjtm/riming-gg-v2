@@ -35,7 +35,7 @@ interface MatchEditModalProps {
   allChampions: string[];
 }
 
-import { PASSCODE } from '../data/initialMatches';
+const PASSCODE = '0928';
 
 export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   isOpen,

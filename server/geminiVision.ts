@@ -137,13 +137,7 @@ export async function analyzeScreenshotWithGemini(params: {
   const ai = getGeminiClient();
 
   if (!ai) {
-    return {
-      success: false,
-      isSimulationFallback: true,
-      data: generateRealisticMatchData(params),
-      message: 'GEMINI_API_KEY 환경변수가 설정되지 않아 샘플 경기 데이터로 대체되었습니다.',
-      error: 'GEMINI_API_KEY 환경변수가 설정되지 않았습니다.',
-    };
+    throw new Error('GEMINI_API_KEY 환경변수가 설정되지 않아 스크린샷 실시간 분석을 진행할 수 없습니다. Settings에서 GEMINI_API_KEY를 등록해 주세요.');
   }
 
   const prompt = `

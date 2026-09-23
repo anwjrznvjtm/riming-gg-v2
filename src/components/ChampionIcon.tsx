@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { getChampionIconUrl, getChampionFallbackUrl, getChampionEnName } from '../lib/champions';
-import { subscribePatchVersion, getActivePatch } from '../lib/riotPatch';
 
 interface Props {
   name: string;
@@ -19,22 +18,8 @@ export const ChampionIcon: React.FC<Props> = ({
   className = "",
   version,
 }) => {
-  const [currentPatch, setCurrentPatch] = useState<string>(version || getActivePatch());
   const [failed, setFailed] = useState(false);
   const [useFallback, setUseFallback] = useState(false);
-
-  useEffect(() => {
-    if (version) {
-      setCurrentPatch(version);
-      return;
-    }
-    const unsub = subscribePatchVersion((v) => {
-      setCurrentPatch(v);
-      setFailed(false);
-      setUseFallback(false);
-    });
-    return () => unsub();
-  }, [version]);
   
   const cleanName = (name || "").trim();
   if (!cleanName) {
@@ -42,7 +27,7 @@ export const ChampionIcon: React.FC<Props> = ({
   }
 
   const enName = getChampionEnName(cleanName);
-  const primaryUrl = getChampionIconUrl(cleanName, version || currentPatch);
+  const primaryUrl = getChampionIconUrl(cleanName, version);
   const fallbackUrl = getChampionFallbackUrl(cleanName);
   const url = useFallback && fallbackUrl ? fallbackUrl : primaryUrl;
 
