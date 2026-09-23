@@ -1,7 +1,9 @@
 // Mapping LoL Official Data Dragon icon assets for Runes, Spells, and Items
 // CommunityDragon & DataDragon URLs provide 100% reliable high-res official icons.
+import { getActivePatch } from './riotPatch';
 
-export const DD_VERSION = '14.1.1';
+export const DD_VERSION = '16.18.1';
+export const getDDragonBase = (version?: string) => `https://ddragon.leagueoflegends.com/cdn/${version || getActivePatch() || '16.18.1'}`;
 export const DD_BASE = `https://ddragon.leagueoflegends.com/cdn/${DD_VERSION}`;
 export const CDRAGON_BASE = 'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1';
 
@@ -192,6 +194,18 @@ export function resolveRunePair(runes: string[]): {
 }
 
 // Official Summoner Spells (소환사 주문) mapping
+export const SPELL_FILE_MAP: Record<string, string> = {
+  점멸: 'SummonerFlash',
+  회복: 'SummonerHeal',
+  정화: 'SummonerBoost',
+  유체화: 'SummonerHaste',
+  탈진: 'SummonerExhaust',
+  점화: 'SummonerDot',
+  순간이동: 'SummonerTeleport',
+  강타: 'SummonerSmite',
+  방어막: 'SummonerBarrier',
+};
+
 export const SPELL_ICONS: Record<string, string> = {
   점멸: `${DD_BASE}/img/spell/SummonerFlash.png`,
   회복: `${DD_BASE}/img/spell/SummonerHeal.png`,
@@ -204,13 +218,19 @@ export const SPELL_ICONS: Record<string, string> = {
   방어막: `${DD_BASE}/img/spell/SummonerBarrier.png`,
 };
 
-export function getSpellIcon(spellName: string): string {
-  const clean = spellName.trim();
-  if (SPELL_ICONS[clean]) return SPELL_ICONS[clean];
-  for (const [key, url] of Object.entries(SPELL_ICONS)) {
-    if (clean.includes(key)) return url;
+export function getSpellIcon(spellName: string, patchVersion?: string): string {
+  const clean = (spellName || '').trim();
+  const file = SPELL_FILE_MAP[clean];
+  const base = getDDragonBase(patchVersion);
+  if (file) {
+    return `${base}/img/spell/${file}.png`;
   }
-  return SPELL_ICONS['점멸'];
+  for (const [key, f] of Object.entries(SPELL_FILE_MAP)) {
+    if (clean.includes(key) || key.includes(clean)) {
+      return `${base}/img/spell/${f}.png`;
+    }
+  }
+  return `${base}/img/spell/SummonerFlash.png`;
 }
 
 // Official LoL Items (아이템) Data Dragon ID mapping
@@ -357,18 +377,19 @@ export const NON_CORE_ITEMS = new Set([
   '예언자의 렌즈',
 ]);
 
-export function getItemIcon(itemName: string): string {
-  const clean = itemName.trim();
+export function getItemIcon(itemName: string, patchVersion?: string): string {
+  const clean = (itemName || '').trim();
   const id = ITEM_ID_MAP[clean];
+  const base = getDDragonBase(patchVersion);
   if (id) {
-    return `${DD_BASE}/img/item/${id}.png`;
+    return `${base}/img/item/${id}.png`;
   }
   // Loose match
   for (const [key, code] of Object.entries(ITEM_ID_MAP)) {
     if (clean.includes(key) || key.includes(clean)) {
-      return `${DD_BASE}/img/item/${code}.png`;
+      return `${base}/img/item/${code}.png`;
     }
   }
   // Default to Kraken Slayer / generic item if not found
-  return `${DD_BASE}/img/item/6672.png`;
+  return `${base}/img/item/6672.png`;
 }

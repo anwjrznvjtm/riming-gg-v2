@@ -4,8 +4,8 @@
  * https://ddragon.leagueoflegends.com/api/versions.json
  */
 
-let cachedPatchVersion: string = '15.1.1';
-let cachedVersionList: string[] = ['15.1.1', '14.24.1', '14.23.1', '14.22.1'];
+let cachedPatchVersion: string = '16.18.1';
+let cachedVersionList: string[] = ['16.18.1', '16.17.1', '16.16.1', '16.15.1', '16.14.1', '15.1.1'];
 const patchListeners: Array<(v: string) => void> = [];
 
 export function subscribePatchVersion(cb: (v: string) => void) {
@@ -29,7 +29,10 @@ export function setActivePatch(version: string) {
 export function getActivePatch(): string {
   try {
     const saved = localStorage.getItem('riming_selected_patch');
-    if (saved) return saved;
+    if (saved) {
+      cachedPatchVersion = saved;
+      return saved;
+    }
   } catch {
     // ignore
   }
@@ -41,7 +44,7 @@ export function getCachedPatchList(): string[] {
 }
 
 export function formatPatchDisplay(versionStr: string): string {
-  if (!versionStr) return '15.1';
+  if (!versionStr) return '16.18';
   const parts = versionStr.split('.');
   if (parts.length >= 2) {
     return `${parts[0]}.${parts[1]}`;
@@ -57,8 +60,14 @@ export async function fetchLatestPatchVersion(): Promise<string> {
     }
     const versions: string[] = await res.json();
     if (Array.isArray(versions) && versions.length > 0) {
-      cachedVersionList = versions.slice(0, 6);
-      cachedPatchVersion = versions[0];
+      cachedVersionList = versions.slice(0, 8);
+      const saved = (typeof localStorage !== 'undefined') ? localStorage.getItem('riming_selected_patch') : null;
+      if (!saved) {
+        cachedPatchVersion = versions[0];
+      } else {
+        cachedPatchVersion = saved;
+      }
+      patchListeners.forEach((fn) => fn(cachedPatchVersion));
       return cachedPatchVersion;
     }
   } catch (error) {
