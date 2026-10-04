@@ -530,21 +530,50 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       onToast('불러올 이전 경기 데이터가 없습니다.');
       return;
     }
-    const sorted = [...matches].sort((a, b) => {
-      const dDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
-      if (dDiff !== 0) return dDiff;
-      const setA = Number(a.set_number) || 1;
-      const setB = Number(b.set_number) || 1;
-      return setB - setA;
-    });
-    const prevMatch = sorted[0];
-    const nextSet = (Number(prevMatch.set_number) || 1) + 1;
+
+    const currentCkName = (formData.ck_name || '').trim();
+    const currentDate = formData.date;
+    const currentSet = Number(formData.set_number) || 1;
+
+    let prevMatch: Match | undefined;
+    if (currentCkName) {
+      const sameCkMatches = matches
+        .filter((m) => m.id !== formData.id && (m.ck_name || '').trim() === currentCkName)
+        .sort((a, b) => (Number(b.set_number) || 1) - (Number(a.set_number) || 1));
+
+      prevMatch = sameCkMatches.find((m) => (Number(m.set_number) || 1) < currentSet) || sameCkMatches[0];
+    }
+
+    if (!prevMatch && currentDate) {
+      const sameDateMatches = matches
+        .filter((m) => m.id !== formData.id && m.date === currentDate)
+        .sort((a, b) => (Number(b.set_number) || 1) - (Number(a.set_number) || 1));
+      prevMatch = sameDateMatches.find((m) => (Number(m.set_number) || 1) < currentSet) || sameDateMatches[0];
+    }
+
+    if (!prevMatch) {
+      const sorted = [...matches]
+        .filter((m) => m.id !== formData.id)
+        .sort((a, b) => {
+          const dDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+          if (dDiff !== 0) return dDiff;
+          return (Number(b.set_number) || 1) - (Number(a.set_number) || 1);
+        });
+      prevMatch = sorted[0];
+    }
+
+    if (!prevMatch) {
+      onToast('불러올 이전 경기 데이터가 없습니다.');
+      return;
+    }
+
+    const nextSet = currentSet > 1 ? currentSet : (Number(prevMatch.set_number) || 1) + 1;
 
     const calcResult = calculateScoreForSetInSeries({
       date: prevMatch.date || formData.date,
       ck_name: prevMatch.ck_name || formData.ck_name,
       set_number: nextSet,
-      winning_team: 'Red',
+      winning_team: formData.winning_team || 'Red',
       team_a: prevMatch.team_a,
       team_b: prevMatch.team_b,
       allMatches: matches,
@@ -562,13 +591,16 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       team_b: { ...prevMatch.team_b },
       team_a_champs: { ...prevMatch.team_a_champs },
       team_b_champs: { ...prevMatch.team_b_champs },
+      ban_a: Array.isArray(prevMatch.ban_a) ? [...prevMatch.ban_a] : ['', '', '', '', ''],
+      ban_b: Array.isArray(prevMatch.ban_b) ? [...prevMatch.ban_b] : ['', '', '', '', ''],
+      game_duration: prevMatch.game_duration || curr.game_duration || '31:40',
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
-      winning_team: 'Red',
+      winning_team: curr.winning_team || 'Red',
       score: calcResult.score,
     }));
 
-    onToast(`직전 경기(${prevMatch.ck_name || 'CK'} ${prevMatch.set_number}세트)의 10인 로스터를 불러왔습니다.`);
+    onToast(`이전 경기(${prevMatch.ck_name || 'CK'} ${prevMatch.set_number}세트)의 10인 로스터(선수, 챔피언, 밴)를 불러왔습니다.`);
   };
 
   const handleSwapTeams = () => {
@@ -828,16 +860,29 @@ export const JournalTab: React.FC<JournalTabProps> = ({
 
       setFormData((curr) => ({
         ...curr,
-        id: `m_${Date.now()}`,
+        id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         set_number: nextSetNum,
         score: calcResult.score,
         winning_team: 'Red',
+        // Retain 10 streamers, champions, and bans
+        team_a: { ...formData.team_a },
+        team_b: { ...formData.team_b },
+        team_a_champs: { ...formData.team_a_champs },
+        team_b_champs: { ...formData.team_b_champs },
+        ban_a: [...formData.ban_a],
+        ban_b: [...formData.ban_b],
+        // Reset match-specific stats
         team_a_kda: { ...emptyRoster },
         team_b_kda: { ...emptyRoster },
+        team_a_detail: undefined,
+        team_b_detail: undefined,
+        red_screenshot: undefined,
+        blue_screenshot: undefined,
+        extracted_data: undefined,
       }));
       setEditingMatch(null);
       setFormError('');
-      onToast(`${formData.set_number}세트 저장 완료! (${nextSetNum}세트 작성을 이어갑니다 ⚡)`);
+      onToast(`${formData.set_number}세트 저장 완료! (${nextSetNum}세트 작성 모드로 전환되었습니다. 10인 로스터 및 밴/픽 유지)`);
     } catch (err) {
       console.error('Save next set error', err);
       setFormError('다음 세트 저장 중 오류가 발생했습니다.');

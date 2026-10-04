@@ -79,6 +79,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   const [formPasscode, setFormPasscode] = useState('');
   const [persistAdminInForm, setPersistAdminInForm] = useState(true);
   const [formError, setFormError] = useState('');
+  const [activeEditingMatch, setActiveEditingMatch] = useState<Match | null>(editingMatch);
 
   // Local state isolation: Do not reset form data during typing or parent re-renders
   const isInitializedRef = useRef(false);
@@ -88,6 +89,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     if (!isOpen) {
       isInitializedRef.current = false;
       editingIdRef.current = null;
+      setActiveEditingMatch(null);
       return;
     }
 
@@ -99,6 +101,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
 
     isInitializedRef.current = true;
     editingIdRef.current = currentEditingId;
+    setActiveEditingMatch(editingMatch);
 
     if (editingMatch) {
       const calcResult = calculateScoreForSetInSeries({
@@ -288,21 +291,50 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       onToast('불러올 이전 경기 데이터가 없습니다.');
       return;
     }
-    const sorted = [...allMatches].sort((a, b) => {
-      const dDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
-      if (dDiff !== 0) return dDiff;
-      const setA = Number(a.set_number) || 1;
-      const setB = Number(b.set_number) || 1;
-      return setB - setA;
-    });
-    const prevMatch = sorted[0];
-    const nextSet = (Number(prevMatch.set_number) || 1) + 1;
+
+    const currentCkName = (formData.ck_name || '').trim();
+    const currentDate = formData.date;
+    const currentSet = Number(formData.set_number) || 1;
+
+    let prevMatch: Match | undefined;
+    if (currentCkName) {
+      const sameCkMatches = allMatches
+        .filter((m) => m.id !== formData.id && (m.ck_name || '').trim() === currentCkName)
+        .sort((a, b) => (Number(b.set_number) || 1) - (Number(a.set_number) || 1));
+
+      prevMatch = sameCkMatches.find((m) => (Number(m.set_number) || 1) < currentSet) || sameCkMatches[0];
+    }
+
+    if (!prevMatch && currentDate) {
+      const sameDateMatches = allMatches
+        .filter((m) => m.id !== formData.id && m.date === currentDate)
+        .sort((a, b) => (Number(b.set_number) || 1) - (Number(a.set_number) || 1));
+      prevMatch = sameDateMatches.find((m) => (Number(m.set_number) || 1) < currentSet) || sameDateMatches[0];
+    }
+
+    if (!prevMatch) {
+      const sorted = [...allMatches]
+        .filter((m) => m.id !== formData.id)
+        .sort((a, b) => {
+          const dDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+          if (dDiff !== 0) return dDiff;
+          return (Number(b.set_number) || 1) - (Number(a.set_number) || 1);
+        });
+      prevMatch = sorted[0];
+    }
+
+    if (!prevMatch) {
+      onToast('불러올 이전 경기 데이터가 없습니다.');
+      return;
+    }
+
+    const nextSet = currentSet > 1 ? currentSet : (Number(prevMatch.set_number) || 1) + 1;
 
     const calcResult = calculateScoreForSetInSeries({
       date: prevMatch.date || formData.date,
       ck_name: prevMatch.ck_name || formData.ck_name,
       set_number: nextSet,
-      winning_team: 'Red',
+      winning_team: formData.winning_team || 'Red',
       team_a: prevMatch.team_a,
       team_b: prevMatch.team_b,
       allMatches,
@@ -320,13 +352,16 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       team_b: { ...prevMatch.team_b },
       team_a_champs: { ...prevMatch.team_a_champs },
       team_b_champs: { ...prevMatch.team_b_champs },
+      ban_a: Array.isArray(prevMatch.ban_a) ? [...prevMatch.ban_a] : ['', '', '', '', ''],
+      ban_b: Array.isArray(prevMatch.ban_b) ? [...prevMatch.ban_b] : ['', '', '', '', ''],
+      game_duration: prevMatch.game_duration || curr.game_duration || '31:40',
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
-      winning_team: 'Red',
+      winning_team: curr.winning_team || 'Red',
       score: calcResult.score,
     }));
 
-    onToast(`직전 경기(${prevMatch.ck_name || 'CK'} ${prevMatch.set_number}세트)의 10인 로스터를 불러왔습니다.`);
+    onToast(`이전 경기(${prevMatch.ck_name || 'CK'} ${prevMatch.set_number}세트)의 10인 로스터(선수, 챔피언, 밴)를 불러왔습니다.`);
   };
 
   const handleSwapTeams = () => {
@@ -409,6 +444,48 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     return { isValid: true, errorMsg: '' };
   };
 
+  const buildMatchToSave = (currentData: Match): Match => {
+    const cleanCkName = (currentData.ck_name || '').trim();
+
+    // Sanitize player names in detail
+    let sanitizedTeamADetail = currentData.team_a_detail;
+    if (sanitizedTeamADetail?.players) {
+      const updatedPlayers = { ...sanitizedTeamADetail.players };
+      for (const lk of LINE_KEYS) {
+        if (updatedPlayers[lk]) {
+          updatedPlayers[lk] = {
+            ...updatedPlayers[lk],
+            player: currentData.team_a[lk] || updatedPlayers[lk].player,
+            line: lk,
+          };
+        }
+      }
+      sanitizedTeamADetail = { ...sanitizedTeamADetail, players: updatedPlayers };
+    }
+
+    let sanitizedTeamBDetail = currentData.team_b_detail;
+    if (sanitizedTeamBDetail?.players) {
+      const updatedPlayers = { ...sanitizedTeamBDetail.players };
+      for (const lk of LINE_KEYS) {
+        if (updatedPlayers[lk]) {
+          updatedPlayers[lk] = {
+            ...updatedPlayers[lk],
+            player: currentData.team_b[lk] || updatedPlayers[lk].player,
+            line: lk,
+          };
+        }
+      }
+      sanitizedTeamBDetail = { ...sanitizedTeamBDetail, players: updatedPlayers };
+    }
+
+    return {
+      ...currentData,
+      ck_name: cleanCkName,
+      team_a_detail: sanitizedTeamADetail,
+      team_b_detail: sanitizedTeamBDetail,
+    };
+  };
+
   const handleSaveMatch = () => {
     const val = validateMatchForm(formData);
     if (!val.isValid) {
@@ -421,48 +498,10 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       onAdminLoginSuccess();
     }
 
-    const cleanCkName = (formData.ck_name || '').trim();
-
-    // Sanitize player names in detail
-    let sanitizedTeamADetail = formData.team_a_detail;
-    if (sanitizedTeamADetail?.players) {
-      const updatedPlayers = { ...sanitizedTeamADetail.players };
-      for (const lk of LINE_KEYS) {
-        if (updatedPlayers[lk]) {
-          updatedPlayers[lk] = {
-            ...updatedPlayers[lk],
-            player: formData.team_a[lk] || updatedPlayers[lk].player,
-            line: lk,
-          };
-        }
-      }
-      sanitizedTeamADetail = { ...sanitizedTeamADetail, players: updatedPlayers };
-    }
-
-    let sanitizedTeamBDetail = formData.team_b_detail;
-    if (sanitizedTeamBDetail?.players) {
-      const updatedPlayers = { ...sanitizedTeamBDetail.players };
-      for (const lk of LINE_KEYS) {
-        if (updatedPlayers[lk]) {
-          updatedPlayers[lk] = {
-            ...updatedPlayers[lk],
-            player: formData.team_b[lk] || updatedPlayers[lk].player,
-            line: lk,
-          };
-        }
-      }
-      sanitizedTeamBDetail = { ...sanitizedTeamBDetail, players: updatedPlayers };
-    }
-
-    const matchToSave: Match = {
-      ...formData,
-      ck_name: cleanCkName,
-      team_a_detail: sanitizedTeamADetail,
-      team_b_detail: sanitizedTeamBDetail,
-    };
+    const matchToSave = buildMatchToSave(formData);
 
     try {
-      if (editingMatch) {
+      if (activeEditingMatch) {
         onUpdateMatch(matchToSave);
         onToast('경기가 성공적으로 수정되었습니다.');
       } else {
@@ -490,32 +529,85 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       onAdminLoginSuccess();
     }
 
-    handleSaveMatch();
+    const matchToSave = buildMatchToSave(formData);
 
-    const nextSet = Number(formData.set_number || 1) + 1;
+    try {
+      if (activeEditingMatch) {
+        onUpdateMatch(matchToSave);
+      } else {
+        onAddMatch(matchToSave);
+      }
+    } catch (err) {
+      console.error('Save match error', err);
+      setFormError('경기 저장 중 예기치 않은 오류가 발생했습니다.');
+      onToast('저장 실패');
+      return;
+    }
+
+    const currentSetNum = Number(formData.set_number || 1);
+    const nextSet = currentSetNum + 1;
+
+    const nextMatchFormat: MatchFormat =
+      formData.match_format === '단판'
+        ? '3판2선승'
+        : formData.match_format === '3판2선승' && nextSet > 3
+        ? '5판3선승'
+        : formData.match_format;
+
+    // Immediately incorporate current saved set for next set series calculation
+    const updatedMatches = [
+      matchToSave,
+      ...allMatches.filter((m) => String(m.id) !== String(matchToSave.id)),
+    ];
+
     const calcResult = calculateScoreForSetInSeries({
       date: formData.date,
-      ck_name: formData.ck_name,
+      ck_name: matchToSave.ck_name,
       set_number: nextSet,
       winning_team: 'Red',
       team_a: formData.team_a,
       team_b: formData.team_b,
-      allMatches,
+      allMatches: updatedMatches,
     });
 
+    setSeriesWinners(calcResult.priorWinners);
+    setSeriesHistory(calcResult.priorHistory);
+
+    // Any subsequent save from now on is registered as a new match
+    setActiveEditingMatch(null);
+
+    const nextId = `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    editingIdRef.current = nextId;
+
+    // Retain streamer nicknames, team roster, champions, and bans; reset KDA, screenshots, and stats
     setFormData((prev) => ({
-      ...prev,
-      id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: nextId,
+      date: prev.date,
+      ck_name: matchToSave.ck_name,
+      match_format: nextMatchFormat,
       set_number: nextSet,
-      team_a_champs: { ...emptyRoster },
-      team_b_champs: { ...emptyRoster },
+      // Retain 10 streamer nicknames, champions, and bans
+      team_a: { ...prev.team_a },
+      team_b: { ...prev.team_b },
+      team_a_champs: { ...prev.team_a_champs },
+      team_b_champs: { ...prev.team_b_champs },
+      ban_a: [...prev.ban_a],
+      ban_b: [...prev.ban_b],
+      // Reset match-specific stats
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
+      game_duration: prev.game_duration || '31:40',
+      winning_team: 'Red',
+      score: calcResult.score,
+      team_a_detail: undefined,
+      team_b_detail: undefined,
       red_screenshot: undefined,
       blue_screenshot: undefined,
       extracted_data: undefined,
-      score: calcResult.score,
     }));
+
+    setFormError('');
+    onToast(`${currentSetNum}세트 저장 완료! ${nextSet}세트 작성 모드로 전환되었습니다. (10인 로스터 및 밴/픽 유지)`);
   };
 
   if (!isOpen) return null;
@@ -532,8 +624,11 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
         {/* Header */}
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center gap-2.5">
-            <h3 className="font-bold text-[17px] text-white">
-              {editingMatch ? 'CK 경기 수정' : '새 CK 경기 등록'}
+            <h3 className="font-bold text-[17px] text-white flex items-center gap-1.5">
+              <span>{activeEditingMatch ? 'CK 경기 수정' : '새 CK 경기 등록'}</span>
+              <span className="text-[#8b5cf6] text-[14px] font-semibold">
+                ({formData.set_number || 1}세트)
+              </span>
             </h3>
             <span className="text-[10px] bg-[#8b5cf6]/15 border border-[#8b5cf6]/30 text-[#c4b5fd] px-2.5 py-0.5 rounded-full font-semibold">
               스마트 세트 시스템
