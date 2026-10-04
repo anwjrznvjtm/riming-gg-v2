@@ -9,6 +9,7 @@ import {
 import { normalizeChampionName } from '../lib/champions';
 import { isWooriming } from '../lib/stats';
 import { calculateScoreForSetInSeries } from '../lib/seriesScores';
+import { verifyAdminPasscode } from '../data/initialMatches';
 import {
   X,
   Copy,
@@ -34,8 +35,6 @@ interface MatchEditModalProps {
   allStreamers: string[];
   allChampions: string[];
 }
-
-const PASSCODE = '0928';
 
 export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   isOpen,
@@ -408,9 +407,9 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     if (!cleanCkName) return { isValid: false, errorMsg: 'CK 명칭(대회명)을 입력해주세요.' };
 
     if (!isAdmin) {
-      const cleanPass = formPasscode.trim().toLowerCase();
+      const cleanPass = formPasscode.trim();
       if (!cleanPass) return { isValid: false, errorMsg: '관리자 패스코드를 입력해주세요.' };
-      if (cleanPass !== PASSCODE.toLowerCase()) return { isValid: false, errorMsg: '패스코드가 올바르지 않습니다.' };
+      if (!verifyAdminPasscode(cleanPass)) return { isValid: false, errorMsg: '패스코드가 올바르지 않습니다.' };
     }
 
     const allPlayers: string[] = [

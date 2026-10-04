@@ -1,6 +1,14 @@
 import { Match } from '../types';
 
 export const PASSCODE = 'riming2026';
+export const VALID_ADMIN_PASSCODES = ['riming2026', '0928'] as const;
+
+export function verifyAdminPasscode(input?: string | null): boolean {
+  if (!input) return false;
+  const clean = input.trim().toLowerCase();
+  return VALID_ADMIN_PASSCODES.some((p) => p.toLowerCase() === clean);
+}
+
 export const ADMIN_SESSION_KEY = 'riming_admin_session';
 export const STORAGE_KEY_MATCHES = 'riming_matches';
 export const STORAGE_KEY_BACKUP = 'wooriming_matches';

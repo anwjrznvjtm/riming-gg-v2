@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Trash2, X, AlertTriangle } from 'lucide-react';
+import { verifyAdminPasscode } from '../data/initialMatches';
 
 interface DeleteMatchModalProps {
   isOpen: boolean;
@@ -9,8 +10,6 @@ interface DeleteMatchModalProps {
   onConfirmDelete: (id: string) => void;
   onToast: (msg: string) => void;
 }
-
-const PASSCODE = '0928';
 
 export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
   isOpen,
@@ -27,12 +26,12 @@ export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
 
   const handleDelete = () => {
     if (!isAdmin) {
-      const clean = passcode.trim().toLowerCase();
+      const clean = passcode.trim();
       if (!clean) {
         setError('삭제를 위해 관리자 패스코드를 입력해주세요.');
         return;
       }
-      if (clean !== PASSCODE.toLowerCase()) {
+      if (!verifyAdminPasscode(clean)) {
         setError('패스코드가 올바르지 않습니다.');
         return;
       }
@@ -90,7 +89,7 @@ export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleDelete();
               }}
-              placeholder="패스코드 4자리"
+              placeholder="관리자 패스코드 입력"
               className="w-full h-[38px] bg-[#08080c] border border-[#2a2a3a] rounded-xl px-3.5 text-[12px] text-white focus:outline-none focus:border-[#ef4444]"
             />
           </div>

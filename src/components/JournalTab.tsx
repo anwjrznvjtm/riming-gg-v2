@@ -12,7 +12,7 @@ import {
 import { ChampionIcon } from './ChampionIcon';
 import { StreamerAvatar } from './StreamerAvatar';
 import { parseKdaString, normalizeChampionName, SOOP_POPULAR_STREAMERS } from '../lib/champions';
-import { PASSCODE } from '../data/initialMatches';
+import { verifyAdminPasscode } from '../data/initialMatches';
 import { calculateMatchSeriesScores, calculateScoreForSetInSeries, sortMatchesDescending } from '../lib/seriesScores';
 import { ScreenshotUploadSection } from './ScreenshotUploadSection';
 import {
@@ -647,11 +647,11 @@ export const JournalTab: React.FC<JournalTabProps> = ({
 
   const validateMatchForm = (matchData: Match): { isValid: boolean; errorMsg: string } => {
     if (!isAdmin) {
-      const cleanPass = formPasscode.trim().toLowerCase();
+      const cleanPass = formPasscode.trim();
       if (!cleanPass) {
         return { isValid: false, errorMsg: '관리자 패스코드를 입력해주세요.' };
       }
-      if (cleanPass !== PASSCODE.toLowerCase()) {
+      if (!verifyAdminPasscode(cleanPass)) {
         return { isValid: false, errorMsg: '패스코드가 올바르지 않습니다.' };
       }
     }
@@ -900,8 +900,8 @@ export const JournalTab: React.FC<JournalTabProps> = ({
     if (!deleteTargetId) return;
 
     if (!isAdmin) {
-      const cleanPass = deletePasscode.trim().toLowerCase();
-      if (cleanPass !== PASSCODE.toLowerCase()) {
+      const cleanPass = deletePasscode.trim();
+      if (!verifyAdminPasscode(cleanPass)) {
         setDeleteError('패스코드가 올바르지 않습니다.');
         return;
       }
