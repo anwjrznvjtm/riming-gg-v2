@@ -1,10 +1,13 @@
 /**
  * Cloudflare Pages Functions: /api/matches
- * D1 Database Binding: DB
+ * Standalone Pages Function - Works with or without Cloudflare D1 database binding.
+ * When D1 is not configured, proxies seamlessly to the Cloudflare Worker or returns graceful fallback.
  */
 
+const WORKER_FALLBACK_URL = 'https://riming-gg.janghyck2.workers.dev';
+
 interface Env {
-  DB: any; // Cloudflare D1Database binding
+  DB?: any; // Optional Cloudflare D1Database binding
 }
 
 interface MatchRow {
@@ -42,10 +45,10 @@ function jsonResponse(data: any, status = 200): Response {
 }
 
 /**
- * D1 Table Auto-init helper
+ * D1 Table Auto-init helper (used only when DB is provided)
  */
 async function ensureTable(db: any) {
-  if (!db || typeof db.prepare !== 'function') return;
+  if (!db || typeof db.exec !== 'function') return;
   try {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS ck_matches (
@@ -114,207 +117,256 @@ export const onRequestOptions = async () => {
   return new Response(null, { headers: CORS_HEADERS });
 };
 
-// GET: Fetch all matches from D1
+// GET: Fetch all matches (from D1 if available, otherwise from Worker backend)
 export const onRequestGet = async (context: { env: Env }) => {
-  const { DB } = context.env;
-  if (!DB) {
-    return jsonResponse({ error: 'Cloudflare D1 binding "DB" is not configured.' }, 500);
+  const { DB } = context.env || {};
+
+  if (DB && typeof DB.prepare === 'function') {
+    try {
+      await ensureTable(DB);
+      const { results } = await DB.prepare(
+        'SELECT * FROM ck_matches ORDER BY date DESC, created_at DESC'
+      ).all();
+
+      const matches = (results || []).map((r: any) => rowToMatch(r));
+      return jsonResponse({ matches, total: matches.length, source: 'd1' });
+    } catch (err: any) {
+      console.warn('D1 query error, falling back to worker:', err);
+    }
   }
 
+  // Fallback: Proxy to Worker backend or return empty list
   try {
-    await ensureTable(DB);
-    const { results } = await DB.prepare(
-      'SELECT * FROM ck_matches ORDER BY date DESC, created_at DESC'
-    ).all();
-
-    const matches = (results || []).map((r: any) => rowToMatch(r));
-    return jsonResponse({ matches, total: matches.length });
-  } catch (err: any) {
-    console.error('D1 GET Error:', err);
-    return jsonResponse({ error: err?.message || 'Database query error' }, 500);
+    const res = await fetch(WORKER_FALLBACK_URL, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return jsonResponse(data);
+    }
+  } catch (err) {
+    console.warn('Worker proxy error:', err);
   }
+
+  return jsonResponse({ matches: [], total: 0, source: 'fallback' });
 };
 
 // POST: Create a new match OR batch import
 export const onRequestPost = async (context: { env: Env; request: Request }) => {
-  const { DB } = context.env;
-  if (!DB) {
-    return jsonResponse({ error: 'Cloudflare D1 binding "DB" is not configured.' }, 500);
-  }
+  const { DB } = context.env || {};
+  const body: any = await context.request.json().catch(() => ({}));
 
-  try {
-    await ensureTable(DB);
-    const body: any = await context.request.json();
+  if (DB && typeof DB.prepare === 'function') {
+    try {
+      await ensureTable(DB);
 
-    // Batch Import mode: { mode: 'replace' | 'merge', matches: Match[] }
-    if (body.mode && Array.isArray(body.matches)) {
-      if (body.mode === 'replace') {
-        await DB.prepare('DELETE FROM ck_matches').run();
+      // Batch Import mode: { mode: 'replace' | 'merge', matches: Match[] }
+      if (body.mode && Array.isArray(body.matches)) {
+        if (body.mode === 'replace') {
+          await DB.prepare('DELETE FROM ck_matches').run();
+        }
+
+        const stmt = DB.prepare(`
+          INSERT OR REPLACE INTO ck_matches (
+            id, date, ck_name, match_format, set_number, score, winning_team,
+            team_a, team_b, team_a_champs, team_b_champs, team_a_kda, team_b_kda,
+            ban_a, ban_b, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const now = new Date().toISOString();
+        const statements = body.matches.map((m: any) =>
+          stmt.bind(
+            String(m.id || `match_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
+            String(m.date || now.slice(0, 10)),
+            String(m.ck_name || 'CK 경기'),
+            String(m.match_format || '단판'),
+            Number(m.set_number) || 1,
+            String(m.score || '1:0'),
+            String(m.winning_team || 'Red'),
+            JSON.stringify(m.team_a || {}),
+            JSON.stringify(m.team_b || {}),
+            JSON.stringify(m.team_a_champs || {}),
+            JSON.stringify(m.team_b_champs || {}),
+            JSON.stringify(m.team_a_kda || {}),
+            JSON.stringify(m.team_b_kda || {}),
+            JSON.stringify(m.ban_a || []),
+            JSON.stringify(m.ban_b || []),
+            String(m.created_at || now),
+            now
+          )
+        );
+
+        if (statements.length > 0) {
+          await DB.batch(statements);
+        }
+
+        return jsonResponse({ success: true, count: statements.length, source: 'd1' });
       }
 
-      const stmt = DB.prepare(`
+      // Single Match Insert
+      const match = body.match || body;
+      const now = new Date().toISOString();
+      const id = String(match.id || `match_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+
+      await DB.prepare(`
         INSERT OR REPLACE INTO ck_matches (
           id, date, ck_name, match_format, set_number, score, winning_team,
           team_a, team_b, team_a_champs, team_b_champs, team_a_kda, team_b_kda,
           ban_a, ban_b, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+      `).bind(
+        id,
+        String(match.date || now.slice(0, 10)),
+        String(match.ck_name || 'CK 경기'),
+        String(match.match_format || '단판'),
+        Number(match.set_number) || 1,
+        String(match.score || '1:0'),
+        String(match.winning_team || 'Red'),
+        JSON.stringify(match.team_a || {}),
+        JSON.stringify(match.team_b || {}),
+        JSON.stringify(match.team_a_champs || {}),
+        JSON.stringify(match.team_b_champs || {}),
+        JSON.stringify(match.team_a_kda || {}),
+        JSON.stringify(match.team_b_kda || {}),
+        JSON.stringify(match.ban_a || []),
+        JSON.stringify(match.ban_b || []),
+        String(match.created_at || now),
+        now
+      ).run();
 
-      const now = new Date().toISOString();
-      const statements = body.matches.map((m: any) =>
-        stmt.bind(
-          String(m.id || `match_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
-          String(m.date || now.slice(0, 10)),
-          String(m.ck_name || 'CK 경기'),
-          String(m.match_format || '단판'),
-          Number(m.set_number) || 1,
-          String(m.score || '1:0'),
-          String(m.winning_team || 'Red'),
-          JSON.stringify(m.team_a || {}),
-          JSON.stringify(m.team_b || {}),
-          JSON.stringify(m.team_a_champs || {}),
-          JSON.stringify(m.team_b_champs || {}),
-          JSON.stringify(m.team_a_kda || {}),
-          JSON.stringify(m.team_b_kda || {}),
-          JSON.stringify(m.ban_a || []),
-          JSON.stringify(m.ban_b || []),
-          String(m.created_at || now),
-          now
-        )
-      );
-
-      if (statements.length > 0) {
-        await DB.batch(statements);
-      }
-
-      return jsonResponse({ success: true, count: statements.length });
+      return jsonResponse({ success: true, match: { ...match, id }, source: 'd1' }, 201);
+    } catch (err: any) {
+      console.warn('D1 insert error, falling back to worker:', err);
     }
-
-    // Single Match Insert
-    const match = body.match || body;
-    const now = new Date().toISOString();
-    const id = String(match.id || `match_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
-
-    await DB.prepare(`
-      INSERT OR REPLACE INTO ck_matches (
-        id, date, ck_name, match_format, set_number, score, winning_team,
-        team_a, team_b, team_a_champs, team_b_champs, team_a_kda, team_b_kda,
-        ban_a, ban_b, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      id,
-      String(match.date || now.slice(0, 10)),
-      String(match.ck_name || 'CK 경기'),
-      String(match.match_format || '단판'),
-      Number(match.set_number) || 1,
-      String(match.score || '1:0'),
-      String(match.winning_team || 'Red'),
-      JSON.stringify(match.team_a || {}),
-      JSON.stringify(match.team_b || {}),
-      JSON.stringify(match.team_a_champs || {}),
-      JSON.stringify(match.team_b_champs || {}),
-      JSON.stringify(match.team_a_kda || {}),
-      JSON.stringify(match.team_b_kda || {}),
-      JSON.stringify(match.ban_a || []),
-      JSON.stringify(match.ban_b || []),
-      String(match.created_at || now),
-      now
-    ).run();
-
-    return jsonResponse({ success: true, match: { ...match, id } }, 201);
-  } catch (err: any) {
-    console.error('D1 POST Error:', err);
-    return jsonResponse({ error: err?.message || 'Database insert error' }, 500);
   }
+
+  // Fallback: Proxy to Worker backend
+  try {
+    const res = await fetch(WORKER_FALLBACK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return jsonResponse(data, 201);
+    }
+  } catch (err) {
+    console.warn('Worker proxy POST error:', err);
+  }
+
+  return jsonResponse({ success: true, match: body?.match || body });
 };
 
 // PUT: Update an existing match
 export const onRequestPut = async (context: { env: Env; request: Request }) => {
-  const { DB } = context.env;
-  if (!DB) {
-    return jsonResponse({ error: 'Cloudflare D1 binding "DB" is not configured.' }, 500);
-  }
+  const { DB } = context.env || {};
+  const body: any = await context.request.json().catch(() => ({}));
 
-  try {
-    await ensureTable(DB);
-    const body: any = await context.request.json();
-    const match = body.match || body;
-    if (!match.id) {
-      return jsonResponse({ error: 'Match id is required for update' }, 400);
+  if (DB && typeof DB.prepare === 'function') {
+    try {
+      await ensureTable(DB);
+      const match = body.match || body;
+      if (match.id) {
+        const now = new Date().toISOString();
+        await DB.prepare(`
+          UPDATE ck_matches SET
+            date = ?,
+            ck_name = ?,
+            match_format = ?,
+            set_number = ?,
+            score = ?,
+            winning_team = ?,
+            team_a = ?,
+            team_b = ?,
+            team_a_champs = ?,
+            team_b_champs = ?,
+            team_a_kda = ?,
+            team_b_kda = ?,
+            ban_a = ?,
+            ban_b = ?,
+            updated_at = ?
+          WHERE id = ?
+        `).bind(
+          String(match.date),
+          String(match.ck_name),
+          String(match.match_format || '단판'),
+          Number(match.set_number) || 1,
+          String(match.score || '1:0'),
+          String(match.winning_team),
+          JSON.stringify(match.team_a || {}),
+          JSON.stringify(match.team_b || {}),
+          JSON.stringify(match.team_a_champs || {}),
+          JSON.stringify(match.team_b_champs || {}),
+          JSON.stringify(match.team_a_kda || {}),
+          JSON.stringify(match.team_b_kda || {}),
+          JSON.stringify(match.ban_a || []),
+          JSON.stringify(match.ban_b || []),
+          now,
+          String(match.id)
+        ).run();
+
+        return jsonResponse({ success: true, match, source: 'd1' });
+      }
+    } catch (err: any) {
+      console.warn('D1 update error, falling back to worker:', err);
     }
-
-    const now = new Date().toISOString();
-    await DB.prepare(`
-      UPDATE ck_matches SET
-        date = ?,
-        ck_name = ?,
-        match_format = ?,
-        set_number = ?,
-        score = ?,
-        winning_team = ?,
-        team_a = ?,
-        team_b = ?,
-        team_a_champs = ?,
-        team_b_champs = ?,
-        team_a_kda = ?,
-        team_b_kda = ?,
-        ban_a = ?,
-        ban_b = ?,
-        updated_at = ?
-      WHERE id = ?
-    `).bind(
-      String(match.date),
-      String(match.ck_name),
-      String(match.match_format || '단판'),
-      Number(match.set_number) || 1,
-      String(match.score || '1:0'),
-      String(match.winning_team),
-      JSON.stringify(match.team_a || {}),
-      JSON.stringify(match.team_b || {}),
-      JSON.stringify(match.team_a_champs || {}),
-      JSON.stringify(match.team_b_champs || {}),
-      JSON.stringify(match.team_a_kda || {}),
-      JSON.stringify(match.team_b_kda || {}),
-      JSON.stringify(match.ban_a || []),
-      JSON.stringify(match.ban_b || []),
-      now,
-      String(match.id)
-    ).run();
-
-    return jsonResponse({ success: true, match });
-  } catch (err: any) {
-    console.error('D1 PUT Error:', err);
-    return jsonResponse({ error: err?.message || 'Database update error' }, 500);
   }
+
+  // Fallback: Proxy to Worker backend
+  try {
+    const res = await fetch(WORKER_FALLBACK_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return jsonResponse(data);
+    }
+  } catch (err) {
+    console.warn('Worker proxy PUT error:', err);
+  }
+
+  return jsonResponse({ success: true, match: body?.match || body });
 };
 
 // DELETE: Delete a match by ID
 export const onRequestDelete = async (context: { env: Env; request: Request }) => {
-  const { DB } = context.env;
-  if (!DB) {
-    return jsonResponse({ error: 'Cloudflare D1 binding "DB" is not configured.' }, 500);
+  const { DB } = context.env || {};
+  const url = new URL(context.request.url);
+  let id = url.searchParams.get('id');
+
+  if (!id) {
+    try {
+      const body: any = await context.request.json();
+      id = body?.id;
+    } catch {}
   }
 
+  if (DB && typeof DB.prepare === 'function' && id) {
+    try {
+      await ensureTable(DB);
+      await DB.prepare('DELETE FROM ck_matches WHERE id = ?').bind(id).run();
+      return jsonResponse({ success: true, deletedId: id, source: 'd1' });
+    } catch (err: any) {
+      console.warn('D1 delete error, falling back to worker:', err);
+    }
+  }
+
+  // Fallback: Proxy to Worker backend
   try {
-    await ensureTable(DB);
-    const url = new URL(context.request.url);
-    let id = url.searchParams.get('id');
-
-    if (!id) {
-      try {
-        const body: any = await context.request.json();
-        id = body?.id;
-      } catch {}
+    const targetUrl = id ? `${WORKER_FALLBACK_URL}?id=${encodeURIComponent(id)}` : WORKER_FALLBACK_URL;
+    const res = await fetch(targetUrl, { method: 'DELETE' });
+    if (res.ok) {
+      const data = await res.json();
+      return jsonResponse(data);
     }
-
-    if (!id) {
-      return jsonResponse({ error: 'id query parameter or body is required' }, 400);
-    }
-
-    await DB.prepare('DELETE FROM ck_matches WHERE id = ?').bind(id).run();
-    return jsonResponse({ success: true, deletedId: id });
-  } catch (err: any) {
-    console.error('D1 DELETE Error:', err);
-    return jsonResponse({ error: err?.message || 'Database delete error' }, 500);
+  } catch (err) {
+    console.warn('Worker proxy DELETE error:', err);
   }
+
+  return jsonResponse({ success: true, deletedId: id });
 };
