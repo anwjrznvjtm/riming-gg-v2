@@ -8,7 +8,6 @@ import {
   isMatchWonByWooriming,
   parseKda,
 } from '../lib/stats';
-import { getItemIcon } from '../lib/lolIcons';
 import { Edit2, Trash2, Crown } from 'lucide-react';
 
 interface OpggMatchCardProps {
@@ -35,7 +34,6 @@ export const OpggMatchCard: React.FC<OpggMatchCardProps> = ({
   const allyRoster = isWRed ? match.team_a : match.team_b;
   const allyChamps = isWRed ? match.team_a_champs : match.team_b_champs;
   const allyKdas = isWRed ? match.team_a_kda : match.team_b_kda;
-  const allyDetail = isWRed ? match.team_a_detail : match.team_b_detail;
   const allyWon = match.winning_team === wTeam;
 
   const enemyRoster = isWRed ? match.team_b : match.team_a;
@@ -49,11 +47,6 @@ export const OpggMatchCard: React.FC<OpggMatchCardProps> = ({
   const { k, d, a } = parseKda(kdaStr);
   const isPerfect = d === 0;
   const kdaRatio = isPerfect ? 'Perfect' : ((k + a) / Math.max(1, d)).toFixed(2);
-
-  // Detail for Wooriming
-  const pDetail = allyDetail?.players?.[wLineKey];
-  const items = pDetail?.items || [];
-  const damage = pDetail?.damage_dealt;
 
   // Bans
   const redBans = (match.ban_a || []).filter(Boolean);
@@ -181,35 +174,6 @@ export const OpggMatchCard: React.FC<OpggMatchCardProps> = ({
                 {isPerfect ? 'Perfect' : `${kdaRatio}:1`} 평점
               </span>
             </div>
-
-            {/* 아이템 & 딜량 미니 표시 (있을 경우) */}
-            {(items.length > 0 || damage) && (
-              <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
-                {items.length > 0 && (
-                  <div className="flex items-center gap-0.5">
-                    {items.slice(0, 6).map((itm, iIdx) => (
-                      <div
-                        key={iIdx}
-                        className="w-[18px] h-[18px] rounded bg-black/60 border border-white/10 overflow-hidden flex items-center justify-center shrink-0"
-                        title={itm}
-                      >
-                        <img
-                          src={getItemIcon(itm)}
-                          alt={itm}
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {damage && (
-                  <span className="text-[10px] text-[#8e8ea8]">
-                    🗡️ <b className="text-white font-bold">{damage.toLocaleString()}</b>
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
