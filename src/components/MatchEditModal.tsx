@@ -78,6 +78,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   const [formPasscode, setFormPasscode] = useState('');
   const [persistAdminInForm, setPersistAdminInForm] = useState(true);
   const [formError, setFormError] = useState('');
+  const [successBanner, setSuccessBanner] = useState('');
   const [activeEditingMatch, setActiveEditingMatch] = useState<Match | null>(editingMatch);
 
   // Local state isolation: Do not reset form data during typing or parent re-renders
@@ -89,6 +90,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       isInitializedRef.current = false;
       editingIdRef.current = null;
       setActiveEditingMatch(null);
+      setSuccessBanner('');
       return;
     }
 
@@ -606,7 +608,9 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     }));
 
     setFormError('');
-    onToast(`${currentSetNum}세트 저장 완료! ${nextSet}세트 작성 모드로 전환되었습니다. (10인 로스터 및 밴/픽 유지)`);
+    const toastNotice = `${currentSetNum}세트 저장이 완료되었습니다. ${nextSet}세트 작성을 시작합니다.`;
+    setSuccessBanner(toastNotice);
+    onToast(toastNotice);
   };
 
   if (!isOpen) return null;
@@ -641,6 +645,22 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
             <X size={14} />
           </button>
         </div>
+
+        {successBanner && (
+          <div className="mb-4 p-3 bg-[#10b981]/15 border border-[#10b981]/35 text-[#6ee7b7] rounded-[14px] flex items-center justify-between text-[12px] font-medium shadow-[0_4px_16px_rgba(16,185,129,0.15)] animate-[fadeIn_0.2s]">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-[#10b981] shrink-0" />
+              <span>{successBanner}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSuccessBanner('')}
+              className="text-[#6ee7b7]/60 hover:text-white p-1"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
 
         {isAdmin && (
           <div className="mb-4 inline-flex items-center gap-1.5 text-[11px] bg-[#10b981]/15 border border-[#10b981]/30 text-[#10b981] px-3 py-1 rounded-full">

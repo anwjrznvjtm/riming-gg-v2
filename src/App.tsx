@@ -70,12 +70,15 @@ export default function App() {
   }, []);
 
   const showToast = (msg: string) => {
-    setToastMessage(msg);
+    setToastMessage('');
+    setTimeout(() => {
+      setToastMessage(msg);
+    }, 10);
   };
 
   useEffect(() => {
     if (!toastMessage) return;
-    const timer = setTimeout(() => setToastMessage(''), 2500);
+    const timer = setTimeout(() => setToastMessage(''), 3500);
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
@@ -284,8 +287,12 @@ export default function App() {
         ))}
       </datalist>
       {toastMessage && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-[#1e1e2a] border border-[#2a2a3a] text-white px-4 py-2 rounded-full text-[12px] shadow-2xl animate-[fadeIn_0.2s] max-w-[90vw] text-center font-medium">
-          {toastMessage}
+        <div className="fixed top-6 sm:top-8 left-1/2 -translate-x-1/2 z-[100001] bg-[#161622]/95 backdrop-blur-md border border-[#8b5cf6]/50 shadow-[0_10px_35px_rgba(0,0,0,0.6),0_0_20px_rgba(139,92,246,0.35)] text-white px-5 py-2.5 rounded-full text-[13px] sm:text-[14px] font-semibold tracking-wide flex items-center gap-2.5 max-w-[92vw] text-center pointer-events-none animate-[fadeIn_0.2s]">
+          <span className="flex h-2.5 w-2.5 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10b981] opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#10b981]"></span>
+          </span>
+          <span className="text-[#f1f1f8]">{toastMessage}</span>
         </div>
       )}
       <Header

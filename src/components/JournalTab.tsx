@@ -893,7 +893,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       }));
       setEditingMatch(null);
       setFormError('');
-      onToast(`${formData.set_number}세트 저장 완료! (${nextSetNum}세트 작성 모드로 전환되었습니다. 10인 로스터 및 밴/픽 유지)`);
+      onToast(`${formData.set_number}세트 저장이 완료되었습니다. ${nextSetNum}세트 작성을 시작합니다.`);
     } catch (err) {
       console.error('Save next set error', err);
       setFormError('다음 세트 저장 중 오류가 발생했습니다.');
