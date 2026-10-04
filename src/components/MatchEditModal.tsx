@@ -92,14 +92,14 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       return;
     }
 
-    const currentEditingId = editingMatch ? editingMatch.id : 'new';
-    if (isInitializedRef.current && editingIdRef.current === currentEditingId) {
-      // Already initialized for this modal session, strictly avoid wiping user inputs
+    if (isInitializedRef.current) {
+      // Modal is already open and initialized for this session.
+      // Under no circumstances should user input, set transitions, or roster be wiped!
       return;
     }
 
     isInitializedRef.current = true;
-    editingIdRef.current = currentEditingId;
+    editingIdRef.current = editingMatch ? editingMatch.id : '__new__';
     setActiveEditingMatch(editingMatch);
 
     if (editingMatch) {
@@ -595,7 +595,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       // Reset match-specific stats
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
-      game_duration: prev.game_duration || '31:40',
+      game_duration: '31:40',
       winning_team: 'Red',
       score: calcResult.score,
       team_a_detail: undefined,
@@ -775,12 +775,14 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
             >
               {Array.from(
                 {
-                  length:
+                  length: Math.max(
+                    Number(formData.set_number || 1),
                     formData.match_format === '5판3선승'
                       ? 5
                       : formData.match_format === '3판2선승'
                       ? 3
-                      : 1,
+                      : 1
+                  ),
                 },
                 (_, i) => i + 1
               ).map((num) => (

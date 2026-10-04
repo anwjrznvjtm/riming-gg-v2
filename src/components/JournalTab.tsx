@@ -858,9 +858,19 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       setSeriesWinners(calcResult.priorWinners);
       setSeriesHistory(calcResult.priorHistory);
 
+      const nextMatchFormat: MatchFormat =
+        formData.match_format === '단판'
+          ? '3판2선승'
+          : formData.match_format === '3판2선승' && nextSetNum > 3
+          ? '5판3선승'
+          : formData.match_format;
+
       setFormData((curr) => ({
         ...curr,
         id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        date: formData.date,
+        ck_name: cleanCkName,
+        match_format: nextMatchFormat,
         set_number: nextSetNum,
         score: calcResult.score,
         winning_team: 'Red',
@@ -874,6 +884,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
         // Reset match-specific stats
         team_a_kda: { ...emptyRoster },
         team_b_kda: { ...emptyRoster },
+        game_duration: '31:40',
         team_a_detail: undefined,
         team_b_detail: undefined,
         red_screenshot: undefined,
