@@ -1,6 +1,5 @@
 import React from 'react';
 import { Match } from '../types';
-import { BgmTrack } from '../lib/bgm';
 import { StreamerSearchBar } from './StreamerSearchBar';
 
 interface HeaderProps {
@@ -12,16 +11,6 @@ interface HeaderProps {
   isAdmin: boolean;
   onLoginClick: () => void;
   onLogoutClick: () => void;
-  pairMap: Map<string, any>;
-  onToast: (msg: string) => void;
-  isBgmPlaying: boolean;
-  onToggleBgm: () => void;
-  onNextBgm: () => void;
-  currentTrack: BgmTrack;
-  isMuted: boolean;
-  onToggleMute: () => void;
-  bgmVolume: number;
-  onChangeVolume: (v: number) => void;
 }
 
 // FINAL FIX: 모바일에서도 메뉴 절대 안 사라지는 헤더 + 스트리머 전적 검색창
@@ -34,14 +23,6 @@ export const Header: React.FC<HeaderProps> = ({
   isAdmin,
   onLoginClick,
   onLogoutClick,
-  isBgmPlaying,
-  onToggleBgm,
-  onNextBgm,
-  isMuted,
-  onToggleMute,
-  bgmVolume,
-  onChangeVolume,
-  currentTrack,
 }) => {
   const tabs = [
     { id: 'main', label: '메인' },
@@ -81,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
           </nav>
         </div>
 
-        {/* 둘째 줄 / 우측: 상단 스트리머 검색창 + BGM + 관리자 */}
+        {/* 둘째 줄 / 우측: 상단 스트리머 검색창 + 관리자 */}
         <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end flex-wrap md:flex-nowrap">
           {/* 상단 스트리머 전적 검색창 */}
           <div className="w-full md:w-[230px] lg:w-[260px] order-last md:order-first">
@@ -90,32 +71,6 @@ export const Header: React.FC<HeaderProps> = ({
               matches={matches}
               onSelectStreamer={onSelectStreamer}
               placeholder="스트리머 검색 (예: 린다랑, 서리)"
-            />
-          </div>
-
-          {/* BGM 컨트롤 */}
-          <div className="flex items-center gap-2 bg-[#12121a] border border-[#2a2a4a] rounded-full px-2.5 py-1 h-[34px] shrink-0">
-            <div className="flex items-center gap-1.5">
-              <div className={`w-2 h-2 rounded-full ${isBgmPlaying ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
-              <span className="text-[11px] font-bold text-[#8a8aa0] hidden sm:inline">BGM</span>
-            </div>
-            <button onClick={onToggleBgm} className="w-6 h-6 rounded-full hover:bg-[#1e1e2a] flex items-center justify-center text-[12px]">
-              {isBgmPlaying ? '⏸' : '▶'}
-            </button>
-            <button onClick={onNextBgm} className="w-6 h-6 rounded-full hover:bg-[#1e1e2a] flex items-center justify-center text-[12px]">
-              ⏭
-            </button>
-            <div className="w-px h-4 bg-[#2a2a3a] mx-1" />
-            <button onClick={onToggleMute} className="w-6 h-6 rounded-full hover:bg-[#1e1e2a] flex items-center justify-center text-[11px]">
-              {isMuted ? '🔇' : '🔊'}
-            </button>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={bgmVolume}
-              onChange={(e) => onChangeVolume(Number(e.target.value))}
-              className="w-[50px] accent-[#7c3aed] h-1 hidden sm:block"
             />
           </div>
 
@@ -129,13 +84,6 @@ export const Header: React.FC<HeaderProps> = ({
               {isAdmin ? '로그아웃' : '관리자'}
             </button>
           </div>
-        </div>
-      </div>
-      
-      {/* 현재 재생곡 - 모바일에서만 작게 표시 */}
-      <div className="md:hidden px-3 pb-2 -mt-0.5">
-        <div className="text-[10px] text-[#5a5a70] truncate">
-          🎵 {currentTrack?.title} - {currentTrack?.artist}
         </div>
       </div>
     </header>

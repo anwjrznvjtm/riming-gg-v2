@@ -421,7 +421,7 @@ export interface ComputedStats {
 export function calculateStats(matches: Match[]): ComputedStats {
   const latestMonth = matches.length
     ? matches.map((m) => m.date.slice(0, 7)).sort().reverse()[0]
-    : '2026-09';
+    : new Date().toISOString().slice(0, 7);
 
   const thisMonthMatches = matches.filter((m) => m.date.startsWith(latestMonth));
 

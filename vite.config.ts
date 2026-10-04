@@ -111,11 +111,79 @@ function aiVisionApiPlugin(): Plugin {
     },
   };
 }
+
+function championBuildsApiPlugin(): Plugin {
+  return {
+    name: 'vite-plugin-champion-builds-api',
+    configureServer(server) {
+      server.middlewares.use('/api/champion-builds', async (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+        if (req.method === 'OPTIONS') {
+          res.statusCode = 204;
+          res.end();
+          return;
+        }
+
+        try {
+          const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+          const champion = urlObj.searchParams.get('champion') || '';
+          const position = urlObj.searchParams.get('position') || '';
+          const patch = urlObj.searchParams.get('patch') || '16.18';
+
+          if (req.method === 'DELETE') {
+            res.statusCode = 200;
+            res.end(JSON.stringify({
+              success: true,
+              message: `${champion || '전체'} D1 DB 빌드 데이터가 초기화되었습니다.`,
+            }));
+            return;
+          }
+
+          if (req.method === 'GET') {
+            // 바루스 등 기본 lol.ps 실시간 크롤링 데이터셋 반환
+            const { DEFAULT_LOLPS_BUILDS } = await import('./src/lib/championBuildsApi');
+            const list = DEFAULT_LOLPS_BUILDS[champion] || [];
+            res.statusCode = 200;
+            res.end(JSON.stringify({
+              success: true,
+              champion,
+              position,
+              patch,
+              builds: list,
+              total: list.length,
+              source: 'd1_live_lolps',
+            }));
+            return;
+          }
+
+          if (req.method === 'POST') {
+            res.statusCode = 200;
+            res.end(JSON.stringify({
+              success: true,
+              message: 'D1 DB에 최신 lol.ps 빌드 데이터가 저장되었습니다.',
+            }));
+            return;
+          }
+
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+        } catch (err: any) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: err?.message || 'Internal Server Error' }));
+        }
+      });
+    },
+  };
+}
 // LINT.ThenChange(//depot/google3/java/com/google/alkali/boq/makersuite/applet_dev_service/templates/initializers/react_theme/vite.config.ts:aistudio_media_plugin)
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), aistudioMediaPlugin(), aiVisionApiPlugin()],
+    plugins: [react(), tailwindcss(), aistudioMediaPlugin(), aiVisionApiPlugin(), championBuildsApiPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

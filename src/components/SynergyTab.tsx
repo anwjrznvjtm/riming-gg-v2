@@ -4,7 +4,7 @@ import { ComputedStats, getWoorimingTeam, getWoorimingLineKey, getPlayerLineCham
 import { ChampionIcon } from './ChampionIcon';
 import { StreamerAvatar } from './StreamerAvatar';
 import { TeamSimulator } from './TeamSimulator';
-import { X, Trophy, TrendingDown, Users, ChevronRight, Calendar, Swords, Zap, Target, Shield } from 'lucide-react';
+import { X, Trophy, TrendingDown, Users, ChevronRight, Calendar, Zap, Target, Shield } from 'lucide-react';
 
 interface SynergyTabProps {
   stats: ComputedStats;
@@ -29,7 +29,30 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
     selectedStreamer?: string | null;
   } | null>(null);
 
-  // 파트너 라인 (원딜일 때: TOP, JGL, MID, SUP 4개 카드)
+  // 모달 내 랭킹 스코프: 'overall'(전체 누적 기본) 또는 'thisMonth'(최신 월)
+  const [modalScope, setModalScope] = useState<'overall' | 'thisMonth'>('overall');
+
+  // 최신 월 라벨 계산 (예: 10월, 2026년 10월)
+  const monthNum = useMemo(() => {
+    if (!stats.latestMonth) return 10;
+    const parts = stats.latestMonth.split('-');
+    return parts[1] ? parseInt(parts[1], 10) : 10;
+  }, [stats.latestMonth]);
+
+  const monthLabel = `${monthNum}월`;
+  const monthFullLabel = useMemo(() => {
+    if (!stats.latestMonth) return `${monthNum}월`;
+    const parts = stats.latestMonth.split('-');
+    return parts.length === 2 ? `${parts[0]}년 ${parseInt(parts[1], 10)}월` : stats.latestMonth;
+  }, [stats.latestMonth, monthNum]);
+
+  // 최신 월 경기 목록 필터
+  const latestMonthMatches = useMemo(() => {
+    if (!stats.latestMonth) return matches;
+    return matches.filter((m) => m.date.startsWith(stats.latestMonth));
+  }, [matches, stats.latestMonth]);
+
+  // 파트너 라인 (원딜일 때: TOP, JGL, MID, SUP 4개 카드 / 서폿일 때: TOP, JGL, MID, ADC 4개 카드)
   const partnerLines: LineName[] = useMemo(() => {
     return (['TOP', 'JGL', 'MID', 'ADC', 'SUP'] as LineName[]).filter((l) => l !== activeRole);
   }, [activeRole]);
@@ -41,7 +64,10 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
     const targetWLine = selectedModal.woorimingLine;
     const targetPLine = selectedModal.partnerLine;
 
-    return matches.filter((m) => {
+    // 모달 스코프에 따라 전체 누적 또는 최신 월 경기 목록 필터링
+    const sourceMatches = modalScope === 'thisMonth' ? latestMonthMatches : matches;
+
+    return sourceMatches.filter((m) => {
       const wTeam = getWoorimingTeam(m);
       const wRoster = wTeam === 'Red' ? m.team_a : m.team_b;
       const wKey = getWoorimingLineKey(m);
@@ -51,7 +77,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
       if (!pKey) return false;
       return wRoster[pKey]?.trim() === partnerName.trim();
     });
-  }, [matches, selectedModal]);
+  }, [matches, latestMonthMatches, selectedModal, modalScope]);
 
   return (
     <div className="space-y-10 animate-[fadeIn_0.2s]">
@@ -67,21 +93,25 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* 1. 상단: 개인 시너지 (원딜 포지션 중심의 기본 4카드 및 관련 통계) */}
+      {/* 1. 상단: 개인 시너지 (원딜/서폿 포지션 중심 4카드 - 최신 월 기준 집계) */}
       {/* ========================================================================= */}
       <section className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[#1e1e2a]">
           <div className="flex items-center gap-2.5">
             <span className="w-2.5 h-6 bg-[#8b5cf6] rounded-full inline-block shadow-[0_0_10px_rgba(139,92,246,0.5)]" />
             <div>
-              <h2 className="text-[16px] font-black text-white flex items-center gap-2">
+              <h2 className="text-[16px] font-black text-white flex items-center gap-2 flex-wrap">
                 <span>개인 시너지</span>
                 <span className="text-[12px] font-bold text-[#a78bfa]">
-                  ({activeRole === 'ADC' ? '원딜 포지션 중심 기본 4카드' : '서폿 포지션 4카드'})
+                  ({activeRole === 'ADC' ? '원딜 포지션 중심 4카드' : '서폿 포지션 4카드'})
+                </span>
+                <span className="text-[11px] font-bold text-[#10b981] bg-[#10b981]/15 border border-[#10b981]/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Calendar size={12} />
+                  {monthLabel} 최신 집계
                 </span>
               </h2>
               <p className="text-[11px] text-[#8a8aa0]">
-                우리밍_이 {activeRole === 'ADC' ? '원딜(ADC)' : '서폿(SUP)'}일 때 함께한 라인별 Best &amp; Worst 파트너 및 상세 전적입니다.
+                우리밍_이 {activeRole === 'ADC' ? '원딜(ADC)' : '서폿(SUP)'}일 때 {monthLabel}에 함께한 라인별 Best &amp; Worst 파트너입니다. 카드를 클릭하면 해당 라인의 전체 누적 상세 랭킹 및 전적을 조회할 수 있습니다.
               </p>
             </div>
           </div>
@@ -117,10 +147,14 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
 
         {/* 4개 라인 카드 컨테이너 */}
         <div className="bg-[#12121a] border border-[#1e1e2a] rounded-[22px] p-5 md:p-6 shadow-xl">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full bg-[#8b5cf6]/20 text-[#c4b5fd] border border-[#8b5cf6]/40 text-[11px] font-black">
                 우리밍_ {activeRole}
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-[#10b981]/15 text-[#34d399] border border-[#10b981]/30 text-[11px] font-bold flex items-center gap-1">
+                <Calendar size={12} />
+                {monthFullLabel} 최신 기준
               </span>
               <span className="text-[11px] text-[#8a8aa0]">
                 {activeRole === 'ADC'
@@ -128,17 +162,26 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                   : '탑(TOP) · 정글(JGL) · 미드(MID) · 원딜(ADC) 파트너'}
               </span>
             </div>
-            <span className="text-[10px] text-[#6a6a80]">카드 클릭 시 상세 랭킹 및 경기 목록 조회</span>
+            <div className="text-[11px] text-[#a78bfa] font-medium flex items-center gap-1">
+              <span>💡 라인 카드 클릭 시 전체 누적 전적 &amp; 랭킹 조회</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {partnerLines.map((pLine) => {
-              const partnerMap = stats.partnerStats.overall[activeRole];
+              // 1. 최신 월 기준 파트너 통계 조회
+              const partnerMap = stats.partnerStats.thisMonth?.[activeRole] || {};
               const allPartnersInLine = (Object.values(partnerMap) as PartnerStat[]).filter(
                 (p) => p.line === pLine
               );
 
-              // 1. Best 파트너: 승률 50% 초과 & 최소 1승 이상
+              // 2. 전체 누적 파트너 통계 (카드 하단 누적 명수 카운트 및 모달 연결용)
+              const overallPartnerMap = stats.partnerStats.overall?.[activeRole] || {};
+              const overallPartnersInLine = (Object.values(overallPartnerMap) as PartnerStat[]).filter(
+                (p) => p.line === pLine
+              );
+
+              // 3. 최신 월 Best 파트너: 승률 50% 초과 & 최소 1승 이상
               const bestCandidates = allPartnersInLine
                 .filter((p) => p.wins > 0 && p.wins > p.games - p.wins)
                 .sort(
@@ -146,7 +189,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                 );
               const best = bestCandidates[0] || null;
 
-              // 2. Worst 파트너: 패가 승보다 많거나 0승
+              // 4. 최신 월 Worst 파트너: 패가 승보다 많거나 0승
               const worstCandidates = allPartnersInLine
                 .filter((p) => p.wins === 0 || p.games - p.wins > p.wins)
                 .sort(
@@ -157,19 +200,24 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                 );
               const worst = worstCandidates[0] || null;
 
-              const bestChamps = best ? getPlayerLineChampionStats(best.name, pLine, matches).slice(0, 3) : [];
-              const worstChamps = worst ? getPlayerLineChampionStats(worst.name, pLine, matches).slice(0, 3) : [];
+              // 최신 월 모스트 챔피언 (최신 월 우선, 없으면 전체 경기에서 추출)
+              const bestChampsThisMonth = best ? getPlayerLineChampionStats(best.name, pLine, latestMonthMatches).slice(0, 3) : [];
+              const bestChamps = bestChampsThisMonth.length > 0 ? bestChampsThisMonth : (best ? getPlayerLineChampionStats(best.name, pLine, matches).slice(0, 3) : []);
+
+              const worstChampsThisMonth = worst ? getPlayerLineChampionStats(worst.name, pLine, latestMonthMatches).slice(0, 3) : [];
+              const worstChamps = worstChampsThisMonth.length > 0 ? worstChampsThisMonth : (worst ? getPlayerLineChampionStats(worst.name, pLine, matches).slice(0, 3) : []);
 
               return (
                 <div
                   key={pLine}
-                  onClick={() =>
+                  onClick={() => {
+                    setModalScope('overall');
                     setSelectedModal({
                       woorimingLine: activeRole,
                       partnerLine: pLine,
                       selectedStreamer: null,
-                    })
-                  }
+                    });
+                  }}
                   className="bg-[#08080c] border border-[#1e1e2a] rounded-[16px] p-4 hover:border-[#8b5cf6]/50 transition-all cursor-pointer group flex flex-col justify-between shadow-sm"
                 >
                   <div>
@@ -177,18 +225,35 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                       <div className="text-[12px] tracking-wider text-[#8b5cf6] font-black flex items-center gap-1.5">
                         <span className="w-1.5 h-3 bg-[#8b5cf6] rounded-full inline-block" />
                         <span>{pLine} 라인</span>
+                        <span className="text-[10px] font-semibold text-[#10b981] bg-[#10b981]/15 px-1.5 py-0.2 rounded border border-[#10b981]/30">
+                          {monthLabel} 기준
+                        </span>
                       </div>
-                      <span className="text-[10px] text-[#5a5a6a] group-hover:text-[#a78bfa] transition flex items-center gap-0.5 font-medium">
-                        랭킹 보기 <ChevronRight size={12} />
-                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setModalScope('overall');
+                          setSelectedModal({
+                            woorimingLine: activeRole,
+                            partnerLine: pLine,
+                            selectedStreamer: null,
+                          });
+                        }}
+                        className="text-[10px] text-[#8a8aa0] group-hover:text-[#a78bfa] hover:text-[#a78bfa] transition flex items-center gap-0.5 font-bold bg-[#1a1a26] hover:bg-[#252538] px-2 py-0.5 rounded-full border border-[#2a2a3e]"
+                      >
+                        <span>전체 랭킹 보기</span>
+                        <ChevronRight size={11} />
+                      </button>
                     </div>
 
                     <div className="mt-3 space-y-2.5">
-                      {/* BEST */}
+                      {/* BEST (최신 월 기준) */}
                       <div
                         onClick={(e) => {
                           if (best) {
                             e.stopPropagation();
+                            setModalScope('overall');
                             setSelectedModal({
                               woorimingLine: activeRole,
                               partnerLine: pLine,
@@ -206,6 +271,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                           <div className="flex items-center gap-1 text-[11px] text-[#10b981] font-black">
                             <Trophy size={13} />
                             <span>BEST</span>
+                            <span className="text-[9px] font-normal text-[#10b981]/80">({monthLabel})</span>
                           </div>
                           {best ? (
                             <div className="flex items-center gap-2">
@@ -228,7 +294,9 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                               </div>
                             </div>
                           ) : (
-                            <div className="text-[10px] text-[#5a5a6a]">조건 만족 없음</div>
+                            <div className="text-[10px] text-[#5a5a6a] italic">
+                              {allPartnersInLine.length === 0 ? `${monthLabel} 출전 없음` : `${monthLabel} 조건 만족 없음`}
+                            </div>
                           )}
                         </div>
 
@@ -262,11 +330,12 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                         )}
                       </div>
 
-                      {/* WORST */}
+                      {/* WORST (최신 월 기준) */}
                       <div
                         onClick={(e) => {
                           if (worst) {
                             e.stopPropagation();
+                            setModalScope('overall');
                             setSelectedModal({
                               woorimingLine: activeRole,
                               partnerLine: pLine,
@@ -284,6 +353,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                           <div className="flex items-center gap-1 text-[11px] text-[#ef4444] font-black">
                             <TrendingDown size={13} />
                             <span>WORST</span>
+                            <span className="text-[9px] font-normal text-[#ef4444]/80">({monthLabel})</span>
                           </div>
                           {worst ? (
                             <div className="flex items-center gap-2">
@@ -306,7 +376,9 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                               </div>
                             </div>
                           ) : (
-                            <div className="text-[10px] text-[#5a5a6a]">조건 만족 없음</div>
+                            <div className="text-[10px] text-[#5a5a6a] italic">
+                              {allPartnersInLine.length === 0 ? `${monthLabel} 출전 없음` : `${monthLabel} 조건 만족 없음`}
+                            </div>
                           )}
                         </div>
 
@@ -342,8 +414,12 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                     </div>
                   </div>
 
-                  <div className="mt-3 text-[10px] text-[#5a5a6a] text-center pt-2 border-t border-[#1e1e2a]/60 font-medium">
-                    총 {allPartnersInLine.length}명의 {pLine} 파트너 기록
+                  {/* 카드 하단: 최신 월 출전 인원 & 전체 누적 랭킹 조회 유도 */}
+                  <div className="mt-3 text-[10px] text-[#7a7a90] pt-2 border-t border-[#1e1e2a]/60 font-medium flex items-center justify-between px-0.5">
+                    <span>{monthLabel} {allPartnersInLine.length}명 출전</span>
+                    <span className="text-[#a78bfa] font-bold group-hover:text-white transition flex items-center gap-0.5">
+                      전체 누적 ({overallPartnersInLine.length}명) 랭킹 →
+                    </span>
                   </div>
                 </div>
               );
@@ -380,7 +456,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
       </section>
 
       {/* ========================================================================= */}
-      {/* 파트너 랭킹 & 출전 경기 상세 모달 */}
+      {/* 파트너 랭킹 & 출전 경기 상세 모달 (전체 누적 목록 및 상세 랭킹) */}
       {/* ========================================================================= */}
       {selectedModal && (
         <div
@@ -394,15 +470,18 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
             {/* 모달 헤더 */}
             <div className="flex justify-between items-start border-b border-[#1e1e2a] pb-4">
               <div>
-                <div className="font-bold text-[17px] text-white flex items-center gap-2">
+                <div className="font-bold text-[17px] text-white flex items-center gap-2 flex-wrap">
                   <span className="px-2 py-0.5 bg-[#8b5cf6] text-white rounded text-[11px] font-black">
                     우리밍_ {selectedModal.woorimingLine === 'ADC' ? '원딜' : '서폿'}
                   </span>
                   <span>×</span>
                   <span className="text-[#a78bfa]">{selectedModal.partnerLine} 파트너 상세 데이터</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-[#1e1e2a] text-[#c0c0d8] border border-[#2a2a3e]">
+                    {modalScope === 'overall' ? '전체 누적 랭킹' : `${monthLabel} 최신 랭킹`}
+                  </span>
                 </div>
                 <div className="text-[11px] text-[#8a8aa0] mt-1">
-                  파트너별 승률 랭킹, 해당 라인 모스트 챔피언 TOP 3 및 스트리머 클릭 시 함께 출전한 전적(경기 목록) 확인
+                  해당 라인의 전체 누적 전적 목록 및 상세 랭킹 (스트리머 행을 클릭하면 하단에 함께 출전한 전적 상세 목록이 표시됩니다)
                 </div>
               </div>
               <button
@@ -414,14 +493,39 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
               </button>
             </div>
 
-            {/* 랭킹 테이블 */}
+            {/* 랭킹 테이블 상단: 스코프 선택 탭 (전체 누적 기본 / 최신 월) */}
             <div>
-              <div className="text-[12px] font-bold text-white mb-2 flex items-center justify-between">
-                <span>파트너 랭킹 목록 (스트리머 클릭 시 하단에 경기 목록 표시)</span>
-                <span className="text-[11px] text-[#8a8aa0] font-normal">
-                  승&gt;패: Best / 패&gt;승·0승: Worst • 모스트 챔피언 순
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                <span className="text-[12px] font-bold text-white">
+                  파트너 승률 랭킹 (스트리머 클릭 시 하단에 경기 목록 표시)
                 </span>
+                <div className="flex items-center gap-1 bg-[#08080c] p-1 rounded-xl border border-[#1e1e2a] self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setModalScope('overall')}
+                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition ${
+                      modalScope === 'overall'
+                        ? 'bg-[#8b5cf6] text-white shadow-[0_0_10px_rgba(139,92,246,0.3)]'
+                        : 'text-[#8a8aa0] hover:text-white'
+                    }`}
+                  >
+                    전체 누적 랭킹 [기본]
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalScope('thisMonth')}
+                    className={`px-3 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
+                      modalScope === 'thisMonth'
+                        ? 'bg-[#8b5cf6] text-white shadow-[0_0_10px_rgba(139,92,246,0.3)]'
+                        : 'text-[#8a8aa0] hover:text-white'
+                    }`}
+                  >
+                    <Calendar size={11} />
+                    <span>{monthLabel} 랭킹</span>
+                  </button>
+                </div>
               </div>
+
               <div className="bg-[#08080c] border border-[#1e1e2a] rounded-[14px] overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-[12px]">
@@ -438,9 +542,12 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                     </thead>
                     <tbody>
                       {(() => {
-                        const partners = (Object.values(
-                          stats.partnerStats.overall[selectedModal.woorimingLine]
-                        ) as PartnerStat[])
+                        const targetDataMap =
+                          modalScope === 'thisMonth'
+                            ? stats.partnerStats.thisMonth[selectedModal.woorimingLine] || {}
+                            : stats.partnerStats.overall[selectedModal.woorimingLine] || {};
+
+                        const partners = (Object.values(targetDataMap) as PartnerStat[])
                           .filter((p) => p.line === selectedModal.partnerLine)
                           .sort(
                             (a, b) => b.wins / b.games - a.wins / a.games || b.wins - a.wins || b.games - a.games
@@ -450,18 +557,22 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                           return (
                             <tr>
                               <td colSpan={7} className="p-6 text-center text-[#5a5a6a]">
-                                해당 포지션과 함께한 경기 기록이 없습니다.
+                                {modalScope === 'thisMonth'
+                                  ? `${monthLabel}에 해당 포지션과 함께한 출전 기록이 없습니다.`
+                                  : '해당 포지션과 함께한 전체 누적 경기 기록이 없습니다.'}
                               </td>
                             </tr>
                           );
                         }
+
+                        const matchPool = modalScope === 'thisMonth' ? latestMonthMatches : matches;
 
                         return partners.map((p, idx) => {
                           const rate = (p.wins / p.games) * 100;
                           const isSelected = selectedModal.selectedStreamer === p.name;
                           const isBestCandidate = p.wins > 0 && p.wins > p.games - p.wins;
                           const isWorstCandidate = p.wins === 0 || p.games - p.wins > p.wins;
-                          const pChamps = getPlayerLineChampionStats(p.name, selectedModal.partnerLine, matches).slice(0, 3);
+                          const pChamps = getPlayerLineChampionStats(p.name, selectedModal.partnerLine, matchPool).slice(0, 3);
 
                           return (
                             <tr
@@ -478,7 +589,7 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
                               }
                               className={`border-t border-[#1e1e2a] cursor-pointer transition ${
                                 isSelected
-                                    ? 'bg-[#8b5cf6]/20 border-l-4 border-l-[#8b5cf6]'
+                                  ? 'bg-[#8b5cf6]/20 border-l-4 border-l-[#8b5cf6]'
                                   : 'hover:bg-[#1a1a26]'
                               }`}
                             >
@@ -570,16 +681,16 @@ export const SynergyTab: React.FC<SynergyTabProps> = ({
               </div>
             </div>
 
-            {/* 선택된 스트리머와 함께한 경기 목록 */}
+            {/* 선택된 스트리머와 함께한 경기 목록 (전체 누적 / 최신 월) */}
             {selectedModal.selectedStreamer && (
               <div className="border-t border-[#1e1e2a] pt-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-[13px] font-bold text-white flex items-center gap-2">
+                  <div className="text-[13px] font-bold text-white flex items-center gap-2 flex-wrap">
                     <StreamerAvatar name={selectedModal.selectedStreamer} size={20} shape="circle" />
                     <span className="text-[#a78bfa]">{selectedModal.selectedStreamer}</span>
-                    <span>선수와 함께 출전한 경기 목록</span>
+                    <span>선수와 함께 출전한 전적</span>
                     <span className="text-[#8a8aa0] text-[12px] font-normal">
-                      (총 {partnerMatches.length}경기)
+                      ({modalScope === 'overall' ? '전체 누적' : monthLabel} 총 {partnerMatches.length}경기)
                     </span>
                   </div>
                   <span className="text-[11px] text-[#6a6a80]">최신순</span>
