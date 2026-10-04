@@ -1,8 +1,7 @@
-import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { analyzeScreenshotWithGemini, generateRealisticMatchData } from './server/geminiVision';
+import { analyzeScreenshotWithGemini } from './server/geminiVision';
 
 async function startServer() {
   const app = express();
@@ -40,15 +39,9 @@ async function startServer() {
         msg.includes('prepayment') ||
         msg.includes('RESOURCE_EXHAUSTED') ||
         msg.includes('429');
-      const fallbackData = generateRealisticMatchData({
-        teamAStreamers: req.body?.teamAStreamers,
-        teamBStreamers: req.body?.teamBStreamers,
-        teamTarget: req.body?.team,
-      });
       return res.status(200).json({
         success: false,
         isQuotaExhausted: isQuota,
-        data: fallbackData,
         error: msg,
         message: isQuota
           ? 'Gemini API 선불 크레딧/할당량이 모두 소진되었습니다. AI Studio(https://ai.studio/projects)에서 확인 또는 충전 후 이용하실 수 있습니다.'

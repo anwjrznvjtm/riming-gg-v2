@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Trash2, X, AlertTriangle } from 'lucide-react';
-import { PASSCODE } from '../data/initialMatches';
 
 interface DeleteMatchModalProps {
   isOpen: boolean;
@@ -10,6 +9,8 @@ interface DeleteMatchModalProps {
   onConfirmDelete: (id: string) => void;
   onToast: (msg: string) => void;
 }
+
+const PASSCODE = '0928';
 
 export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
   isOpen,
@@ -89,7 +90,7 @@ export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleDelete();
               }}
-              placeholder="패스코드"
+              placeholder="패스코드 4자리"
               className="w-full h-[38px] bg-[#08080c] border border-[#2a2a3a] rounded-xl px-3.5 text-[12px] text-white focus:outline-none focus:border-[#ef4444]"
             />
           </div>

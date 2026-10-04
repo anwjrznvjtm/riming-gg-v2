@@ -1,6 +1,6 @@
 {
   "name": "Remix Remix Remix RIMING.GG",
-  "description": "Cloudflare D1 연동 DeepLoL 스타일 라이엇 공식 솔로랭크 티어리스트, 전체 룬 트리 하이라이트 및 5코어 아이템 빌드 통계 플랫폼",
+  "description": "스트리머 롤CK 전적 관리, 라인별 시너지 분석, 승률 기반 최적 팀 빌더 및 Cloudflare 배포 가이드",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

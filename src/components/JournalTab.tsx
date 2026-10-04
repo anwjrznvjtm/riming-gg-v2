@@ -12,7 +12,7 @@ import {
 import { ChampionIcon } from './ChampionIcon';
 import { StreamerAvatar } from './StreamerAvatar';
 import { parseKdaString, normalizeChampionName, SOOP_POPULAR_STREAMERS } from '../lib/champions';
-import { verifyAdminPasscode } from '../data/initialMatches';
+import { PASSCODE } from '../data/initialMatches';
 import { calculateMatchSeriesScores, calculateScoreForSetInSeries, sortMatchesDescending } from '../lib/seriesScores';
 import { ScreenshotUploadSection } from './ScreenshotUploadSection';
 import {
@@ -615,10 +615,11 @@ export const JournalTab: React.FC<JournalTabProps> = ({
 
   const validateMatchForm = (matchData: Match): { isValid: boolean; errorMsg: string } => {
     if (!isAdmin) {
-      if (!formPasscode.trim()) {
+      const cleanPass = formPasscode.trim().toLowerCase();
+      if (!cleanPass) {
         return { isValid: false, errorMsg: '관리자 패스코드를 입력해주세요.' };
       }
-      if (!verifyAdminPasscode(formPasscode)) {
+      if (cleanPass !== PASSCODE.toLowerCase()) {
         return { isValid: false, errorMsg: '패스코드가 올바르지 않습니다.' };
       }
     }
@@ -854,7 +855,8 @@ export const JournalTab: React.FC<JournalTabProps> = ({
     if (!deleteTargetId) return;
 
     if (!isAdmin) {
-      if (!deletePasscode.trim() || !verifyAdminPasscode(deletePasscode)) {
+      const cleanPass = deletePasscode.trim().toLowerCase();
+      if (cleanPass !== PASSCODE.toLowerCase()) {
         setDeleteError('패스코드가 올바르지 않습니다.');
         return;
       }
@@ -1505,6 +1507,13 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                   스마트 세트 시스템
                 </span>
               </div>
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="w-[28px] h-[28px] bg-[#1e1e2a] hover:bg-[#2a2a3a] rounded-full flex items-center justify-center text-white"
+              >
+                <X size={14} />
+              </button>
             </div>
 
             {isAdmin && (
@@ -2286,6 +2295,13 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                 <ShieldAlert size={16} className="text-[#ef4444]" />
                 <span>경기 삭제 확인</span>
               </h4>
+              <button
+                type="button"
+                onClick={() => setDeleteTargetId(null)}
+                className="w-[28px] h-[28px] bg-[#1e1e2a] hover:bg-[#2a2a3a] rounded-full flex items-center justify-center text-white"
+              >
+                <X size={14} />
+              </button>
             </div>
 
             {isAdmin ? (
