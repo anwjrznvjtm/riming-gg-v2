@@ -116,7 +116,7 @@ export const OpggMatchCard: React.FC<OpggMatchCardProps> = ({
 
           {/* 펀딩 및 지원금 뱃지: 1세트에만 대표로 노출 (중복 노출 방지), 인당 개수만 표기 */}
           {(() => {
-            const { isFirstSet, perPersonBalloons, totalBalloons, hasSubsidy } =
+            const { isFirstSet, perPersonBalloons, totalBalloons, hasSubsidy, fundingRatio } =
               getSeriesRepresentativeFunding(match, allMatches);
 
             if (!isFirstSet || (perPersonBalloons <= 0 && !hasSubsidy)) {
@@ -128,7 +128,7 @@ export const OpggMatchCard: React.FC<OpggMatchCardProps> = ({
                 {perPersonBalloons > 0 && (
                   <span
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/30 shadow-sm"
-                    title={`인당 펀딩: ${perPersonBalloons.toLocaleString()}개 (팀 총액: ${totalBalloons.toLocaleString()}개)`}
+                    title={`인당 펀딩: ${perPersonBalloons.toLocaleString()}개${fundingRatio && fundingRatio !== '100:0' ? ` (${fundingRatio} 배분)` : ''} (팀 총액: ${totalBalloons.toLocaleString()}개)`}
                   >
                     <span>🎈</span>
                     <span>펀딩 {perPersonBalloons.toLocaleString()}개</span>

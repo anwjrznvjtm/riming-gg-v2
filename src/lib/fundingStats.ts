@@ -16,6 +16,7 @@ export interface SeriesFundingRecord {
   splitCount: number;
   hasSubsidy: boolean;
   subsidyWon: boolean;
+  fundingRatio?: string;
   sets: Match[];
 }
 
@@ -120,6 +121,7 @@ export function groupMatchesIntoSeries(matches: Match[]): SeriesFundingRecord[] 
       (s) => Boolean(s.has_partner_subsidy || s.partner_subsidy)
     );
     const subsidyWon = hasSubsidy && won;
+    const fundingRatio = sortedSets.find((s) => s.funding_ratio)?.funding_ratio;
 
     seriesRecords.push({
       seriesKey: key,
@@ -136,6 +138,7 @@ export function groupMatchesIntoSeries(matches: Match[]): SeriesFundingRecord[] 
       splitCount,
       hasSubsidy,
       subsidyWon,
+      fundingRatio,
       sets: sortedSets,
     });
   }
@@ -249,6 +252,7 @@ export function getSeriesRepresentativeFunding(
   perPersonBalloons: number;
   totalBalloons: number;
   hasSubsidy: boolean;
+  fundingRatio?: string;
 } {
   const currentSetNum = parseInt(String(match.set_number), 10) || 1;
 
@@ -269,6 +273,7 @@ export function getSeriesRepresentativeFunding(
       perPersonBalloons: perPerson,
       totalBalloons: total,
       hasSubsidy,
+      fundingRatio: match.funding_ratio,
     };
   }
 
@@ -333,10 +338,13 @@ export function getSeriesRepresentativeFunding(
     (s) => Boolean(s.has_partner_subsidy || s.partner_subsidy)
   );
 
+  const fundingRatio = sortedSets.find((s) => s.funding_ratio)?.funding_ratio;
+
   return {
     isFirstSet,
     perPersonBalloons: maxPerPerson,
     totalBalloons: maxTotalBalloons,
     hasSubsidy,
+    fundingRatio,
   };
 }

@@ -16,6 +16,7 @@ import { verifyAdminPasscode } from '../data/initialMatches';
 import { calculateMatchSeriesScores, calculateScoreForSetInSeries, sortMatchesDescending } from '../lib/seriesScores';
 import { getSeriesRepresentativeFunding } from '../lib/fundingStats';
 import { ScreenshotUploadSection } from './ScreenshotUploadSection';
+import { FundingRatioSelector } from './FundingRatioSelector';
 import {
   Plus,
   Search,
@@ -203,6 +204,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
     funding: undefined,
     star_balloons: undefined,
     funding_per_person: undefined,
+    funding_base_amount: undefined,
+    funding_ratio: '100:0',
+    funding_target_team: 'auto',
     funding_split_count: 5,
     has_partner_subsidy: false,
     partner_subsidy: false,
@@ -462,6 +466,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       funding: undefined,
       star_balloons: undefined,
       funding_per_person: undefined,
+      funding_base_amount: undefined,
+      funding_ratio: '100:0',
+      funding_target_team: 'auto',
       funding_split_count: 5,
       has_partner_subsidy: false,
       partner_subsidy: false,
@@ -493,12 +500,18 @@ export const JournalTab: React.FC<JournalTabProps> = ({
     const splitCount = m.funding_split_count || 5;
     const totalBalloons = m.funding ?? m.star_balloons ?? undefined;
     const perPersonBalloons = m.funding_per_person ?? (totalBalloons ? Math.round(totalBalloons / splitCount) : undefined);
+    const baseAmount = m.funding_base_amount ?? perPersonBalloons;
+    const ratio = m.funding_ratio || '100:0';
+    const targetTeam = m.funding_target_team || 'auto';
 
     setFormData({
       ...m,
       funding: totalBalloons,
       star_balloons: totalBalloons,
       funding_per_person: perPersonBalloons,
+      funding_base_amount: baseAmount,
+      funding_ratio: ratio,
+      funding_target_team: targetTeam,
       funding_split_count: splitCount,
       has_partner_subsidy: Boolean(m.has_partner_subsidy ?? m.partner_subsidy),
       partner_subsidy: Boolean(m.has_partner_subsidy ?? m.partner_subsidy),
@@ -620,6 +633,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       funding: prevMatch.funding ?? prevMatch.star_balloons ?? curr.funding,
       star_balloons: prevMatch.funding ?? prevMatch.star_balloons ?? curr.star_balloons,
       funding_per_person: prevMatch.funding_per_person ?? curr.funding_per_person,
+      funding_base_amount: prevMatch.funding_base_amount ?? curr.funding_base_amount,
+      funding_ratio: prevMatch.funding_ratio ?? curr.funding_ratio ?? '100:0',
+      funding_target_team: prevMatch.funding_target_team ?? curr.funding_target_team ?? 'auto',
       funding_split_count: prevMatch.funding_split_count || curr.funding_split_count || 5,
       has_partner_subsidy: prevMatch.has_partner_subsidy ?? prevMatch.partner_subsidy ?? curr.has_partner_subsidy,
       partner_subsidy: prevMatch.has_partner_subsidy ?? prevMatch.partner_subsidy ?? curr.partner_subsidy,
@@ -808,6 +824,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       funding: totalBalloons,
       star_balloons: totalBalloons,
       funding_per_person: perPersonBalloons,
+      funding_base_amount: formData.funding_base_amount,
+      funding_ratio: formData.funding_ratio || '100:0',
+      funding_target_team: formData.funding_target_team || 'auto',
       funding_split_count: splitCount,
       has_partner_subsidy: hasSubsidy,
       partner_subsidy: hasSubsidy,
@@ -924,6 +943,9 @@ export const JournalTab: React.FC<JournalTabProps> = ({
         funding: curr.funding !== undefined ? curr.funding : formData.funding,
         star_balloons: curr.funding !== undefined ? curr.funding : formData.funding,
         funding_per_person: curr.funding_per_person !== undefined ? curr.funding_per_person : formData.funding_per_person,
+        funding_base_amount: curr.funding_base_amount !== undefined ? curr.funding_base_amount : formData.funding_base_amount,
+        funding_ratio: curr.funding_ratio || formData.funding_ratio || '100:0',
+        funding_target_team: curr.funding_target_team || formData.funding_target_team || 'auto',
         funding_split_count: curr.funding_split_count || formData.funding_split_count || 5,
         has_partner_subsidy: Boolean(curr.has_partner_subsidy ?? curr.partner_subsidy ?? formData.has_partner_subsidy),
         partner_subsidy: Boolean(curr.has_partner_subsidy ?? curr.partner_subsidy ?? formData.has_partner_subsidy),
@@ -1330,7 +1352,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
 
                       {/* 펀딩 및 지원금 뱃지: 1세트에만 대표로 노출 (중복 노출 방지), 인당 개수만 표기 */}
                       {(() => {
-                        const { isFirstSet, perPersonBalloons, totalBalloons, hasSubsidy } =
+                        const { isFirstSet, perPersonBalloons, totalBalloons, hasSubsidy, fundingRatio } =
                           getSeriesRepresentativeFunding(m, matches);
 
                         if (!isFirstSet || (perPersonBalloons <= 0 && !hasSubsidy)) {
@@ -1342,7 +1364,7 @@ export const JournalTab: React.FC<JournalTabProps> = ({
                             {perPersonBalloons > 0 && (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/30 shadow-sm"
-                                title={`인당 펀딩: ${perPersonBalloons.toLocaleString()}개 (팀 총액: ${totalBalloons.toLocaleString()}개)`}
+                                title={`인당 펀딩: ${perPersonBalloons.toLocaleString()}개${fundingRatio && fundingRatio !== '100:0' ? ` (${fundingRatio} 배분)` : ''} (팀 총액: ${totalBalloons.toLocaleString()}개)`}
                               >
                                 <span>🎈</span>
                                 <span>펀딩 {perPersonBalloons.toLocaleString()}개</span>
@@ -1938,140 +1960,28 @@ export const JournalTab: React.FC<JournalTabProps> = ({
               </div>
             </div>
 
-            {/* 숲TV 별풍선 펀딩 & 파트너 지원금 설정 (단순 일원화) */}
-            <div className="mb-4 p-3.5 bg-[#0a0a14] border border-[#1e1e2c] rounded-[16px] space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                {/* 좌측: 인당 별풍선 펀딩 입력 + 자동 계산된 총 펀딩 배지 */}
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <label className="text-[12px] font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
-                    <span>🎈</span>
-                    <span>인당 별풍선 펀딩</span>
-                  </label>
-                  <div className="relative w-[150px] sm:w-[170px]">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={
-                        formData.funding_per_person !== undefined && formData.funding_per_person !== null
-                          ? formData.funding_per_person.toLocaleString()
-                          : ''
-                      }
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/[^0-9]/g, '');
-                        const val = raw ? parseInt(raw, 10) : undefined;
-                        const calculatedTotal = val !== undefined ? val * 5 : undefined;
-                        setFormData((prev) => ({
-                          ...prev,
-                          funding_split_count: 5,
-                          funding_per_person: val,
-                          funding: calculatedTotal,
-                          star_balloons: calculatedTotal,
-                        }));
-                      }}
-                      placeholder="예: 10,000"
-                      className="w-full h-[36px] bg-[#12121e] border border-[#2a2a3e] rounded-full pl-3.5 pr-8 text-[12.5px] text-white placeholder:text-[#5a5a6a] focus:outline-none focus:border-[#fbbf24] font-bold"
-                    />
-                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] text-[#8a8aa0] pointer-events-none font-semibold">
-                      개
-                    </span>
-                  </div>
-
-                  {/* 입력 시 옆에 작게 자동 계산 표시: '총 펀딩: X개 (5인 기준)' */}
-                  {Boolean(formData.funding_per_person) && (
-                    <div className="text-[11px] font-semibold text-[#fbbf24] bg-[#fbbf24]/10 border border-[#fbbf24]/25 px-2.5 py-1 rounded-full flex items-center gap-1 whitespace-nowrap">
-                      <span className="text-[#8a8aa0] font-normal">↳ 총 펀딩:</span>
-                      <span className="font-bold">{((formData.funding_per_person || 0) * 5).toLocaleString()}개</span>
-                      <span className="text-[10px] text-[#fbbf24]/70 font-normal">(5인 기준)</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* 우측: 숲 파트너 지원금(100만 원) ON/OFF 토글 스위치 */}
-                <div className="flex items-center justify-end shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextState = !(formData.has_partner_subsidy || formData.partner_subsidy);
-                      setFormData((prev) => ({
-                        ...prev,
-                        has_partner_subsidy: nextState,
-                        partner_subsidy: nextState,
-                      }));
-                      onToast(
-                        nextState
-                          ? '🌱 숲 파트너 지원금 100만 원(인당 20만 원)이 적용되었습니다.'
-                          : '숲 파트너 지원금이 해제되었습니다.'
-                      );
-                    }}
-                    className={`h-[36px] px-3.5 rounded-full border text-[11.5px] font-bold transition-all flex items-center gap-2.5 shadow-sm active:scale-95 ${
-                      formData.has_partner_subsidy || formData.partner_subsidy
-                        ? 'bg-[#00c73c]/20 border-[#00c73c] text-[#4ade80] shadow-[0_0_14px_rgba(0,199,60,0.25)]'
-                        : 'bg-[#12121e] border-[#2a2a3e] text-[#8a8aa0] hover:text-[#c0c0d0] hover:border-[#3a3a4e]'
-                    }`}
-                    title="숲 파트너 공식 지원금 (100만 원) 적용 토글"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <span>🌱</span>
-                      <span>숲 지원금 (100만 원)</span>
-                    </span>
-                    <span
-                      className={`w-7 h-4 rounded-full flex items-center px-0.5 transition-colors duration-200 ${
-                        formData.has_partner_subsidy || formData.partner_subsidy
-                          ? 'bg-[#00c73c] justify-end'
-                          : 'bg-[#2a2a3a] justify-start'
-                      }`}
-                    >
-                      <span className="w-3 h-3 rounded-full bg-white shadow-md inline-block" />
-                    </span>
-                    <span className="text-[10px] font-black uppercase tracking-wider ml-0.5">
-                      {formData.has_partner_subsidy || formData.partner_subsidy ? 'ON' : 'OFF'}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 간편 추가 버튼: 인당 기준(+1,000, +5,000, +1만, +2만) 1세트 + 초기화 */}
-              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                <span className="text-[11px] text-[#8a8aa0] font-medium mr-1">간편 추가:</span>
-                {[1000, 5000, 10000, 20000].map((addAmount) => (
-                  <button
-                    key={addAmount}
-                    type="button"
-                    onClick={() => {
-                      const nextPer = (formData.funding_per_person || 0) + addAmount;
-                      setFormData((prev) => ({
-                        ...prev,
-                        funding_split_count: 5,
-                        funding_per_person: nextPer,
-                        funding: nextPer * 5,
-                        star_balloons: nextPer * 5,
-                      }));
-                    }}
-                    className="h-[28px] px-2.5 bg-[#181824] hover:bg-[#252536] border border-[#2a2a3e] text-[#d1d5db] hover:text-white rounded-lg text-[11px] font-bold transition active:scale-95"
-                  >
-                    +{addAmount >= 10000 ? `${addAmount / 10000}만` : `${addAmount.toLocaleString()}`}
-                  </button>
-                ))}
-
-                {Boolean(formData.funding_per_person || formData.funding) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormData((prev) => ({
-                        ...prev,
-                        funding_split_count: 5,
-                        funding: undefined,
-                        star_balloons: undefined,
-                        funding_per_person: undefined,
-                      }));
-                    }}
-                    className="h-[28px] px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/25 rounded-lg text-[10.5px] font-semibold transition ml-1"
-                  >
-                    초기화
-                  </button>
-                )}
-              </div>
-            </div>
+            {/* 숲TV 별풍선 펀딩 & 파트너 지원금 & 배분 비율 설정 */}
+            <FundingRatioSelector
+              baseAmount={formData.funding_base_amount ?? formData.funding_per_person}
+              ratio={formData.funding_ratio || '100:0'}
+              targetTeam={formData.funding_target_team || 'auto'}
+              hasSubsidy={Boolean(formData.has_partner_subsidy || formData.partner_subsidy)}
+              isWon={isMatchWonByWooriming(formData)}
+              onFundingChange={(updated) => {
+                setFormData((prev) => ({
+                  ...prev,
+                  ...updated,
+                }));
+              }}
+              onSubsidyToggle={(nextState) => {
+                setFormData((prev) => ({
+                  ...prev,
+                  has_partner_subsidy: nextState,
+                  partner_subsidy: nextState,
+                }));
+              }}
+              onToast={onToast}
+            />
 
             <div className="mb-4 bg-[#0a0a10] border border-[#1e1e2a] rounded-[16px] p-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">

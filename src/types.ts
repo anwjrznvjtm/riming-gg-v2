@@ -56,7 +56,10 @@ export interface Match {
   ck_name: string;
   funding?: number; // 총 별풍선 펀딩 개수 (숲TV)
   star_balloons?: number; // 별풍선 펀딩 개수 (alias 호환)
-  funding_per_person?: number; // 인당 별풍선 펀딩 개수
+  funding_per_person?: number; // 인당 별풍선 펀딩 개수 (최종 산출액)
+  funding_base_amount?: number; // 펀딩 기준 금액 (100% 기준 인당 금액)
+  funding_ratio?: string; // 펀딩 배분 비율 (예: '100:0', '9:1', '8:2', '7:3', '6:4', '5:5')
+  funding_target_team?: 'auto' | 'winner' | 'loser' | string; // 배분 적용 대상 (auto: 경기결과 연동, winner: 승리팀 지분, loser: 패배팀 지분)
   funding_split_count?: number; // 분배 인원 (기본 5인 - 승리팀, 또는 10인)
   has_partner_subsidy?: boolean; // 숲 파트너 지원금 (100만 원) ON/OFF
   partner_subsidy?: boolean; // 호환용 alias
