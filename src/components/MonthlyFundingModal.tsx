@@ -42,24 +42,17 @@ export const MonthlyFundingModal: React.FC<MonthlyFundingModalProps> = ({
     return Array.from(set).sort().reverse();
   }, [matches]);
 
-  // Initial month state: default to latest month in matches or current calendar month
-  const defaultMonth = useMemo(() => {
-    const now = new Date();
-    const currentCalMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    if (availableMonths.includes(currentCalMonth)) return currentCalMonth;
-    return availableMonths[0] || 'all';
-  }, [availableMonths]);
-
-  const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth);
+  // Initial month state: default to 'all' (전체 기간)
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
   // View mode: 'perPerson' (인당 기준) vs 'total' (팀 총액 기준)
   const [calcMode, setCalcMode] = useState<'perPerson' | 'total'>('perPerson');
 
-  // Sync selectedMonth when default changes
+  // Reset selectedMonth to 'all' whenever the modal opens
   useEffect(() => {
-    if (defaultMonth) {
-      setSelectedMonth(defaultMonth);
+    if (isOpen) {
+      setSelectedMonth('all');
     }
-  }, [defaultMonth]);
+  }, [isOpen]);
 
   // Calculate monthly stats grouped by match series (preventing duplicate counting of sets)
   const stats = useMemo(() => {
