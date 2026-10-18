@@ -12,6 +12,8 @@ import { ChampionIcon } from './ChampionIcon';
 import { StreamerAvatar } from './StreamerAvatar';
 import { MatchEditModal } from './MatchEditModal';
 import { DeleteMatchModal } from './DeleteMatchModal';
+import { MonthlyFundingSummaryCard } from './MonthlyFundingSummaryCard';
+import { MonthlyFundingModal } from './MonthlyFundingModal';
 import {
   Search,
   Calendar,
@@ -82,6 +84,7 @@ export const MainTab: React.FC<MainTabProps> = ({
   const [isAllChampsModalOpen, setIsAllChampsModalOpen] = useState(false);
   const [allChampsModalRole, setAllChampsModalRole] = useState<'adc' | 'sup' | 'all'>('adc');
   const [laneOpponentRole, setLaneOpponentRole] = useState<'adc' | 'sup'>('adc');
+  const [isFundingModalOpen, setIsFundingModalOpen] = useState(false);
 
   // Jump to streamer effect from external triggers
   useEffect(() => {
@@ -495,6 +498,12 @@ export const MainTab: React.FC<MainTabProps> = ({
               </button>
             </div>
           </div>
+
+          {/* 메인 상단 통계: '이번 달 펀딩 요약' 카드 (클릭 시 상세 모달 오픈) */}
+          <MonthlyFundingSummaryCard
+            matches={matches}
+            onClick={() => setIsFundingModalOpen(true)}
+          />
 
           {/* 1. '최근 30일' CK 통계 카드 (오직 CK 데이터 기반 / 큐타입 드롭다운 없음) */}
           <div className="bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-4 shadow-lg">
@@ -1049,6 +1058,7 @@ export const MainTab: React.FC<MainTabProps> = ({
                     key={m.id}
                     match={m}
                     scoreText={scoreText}
+                    allMatches={matches}
                     onEdit={handleOpenEditModal}
                     onDelete={(id) => setDeleteTargetId(id)}
                     onJumpToStreamer={onJumpToStreamer}
@@ -1112,7 +1122,16 @@ export const MainTab: React.FC<MainTabProps> = ({
         />
       )}
 
-      {/* 3. All Champions Modal with Role Toggle (원딜 / 서포터 / 전체) */}
+      {/* 3. Monthly Funding & Subsidy Detail Modal */}
+      {isFundingModalOpen && (
+        <MonthlyFundingModal
+          isOpen={isFundingModalOpen}
+          onClose={() => setIsFundingModalOpen(false)}
+          matches={matches}
+        />
+      )}
+
+      {/* 4. All Champions Modal with Role Toggle (원딜 / 서포터 / 전체) */}
       {isAllChampsModalOpen && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]"

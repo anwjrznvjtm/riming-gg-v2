@@ -28,6 +28,12 @@ export interface DbMatchRow {
   team_b_kda: Record<string, string>;
   ban_a: string[];
   ban_b: string[];
+  funding?: number;
+  star_balloons?: number;
+  funding_per_person?: number;
+  funding_split_count?: number;
+  has_partner_subsidy?: boolean;
+  partner_subsidy?: boolean;
   created_at?: string; // ISO 8601
   updated_at?: string; // ISO 8601
 }
@@ -194,6 +200,28 @@ export function normalizeMatch(raw: any): Match {
     ? raw.id.trim()
     : generateMatchId();
 
+  const funding_split_count = typeof raw?.funding_split_count === 'number' && (raw.funding_split_count === 5 || raw.funding_split_count === 10)
+    ? raw.funding_split_count
+    : 5;
+
+  let funding = typeof raw?.funding === 'number' && !isNaN(raw.funding)
+    ? raw.funding
+    : typeof raw?.star_balloons === 'number' && !isNaN(raw.star_balloons)
+    ? raw.star_balloons
+    : undefined;
+
+  let funding_per_person = typeof raw?.funding_per_person === 'number' && !isNaN(raw.funding_per_person)
+    ? raw.funding_per_person
+    : undefined;
+
+  if (funding !== undefined && funding_per_person === undefined) {
+    funding_per_person = Math.round(funding / funding_split_count);
+  } else if (funding === undefined && funding_per_person !== undefined) {
+    funding = funding_per_person * funding_split_count;
+  }
+
+  const has_partner_subsidy = Boolean(raw?.has_partner_subsidy ?? raw?.partner_subsidy);
+
   return {
     id,
     date,
@@ -202,6 +230,12 @@ export function normalizeMatch(raw: any): Match {
     set_number,
     score,
     winning_team,
+    funding,
+    star_balloons: funding,
+    funding_per_person,
+    funding_split_count,
+    has_partner_subsidy,
+    partner_subsidy: has_partner_subsidy,
     team_a: sanitizeRoster(raw?.team_a),
     team_b: sanitizeRoster(raw?.team_b),
     team_a_champs: sanitizeRoster(raw?.team_a_champs, true),
@@ -268,6 +302,12 @@ export function matchToDbRow(match: Match): DbMatchRow {
     set_number: match.set_number,
     score: match.score,
     winning_team: match.winning_team,
+    funding: match.funding,
+    star_balloons: match.star_balloons,
+    funding_per_person: match.funding_per_person,
+    funding_split_count: match.funding_split_count,
+    has_partner_subsidy: match.has_partner_subsidy,
+    partner_subsidy: match.partner_subsidy,
     team_a: { ...match.team_a },
     team_b: { ...match.team_b },
     team_a_champs: { ...match.team_a_champs },

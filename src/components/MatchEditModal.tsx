@@ -66,6 +66,12 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     match_format: '3판2선승',
     set_number: 1,
     game_duration: '31:40',
+    funding: undefined,
+    star_balloons: undefined,
+    funding_per_person: undefined,
+    funding_split_count: 5,
+    has_partner_subsidy: false,
+    partner_subsidy: false,
     team_a_detail: undefined,
     team_b_detail: undefined,
     red_screenshot: undefined,
@@ -116,8 +122,18 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
         allMatches,
       });
 
+      const splitCount = editingMatch.funding_split_count || 5;
+      const totalBalloons = editingMatch.funding ?? editingMatch.star_balloons ?? undefined;
+      const perPersonBalloons = editingMatch.funding_per_person ?? (totalBalloons ? Math.round(totalBalloons / splitCount) : undefined);
+
       setFormData({
         ...editingMatch,
+        funding: totalBalloons,
+        star_balloons: totalBalloons,
+        funding_per_person: perPersonBalloons,
+        funding_split_count: splitCount,
+        has_partner_subsidy: Boolean(editingMatch.has_partner_subsidy ?? editingMatch.partner_subsidy),
+        partner_subsidy: Boolean(editingMatch.has_partner_subsidy ?? editingMatch.partner_subsidy),
         score: calcResult.score,
         team_a: { ...editingMatch.team_a },
         team_b: { ...editingMatch.team_b },
@@ -168,6 +184,12 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
         match_format: '3판2선승',
         set_number: 1,
         game_duration: '31:40',
+        funding: undefined,
+        star_balloons: undefined,
+        funding_per_person: undefined,
+        funding_split_count: 5,
+        has_partner_subsidy: false,
+        partner_subsidy: false,
         team_a_detail: undefined,
         team_b_detail: undefined,
         red_screenshot: undefined,
@@ -356,6 +378,12 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       ban_a: Array.isArray(prevMatch.ban_a) ? [...prevMatch.ban_a] : ['', '', '', '', ''],
       ban_b: Array.isArray(prevMatch.ban_b) ? [...prevMatch.ban_b] : ['', '', '', '', ''],
       game_duration: prevMatch.game_duration || curr.game_duration || '31:40',
+      funding: prevMatch.funding ?? prevMatch.star_balloons ?? curr.funding,
+      star_balloons: prevMatch.funding ?? prevMatch.star_balloons ?? curr.star_balloons,
+      funding_per_person: prevMatch.funding_per_person ?? curr.funding_per_person,
+      funding_split_count: prevMatch.funding_split_count ?? curr.funding_split_count ?? 5,
+      has_partner_subsidy: prevMatch.has_partner_subsidy ?? prevMatch.partner_subsidy ?? curr.has_partner_subsidy,
+      partner_subsidy: prevMatch.has_partner_subsidy ?? prevMatch.partner_subsidy ?? curr.partner_subsidy,
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
       winning_team: curr.winning_team || 'Red',
@@ -373,6 +401,12 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       const nextBChamps = { ...prev.team_a_champs };
       const nextAKda = { ...prev.team_b_kda };
       const nextBKda = { ...prev.team_a_kda };
+      const nextBanA = Array.isArray(prev.ban_b) ? [...prev.ban_b] : ['', '', '', '', ''];
+      const nextBanB = Array.isArray(prev.ban_a) ? [...prev.ban_a] : ['', '', '', '', ''];
+      const nextADetail = prev.team_b_detail;
+      const nextBDetail = prev.team_a_detail;
+      const nextRedScreenshot = prev.blue_screenshot;
+      const nextBlueScreenshot = prev.red_screenshot;
       const nextWinner: 'Red' | 'Blue' = prev.winning_team === 'Red' ? 'Blue' : 'Red';
 
       const calcResult = calculateScoreForSetInSeries({
@@ -396,11 +430,17 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
         team_b_champs: nextBChamps,
         team_a_kda: nextAKda,
         team_b_kda: nextBKda,
+        ban_a: nextBanA,
+        ban_b: nextBanB,
+        team_a_detail: nextADetail,
+        team_b_detail: nextBDetail,
+        red_screenshot: nextRedScreenshot,
+        blue_screenshot: nextBlueScreenshot,
         winning_team: nextWinner,
         score: calcResult.score,
       };
     });
-    onToast('Red ↔ Blue 팀 로스터를 맞교환했습니다.');
+    onToast('Red ↔ Blue 진영 및 로스터·챔피언·밴을 맞교환(Swap)했습니다.');
   };
 
   const validateMatchForm = (matchData: Match): { isValid: boolean; errorMsg: string } => {
@@ -479,9 +519,27 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       sanitizedTeamBDetail = { ...sanitizedTeamBDetail, players: updatedPlayers };
     }
 
+    const splitCount = currentData.funding_split_count || 5;
+    let totalBalloons = currentData.funding !== undefined ? currentData.funding : currentData.star_balloons;
+    let perPersonBalloons = currentData.funding_per_person;
+
+    if (perPersonBalloons !== undefined && totalBalloons === undefined) {
+      totalBalloons = perPersonBalloons * splitCount;
+    } else if (totalBalloons !== undefined && perPersonBalloons === undefined) {
+      perPersonBalloons = Math.round(totalBalloons / splitCount);
+    }
+
+    const hasSubsidy = Boolean(currentData.has_partner_subsidy ?? currentData.partner_subsidy);
+
     return {
       ...currentData,
       ck_name: cleanCkName,
+      funding: totalBalloons,
+      star_balloons: totalBalloons,
+      funding_per_person: perPersonBalloons,
+      funding_split_count: splitCount,
+      has_partner_subsidy: hasSubsidy,
+      partner_subsidy: hasSubsidy,
       team_a_detail: sanitizedTeamADetail,
       team_b_detail: sanitizedTeamBDetail,
     };
@@ -587,13 +645,19 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       ck_name: matchToSave.ck_name,
       match_format: nextMatchFormat,
       set_number: nextSet,
+      funding: prev.funding !== undefined ? prev.funding : matchToSave.funding,
+      star_balloons: prev.funding !== undefined ? prev.funding : matchToSave.funding,
+      funding_per_person: prev.funding_per_person !== undefined ? prev.funding_per_person : matchToSave.funding_per_person,
+      funding_split_count: prev.funding_split_count || matchToSave.funding_split_count || 5,
+      has_partner_subsidy: Boolean(prev.has_partner_subsidy ?? prev.partner_subsidy ?? matchToSave.has_partner_subsidy ?? matchToSave.partner_subsidy),
+      partner_subsidy: Boolean(prev.has_partner_subsidy ?? prev.partner_subsidy ?? matchToSave.has_partner_subsidy ?? matchToSave.partner_subsidy),
       // Retain 10 streamer nicknames, champions, and bans
       team_a: { ...prev.team_a },
       team_b: { ...prev.team_b },
       team_a_champs: { ...prev.team_a_champs },
       team_b_champs: { ...prev.team_b_champs },
-      ban_a: [...prev.ban_a],
-      ban_b: [...prev.ban_b],
+      ban_a: Array.isArray(prev.ban_a) ? [...prev.ban_a] : ['', '', '', '', ''],
+      ban_b: Array.isArray(prev.ban_b) ? [...prev.ban_b] : ['', '', '', '', ''],
       // Reset match-specific stats
       team_a_kda: { ...emptyRoster },
       team_b_kda: { ...emptyRoster },
@@ -691,7 +755,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
         </div>
 
         {/* Basic Match Fields */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
           <div>
             <label className="text-[11px] text-[#8a8aa0] mb-1 block">경기 일자</label>
             <input
@@ -737,7 +801,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
                 setSeriesHistory(calcResult.priorHistory);
                 setFormData((prev) => ({ ...prev, ck_name: newCk, score: calcResult.score }));
               }}
-              placeholder="예: 치지직 심야 드래프트 CK"
+              placeholder="예: 숲 드래프트 CK"
               className="w-full h-[36px] bg-[#08080c] border border-[#1e1e2a] rounded-full px-4 text-[12px] text-white placeholder:text-[#5a5a6a] focus:outline-none focus:border-[#8b5cf6]/50"
             />
           </div>
@@ -809,6 +873,141 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+
+        {/* 숲TV 별풍선 펀딩 & 파트너 지원금 설정 (단순 일원화) */}
+        <div className="mb-4 p-3.5 bg-[#0a0a14] border border-[#1e1e2c] rounded-[16px] space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* 좌측: 인당 별풍선 펀딩 입력 + 자동 계산된 총 펀딩 배지 */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <label className="text-[12px] font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
+                <span>🎈</span>
+                <span>인당 별풍선 펀딩</span>
+              </label>
+              <div className="relative w-[150px] sm:w-[170px]">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={
+                    formData.funding_per_person !== undefined && formData.funding_per_person !== null
+                      ? formData.funding_per_person.toLocaleString()
+                      : ''
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9]/g, '');
+                    const val = raw ? parseInt(raw, 10) : undefined;
+                    const calculatedTotal = val !== undefined ? val * 5 : undefined;
+                    setFormData((prev) => ({
+                      ...prev,
+                      funding_split_count: 5,
+                      funding_per_person: val,
+                      funding: calculatedTotal,
+                      star_balloons: calculatedTotal,
+                    }));
+                  }}
+                  placeholder="예: 10,000"
+                  className="w-full h-[36px] bg-[#12121e] border border-[#2a2a3e] rounded-full pl-3.5 pr-8 text-[12.5px] text-white placeholder:text-[#5a5a6a] focus:outline-none focus:border-[#fbbf24] font-bold"
+                />
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] text-[#8a8aa0] pointer-events-none font-semibold">
+                  개
+                </span>
+              </div>
+
+              {/* 입력 시 옆에 작게 자동 계산 표시: '총 펀딩: X개 (5인 기준)' */}
+              {Boolean(formData.funding_per_person) && (
+                <div className="text-[11px] font-semibold text-[#fbbf24] bg-[#fbbf24]/10 border border-[#fbbf24]/25 px-2.5 py-1 rounded-full flex items-center gap-1 whitespace-nowrap">
+                  <span className="text-[#8a8aa0] font-normal">↳ 총 펀딩:</span>
+                  <span className="font-bold">{((formData.funding_per_person || 0) * 5).toLocaleString()}개</span>
+                  <span className="text-[10px] text-[#fbbf24]/70 font-normal">(5인 기준)</span>
+                </div>
+              )}
+            </div>
+
+            {/* 우측: 숲 파트너 지원금(100만 원) ON/OFF 토글 스위치 */}
+            <div className="flex items-center justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const nextState = !(formData.has_partner_subsidy || formData.partner_subsidy);
+                  setFormData((prev) => ({
+                    ...prev,
+                    has_partner_subsidy: nextState,
+                    partner_subsidy: nextState,
+                  }));
+                  onToast(
+                    nextState
+                      ? '🌱 숲 파트너 지원금 100만 원(인당 20만 원)이 적용되었습니다.'
+                      : '숲 파트너 지원금이 해제되었습니다.'
+                  );
+                }}
+                className={`h-[36px] px-3.5 rounded-full border text-[11.5px] font-bold transition-all flex items-center gap-2.5 shadow-sm active:scale-95 ${
+                  formData.has_partner_subsidy || formData.partner_subsidy
+                    ? 'bg-[#00c73c]/20 border-[#00c73c] text-[#4ade80] shadow-[0_0_14px_rgba(0,199,60,0.25)]'
+                    : 'bg-[#12121e] border-[#2a2a3e] text-[#8a8aa0] hover:text-[#c0c0d0] hover:border-[#3a3a4e]'
+                }`}
+                title="숲 파트너 공식 지원금 (100만 원) 적용 토글"
+              >
+                <span className="flex items-center gap-1.5">
+                  <span>🌱</span>
+                  <span>숲 지원금 (100만 원)</span>
+                </span>
+                <span
+                  className={`w-7 h-4 rounded-full flex items-center px-0.5 transition-colors duration-200 ${
+                    formData.has_partner_subsidy || formData.partner_subsidy
+                      ? 'bg-[#00c73c] justify-end'
+                      : 'bg-[#2a2a3a] justify-start'
+                  }`}
+                >
+                  <span className="w-3 h-3 rounded-full bg-white shadow-md inline-block" />
+                </span>
+                <span className="text-[10px] font-black uppercase tracking-wider ml-0.5">
+                  {formData.has_partner_subsidy || formData.partner_subsidy ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* 간편 추가 버튼: 인당 기준(+1,000, +5,000, +1만, +2만) 1세트 + 초기화 */}
+          <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+            <span className="text-[11px] text-[#8a8aa0] font-medium mr-1">간편 추가:</span>
+            {[1000, 5000, 10000, 20000].map((addAmount) => (
+              <button
+                key={addAmount}
+                type="button"
+                onClick={() => {
+                  const nextPer = (formData.funding_per_person || 0) + addAmount;
+                  setFormData((prev) => ({
+                    ...prev,
+                    funding_split_count: 5,
+                    funding_per_person: nextPer,
+                    funding: nextPer * 5,
+                    star_balloons: nextPer * 5,
+                  }));
+                }}
+                className="h-[28px] px-2.5 bg-[#181824] hover:bg-[#252536] border border-[#2a2a3e] text-[#d1d5db] hover:text-white rounded-lg text-[11px] font-bold transition active:scale-95"
+              >
+                +{addAmount >= 10000 ? `${addAmount / 10000}만` : `${addAmount.toLocaleString()}`}
+              </button>
+            ))}
+
+            {Boolean(formData.funding_per_person || formData.funding) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    funding_split_count: 5,
+                    funding: undefined,
+                    star_balloons: undefined,
+                    funding_per_person: undefined,
+                  }));
+                }}
+                className="h-[28px] px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/25 rounded-lg text-[10.5px] font-semibold transition ml-1"
+              >
+                초기화
+              </button>
+            )}
           </div>
         </div>
 

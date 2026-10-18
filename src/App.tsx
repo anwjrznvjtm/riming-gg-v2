@@ -36,10 +36,13 @@ export default function App() {
         localStorage.setItem('riming_mock_purged_v1', 'true');
         return [];
       }
-      const saved = localStorage.getItem(STORAGE_KEY_MATCHES);
+      const saved =
+        localStorage.getItem('ck_matches') ||
+        localStorage.getItem(STORAGE_KEY_MATCHES) ||
+        localStorage.getItem(STORAGE_KEY_BACKUP);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           return recalculateAllSeriesScores(parsed.map((m) => normalizeMatch(m)));
         }
       }
@@ -121,8 +124,10 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_MATCHES, JSON.stringify(matches));
-      localStorage.setItem(STORAGE_KEY_BACKUP, JSON.stringify(matches));
+      const dataStr = JSON.stringify(matches);
+      localStorage.setItem(STORAGE_KEY_MATCHES, dataStr);
+      localStorage.setItem(STORAGE_KEY_BACKUP, dataStr);
+      localStorage.setItem('ck_matches', dataStr);
     } catch (e) {
       console.error('Failed to save to localStorage', e);
     }

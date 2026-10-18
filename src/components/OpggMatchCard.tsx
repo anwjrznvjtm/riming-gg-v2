@@ -8,11 +8,13 @@ import {
   isMatchWonByWooriming,
   parseKda,
 } from '../lib/stats';
+import { getSeriesRepresentativeFunding } from '../lib/fundingStats';
 import { Edit2, Trash2, Crown } from 'lucide-react';
 
 interface OpggMatchCardProps {
   match: Match;
   scoreText: string;
+  allMatches?: Match[];
   onEdit: (match: Match) => void;
   onDelete: (id: string) => void;
   onJumpToStreamer?: (streamerName: string, matchId?: string, teamRole?: 'all' | 'ally' | 'enemy') => void;
@@ -21,6 +23,7 @@ interface OpggMatchCardProps {
 export const OpggMatchCard: React.FC<OpggMatchCardProps> = ({
   match,
   scoreText,
+  allMatches,
   onEdit,
   onDelete,
   onJumpToStreamer,
@@ -81,11 +84,6 @@ export const OpggMatchCard: React.FC<OpggMatchCardProps> = ({
               <span className="text-[11.5px] font-semibold text-[#8e8ea8]">
                 {match.match_format || '5판3선승'} {match.set_number || 1}세트
               </span>
-              {match.game_duration && (
-                <span className="text-[10.5px] text-[#65657d] font-medium">
-                  ({match.game_duration})
-                </span>
-              )}
             </div>
 
             <div className="text-[11px] text-[#6b6b85] font-medium mt-0.5">
@@ -115,6 +113,39 @@ export const OpggMatchCard: React.FC<OpggMatchCardProps> = ({
               스코어 {scoreText}
             </div>
           </div>
+
+          {/* 펀딩 및 지원금 뱃지: 1세트에만 대표로 노출 (중복 노출 방지), 인당 개수만 표기 */}
+          {(() => {
+            const { isFirstSet, perPersonBalloons, totalBalloons, hasSubsidy } =
+              getSeriesRepresentativeFunding(match, allMatches);
+
+            if (!isFirstSet || (perPersonBalloons <= 0 && !hasSubsidy)) {
+              return null;
+            }
+
+            return (
+              <div className="flex items-center gap-1.5 flex-wrap mt-0.5 w-full xl:w-auto">
+                {perPersonBalloons > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/30 shadow-sm"
+                    title={`인당 펀딩: ${perPersonBalloons.toLocaleString()}개 (팀 총액: ${totalBalloons.toLocaleString()}개)`}
+                  >
+                    <span>🎈</span>
+                    <span>펀딩 {perPersonBalloons.toLocaleString()}개</span>
+                  </span>
+                )}
+                {hasSubsidy && (
+                  <span
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-extrabold bg-[#00c73c]/15 text-[#4ade80] border border-[#00c73c]/30 shadow-sm"
+                    title="숲 파트너 지원금 100만 원 (인당 20만 원)"
+                  >
+                    <span>🌱</span>
+                    <span>숲 지원금</span>
+                  </span>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* 2. [중앙 영역] 우리밍_ 큰 챔피언 아이콘, 왕관 + '우리밍_ (챔피언명 · 포지션)', 큰 글씨 KDA, 평점 뱃지 */}

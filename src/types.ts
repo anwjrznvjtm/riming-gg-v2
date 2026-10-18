@@ -54,6 +54,12 @@ export interface Match {
   id: string;
   date: string; // YYYY-MM-DD
   ck_name: string;
+  funding?: number; // 총 별풍선 펀딩 개수 (숲TV)
+  star_balloons?: number; // 별풍선 펀딩 개수 (alias 호환)
+  funding_per_person?: number; // 인당 별풍선 펀딩 개수
+  funding_split_count?: number; // 분배 인원 (기본 5인 - 승리팀, 또는 10인)
+  has_partner_subsidy?: boolean; // 숲 파트너 지원금 (100만 원) ON/OFF
+  partner_subsidy?: boolean; // 호환용 alias
   team_a: TeamRoster; // Red
   team_b: TeamRoster; // Blue
   team_a_champs: TeamChamps;
