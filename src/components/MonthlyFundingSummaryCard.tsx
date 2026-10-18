@@ -99,7 +99,7 @@ export const MonthlyFundingSummaryCard: React.FC<MonthlyFundingSummaryCardProps>
               }`}
             >
               <span>🎈</span>
-              <span>펀딩 순손익 (NET)</span>
+              <span>펀딩 순손익</span>
             </span>
             <span
               className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
