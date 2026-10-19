@@ -8,7 +8,7 @@ import {
   KNOWN_STREAMERS,
   getInitialMatches,
 } from './data/initialMatches';
-import { calculateStats } from './lib/stats';
+import { calculateStats, normalizeStreamerName } from './lib/stats';
 import { normalizeChampionName } from './lib/champions';
 import { normalizeMatch } from './lib/matchSchema';
 import { recalculateAllSeriesScores } from './lib/seriesScores';
@@ -166,11 +166,15 @@ export default function App() {
     set.add('우리밍_');
     for (const m of matches) {
       for (const k of ['top', 'jgl', 'mid', 'adc', 'sup'] as const) {
-        if (m.team_a && m.team_a[k] && m.team_a[k].trim()) {
-          set.add(m.team_a[k].trim());
+        if (m.team_a && m.team_a[k]) {
+          const norm = normalizeStreamerName(m.team_a[k]);
+          if (norm) set.add(norm);
+          else if (m.team_a[k].trim()) set.add(m.team_a[k].trim());
         }
-        if (m.team_b && m.team_b[k] && m.team_b[k].trim()) {
-          set.add(m.team_b[k].trim());
+        if (m.team_b && m.team_b[k]) {
+          const norm = normalizeStreamerName(m.team_b[k]);
+          if (norm) set.add(norm);
+          else if (m.team_b[k].trim()) set.add(m.team_b[k].trim());
         }
       }
     }

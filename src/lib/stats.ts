@@ -55,6 +55,41 @@ export function normalizeStreamerName(raw?: string | null): string {
   return name;
 }
 
+/**
+ * Checks whether a roster player name matches a target streamer name.
+ * Robust against tags like [광동], champion names like (진), aliases, and whitespace.
+ */
+export function isStreamerMatch(slotValue?: string | null, targetName?: string | null): boolean {
+  if (!slotValue || !targetName) return false;
+  const rawSlot = String(slotValue).trim();
+  const rawTarget = String(targetName).trim();
+  if (!rawSlot || !rawTarget) return false;
+
+  // Direct case-insensitive match
+  if (rawSlot.toLowerCase() === rawTarget.toLowerCase()) return true;
+
+  // Canonical normalized name comparison
+  const normSlot = normalizeStreamerName(rawSlot).toLowerCase();
+  const normTarget = normalizeStreamerName(rawTarget).toLowerCase();
+  if (normSlot && normTarget && normSlot === normTarget) return true;
+
+  // Clean bracket prefixes and parenthesized suffixes
+  const cleanSlot = rawSlot
+    .replace(/^\[[^\]]*\]\s*/g, '')
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+  const cleanTarget = rawTarget
+    .replace(/^\[[^\]]*\]\s*/g, '')
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+
+  if (cleanSlot && cleanTarget && cleanSlot === cleanTarget) return true;
+
+  return false;
+}
+
 export function parseKda(kda?: string): { k: number; d: number; a: number } {
   if (!kda || !kda.includes('/')) return { k: 0, d: 0, a: 0 };
   const parts = kda.split('/').map((x) => parseInt(x.trim(), 10) || 0);
@@ -333,6 +368,136 @@ export interface OpponentStat {
   matches: OpponentMatchDetail[];
 }
 
+export interface StreamerHeadToHeadStat {
+  name: string;
+  totalGames: number;
+  mainLane: LineKey;
+  // 적팀 출전 시: '우리밍 기준' 거둔 승패 (우리밍 승/패) 및 승률
+  vsGames: number;
+  vsWins: number; // 우리밍_ 승리
+  vsLosses: number; // 우리밍_ 패배
+  vsWinrate: number; // 우리밍_ 승률 (%)
+  opponentWins: number; // 상대방 관점 승리 (= vsLosses)
+  opponentLosses: number; // 상대방 관점 패배 (= vsWins)
+  opponentWinrate: number; // 상대방 관점 승률 (%)
+  // 아군 출전 시: 우리밍과 같은 팀으로 거둔 승패 및 승률
+  withGames: number;
+  withWins: number; // 우리밍_ 팀 승리
+  withLosses: number; // 우리밍_ 팀 패배
+  withWinrate: number; // 우리밍_ 팀 승률 (%)
+}
+
+/**
+ * Calculates head-to-head statistics for a specific streamer relative to Wooriming.
+ * - 적팀 전적 (vsGames): 우리밍_과 상대팀으로 만났을 때 '우리밍이 거둔 승패'(vsWins: 우리밍 승리, vsLosses: 우리밍 패배)
+ * - 아군 전적 (withGames): 우리밍_과 같은 팀으로 출전했을 때 팀의 승패
+ */
+export function calculateStreamerHeadToHeadStats(
+  matches: Match[],
+  targetStreamer: string
+): StreamerHeadToHeadStat {
+  const cleanTarget = targetStreamer.trim();
+  const laneCounts: Record<LineKey, number> = { top: 0, jgl: 0, mid: 0, adc: 0, sup: 0 };
+  let totalGames = 0;
+  let vsGames = 0;
+  let vsWins = 0;
+  let vsLosses = 0;
+  let withGames = 0;
+  let withWins = 0;
+  let withLosses = 0;
+
+  for (const m of matches) {
+    if (!m) continue;
+
+    const wInfo = findWoorimingInMatch(m);
+    if (!wInfo) continue;
+    const wTeam = wInfo.team;
+
+    const redRoster = m.team_a || ({} as any);
+    const blueRoster = m.team_b || ({} as any);
+
+    let playerTeam: 'Red' | 'Blue' | null = null;
+    let playerLane: LineKey | null = null;
+
+    for (const k of LINE_KEYS) {
+      if (isStreamerMatch(redRoster[k], cleanTarget)) {
+        playerTeam = 'Red';
+        playerLane = k;
+        break;
+      }
+      if (isStreamerMatch(blueRoster[k], cleanTarget)) {
+        playerTeam = 'Blue';
+        playerLane = k;
+        break;
+      }
+    }
+
+    if (!playerTeam || !playerLane) continue;
+
+    totalGames++;
+    laneCounts[playerLane]++;
+
+    // 우리밍_ 승리 여부 판정 (표준 함수 isMatchWonByWooriming 사용)
+    const wonByWooriming = isMatchWonByWooriming(m);
+
+    if (playerTeam === wTeam) {
+      // 🤝 우리밍_과 같은 팀 (아군)
+      withGames++;
+      if (wonByWooriming) withWins++;
+      else withLosses++;
+    } else {
+      // ⚔️ 우리밍_과 상대 팀 (적팀)
+      // *주의*: 적팀 전적은 '우리밍 기준' 전적 (우리밍 승/패)
+      vsGames++;
+      if (wonByWooriming) vsWins++;
+      else vsLosses++;
+    }
+  }
+
+  let bestLane: LineKey = 'mid';
+  let maxLaneCount = -1;
+  for (const k of LINE_KEYS) {
+    if (laneCounts[k] > maxLaneCount) {
+      maxLaneCount = laneCounts[k];
+      bestLane = k;
+    }
+  }
+
+  const vsWinrate = vsGames > 0 ? Math.round((vsWins / vsGames) * 100) : 0;
+  const withWinrate = withGames > 0 ? Math.round((withWins / withGames) * 100) : 0;
+  const opponentWinrate = vsGames > 0 ? Math.round((vsLosses / vsGames) * 100) : 0;
+
+  return {
+    name: cleanTarget,
+    totalGames,
+    mainLane: bestLane,
+    vsGames,
+    vsWins,
+    vsLosses,
+    vsWinrate,
+    opponentWins: vsLosses,
+    opponentLosses: vsWins,
+    opponentWinrate,
+    withGames,
+    withWins,
+    withLosses,
+    withWinrate,
+  };
+}
+
+export function calculateAllStreamerHeadToHeadStats(
+  matches: Match[],
+  streamers: string[]
+): Map<string, StreamerHeadToHeadStat> {
+  const map = new Map<string, StreamerHeadToHeadStat>();
+  for (const s of streamers) {
+    const clean = s.trim();
+    if (!clean || isWooriming(clean)) continue;
+    map.set(clean, calculateStreamerHeadToHeadStats(matches, clean));
+  }
+  return map;
+}
+
 export function calculateOpponentStats(matches: Match[]): OpponentStat[] {
   const map = new Map<string, OpponentStat>();
 
@@ -348,7 +513,8 @@ export function calculateOpponentStats(matches: Match[]): OpponentStat[] {
     const myTeamChamps = wTeam === 'Red' ? m.team_a_champs : m.team_b_champs;
     const myTeamKda = wTeam === 'Red' ? m.team_a_kda : m.team_b_kda;
 
-    const oppName = (oppTeamRoster?.[lineKey] || '').trim();
+    const rawOppName = oppTeamRoster?.[lineKey];
+    const oppName = normalizeStreamerName(rawOppName) || String(rawOppName || '').trim();
     if (!oppName || isWooriming(oppName)) continue;
 
     const won = isMatchWonByWooriming(m);

@@ -5,7 +5,7 @@ import {
   LINE_KEYS,
   LINE_LABELS,
 } from '../types';
-import { ComputedStats, isMatchWonByWooriming, getWoorimingTeam, getWoorimingLineKey, parseKda, isWooriming, calculateLaneOpponentStats, normalizeStreamerName } from '../lib/stats';
+import { ComputedStats, isMatchWonByWooriming, getWoorimingTeam, getWoorimingLineKey, parseKda, isWooriming, calculateLaneOpponentStats, normalizeStreamerName, isStreamerMatch } from '../lib/stats';
 import { getSeriesCumulativeScore } from '../lib/seriesScores';
 import { OpggMatchCard } from './OpggMatchCard';
 import { ChampionIcon } from './ChampionIcon';
@@ -362,16 +362,19 @@ export const MainTab: React.FC<MainTabProps> = ({
       const st = selectedStreamerFilter.trim();
       list = list.filter((m) => {
         const isWRed = getWoorimingTeam(m) === 'Red';
-        const allyRoster = isWRed ? Object.values(m.team_a || {}) : Object.values(m.team_b || {});
-        const enemyRoster = isWRed ? Object.values(m.team_b || {}) : Object.values(m.team_a || {});
+        const allyRoster = isWRed ? m.team_a : m.team_b;
+        const enemyRoster = isWRed ? m.team_b : m.team_a;
+
+        const isAlly = !!allyRoster && LINE_KEYS.some((k) => isStreamerMatch(allyRoster[k], st) && !isWooriming(st));
+        const isEnemy = !!enemyRoster && LINE_KEYS.some((k) => isStreamerMatch(enemyRoster[k], st));
 
         if (streamerRoleFilter === 'ally') {
-          return allyRoster.includes(st) && !isWooriming(st);
+          return isAlly;
         }
         if (streamerRoleFilter === 'enemy') {
-          return enemyRoster.includes(st);
+          return isEnemy;
         }
-        return allyRoster.includes(st) || enemyRoster.includes(st);
+        return isAlly || isEnemy;
       });
     }
 

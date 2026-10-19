@@ -8,6 +8,7 @@ import {
   isKdaEmpty,
   getWoorimingTeam,
   getWoorimingLine,
+  isStreamerMatch,
 } from '../lib/stats';
 import { ChampionIcon } from './ChampionIcon';
 import { StreamerAvatar } from './StreamerAvatar';
@@ -58,7 +59,7 @@ export function isSameTeam(
   position?: LineKey | string
 ): boolean {
   if (!streamerName || !match) return false;
-  const target = streamerName.trim().toLowerCase();
+  const target = streamerName.trim();
 
   // 우리밍_ 소속 팀 식별 ('Red' 또는 'Blue')
   const wTeam = getWoorimingTeam(match);
@@ -71,14 +72,11 @@ export function isSameTeam(
   // 특정 포지션이 지정된 경우 해당 라인의 선수와 이름 비교
   if (position) {
     const posKey = position.toLowerCase() as LineKey;
-    const playerAtPos = String(allyRoster[posKey] || '').trim().toLowerCase();
-    return playerAtPos === target;
+    return isStreamerMatch(allyRoster[posKey], target);
   }
 
-  // 포지션이 지정되지 않은 경우 아군 전체 5개 포지션 중 하나라도 일치하는지 확인
-  return Object.values(allyRoster).some(
-    (player) => String(player || '').trim().toLowerCase() === target
-  );
+  // 포지션이 지정되지 않은 경우 아군 전체 포지션 중 일치하는지 확인
+  return LINE_KEYS.some((k) => isStreamerMatch(allyRoster[k], target));
 }
 
 /**
@@ -94,7 +92,7 @@ export function isEnemyTeam(
   position?: LineKey | string
 ): boolean {
   if (!streamerName || !match) return false;
-  const target = streamerName.trim().toLowerCase();
+  const target = streamerName.trim();
 
   const wTeam = getWoorimingTeam(match);
   const isWRed = wTeam === 'Red';
@@ -105,13 +103,10 @@ export function isEnemyTeam(
 
   if (position) {
     const posKey = position.toLowerCase() as LineKey;
-    const playerAtPos = String(enemyRoster[posKey] || '').trim().toLowerCase();
-    return playerAtPos === target;
+    return isStreamerMatch(enemyRoster[posKey], target);
   }
 
-  return Object.values(enemyRoster).some(
-    (player) => String(player || '').trim().toLowerCase() === target
-  );
+  return LINE_KEYS.some((k) => isStreamerMatch(enemyRoster[k], target));
 }
 
 /**

@@ -3,7 +3,14 @@ import { Match, LineKey, LINE_KEYS, LINE_LABELS } from '../types';
 import { searchStreamersDetailed } from '../lib/championSearch';
 import { StreamerAvatar } from './StreamerAvatar';
 import { ChampionIcon } from './ChampionIcon';
-import { getWoorimingTeam, isWooriming } from '../lib/stats';
+import {
+  getWoorimingTeam,
+  isWooriming,
+  isMatchWonByWooriming,
+  isStreamerMatch,
+  calculateAllStreamerHeadToHeadStats,
+  StreamerHeadToHeadStat,
+} from '../lib/stats';
 import { sortMatchesDescending } from '../lib/seriesScores';
 import { Search, X, Zap, Swords, Users, ChevronDown, ChevronUp, ArrowRight } from 'lucide-react';
 
@@ -15,19 +22,7 @@ interface StreamerSearchBarProps {
   placeholder?: string;
 }
 
-export interface StreamerQuickStat {
-  name: string;
-  totalGames: number;
-  mainLane: LineKey;
-  vsGames: number;
-  vsWins: number;
-  vsLosses: number;
-  vsWinrate: number;
-  withGames: number;
-  withWins: number;
-  withLosses: number;
-  withWinrate: number;
-}
+export type StreamerQuickStat = StreamerHeadToHeadStat;
 
 interface StreamerMatchDetail {
   id: string;
@@ -74,89 +69,26 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 스트리머별 아군/적팀 전적 및 승률 사전 계산
+  const createDefaultStat = (name: string): StreamerQuickStat => ({
+    name,
+    totalGames: 0,
+    mainLane: 'mid',
+    vsGames: 0,
+    vsWins: 0,
+    vsLosses: 0,
+    vsWinrate: 0,
+    opponentWins: 0,
+    opponentLosses: 0,
+    opponentWinrate: 0,
+    withGames: 0,
+    withWins: 0,
+    withLosses: 0,
+    withWinrate: 0,
+  });
+
+  // 스트리머별 아군/적팀 전적 및 승률 사전 계산 (우리밍 기준 승패로 실시간 계산)
   const streamerStatsMap = useMemo(() => {
-    const map = new Map<string, StreamerQuickStat>();
-
-    for (const name of allStreamers) {
-      const cleanName = name.trim();
-      const laneCounts: Record<LineKey, number> = { top: 0, jgl: 0, mid: 0, adc: 0, sup: 0 };
-      let totalGames = 0;
-      let vsGames = 0;
-      let vsWins = 0;
-      let vsLosses = 0;
-      let withGames = 0;
-      let withWins = 0;
-      let withLosses = 0;
-
-      for (const m of matches) {
-        const wTeam = getWoorimingTeam(m);
-        const redRoster = m.team_a || {};
-        const blueRoster = m.team_b || {};
-        const winningTeam = m.winning_team;
-
-        let playerTeam: 'Red' | 'Blue' | null = null;
-        let playerLane: LineKey | null = null;
-
-        for (const k of LINE_KEYS) {
-          if ((redRoster[k] || '').trim() === cleanName) {
-            playerTeam = 'Red';
-            playerLane = k;
-            break;
-          }
-          if ((blueRoster[k] || '').trim() === cleanName) {
-            playerTeam = 'Blue';
-            playerLane = k;
-            break;
-          }
-        }
-
-        if (playerTeam && playerLane) {
-          totalGames++;
-          laneCounts[playerLane]++;
-
-          const allyWon = winningTeam === wTeam;
-          if (wTeam) {
-            if (playerTeam === wTeam) {
-              // 우리밍_과 같은 팀 (아군)
-              withGames++;
-              if (allyWon) withWins++;
-              else withLosses++;
-            } else {
-              // 우리밍_과 상대 팀 (적팀)
-              vsGames++;
-              if (!allyWon) vsWins++; // 상대팀 승리
-              else vsLosses++; // 상대팀 패배
-            }
-          }
-        }
-      }
-
-      let bestLane: LineKey = 'mid';
-      let maxLaneCount = -1;
-      for (const k of LINE_KEYS) {
-        if (laneCounts[k] > maxLaneCount) {
-          maxLaneCount = laneCounts[k];
-          bestLane = k;
-        }
-      }
-
-      map.set(cleanName, {
-        name: cleanName,
-        totalGames,
-        mainLane: bestLane,
-        vsGames,
-        vsWins,
-        vsLosses,
-        vsWinrate: vsGames ? Math.round((vsWins / vsGames) * 100) : 0,
-        withGames,
-        withWins,
-        withLosses,
-        withWinrate: withGames ? Math.round((withWins / withGames) * 100) : 0,
-      });
-    }
-
-    return map;
+    return calculateAllStreamerHeadToHeadStats(matches, allStreamers);
   }, [allStreamers, matches]);
 
   // 검색 자동완성 리스트
@@ -165,22 +97,10 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
     if (!cleanQuery) {
       // 검색어 없을 때는 경기 참여 수 기준 상위 스트리머 노출
       return allStreamers
-        .filter((s) => s !== '우리밍_')
+        .filter((s) => !isWooriming(s))
         .map((name) => ({
           name,
-          stat: streamerStatsMap.get(name) || {
-            name,
-            totalGames: 0,
-            mainLane: 'mid' as LineKey,
-            vsGames: 0,
-            vsWins: 0,
-            vsLosses: 0,
-            vsWinrate: 0,
-            withGames: 0,
-            withWins: 0,
-            withLosses: 0,
-            withWinrate: 0,
-          },
+          stat: streamerStatsMap.get(name) || createDefaultStat(name),
         }))
         .sort((a, b) => b.stat.totalGames - a.stat.totalGames)
         .slice(0, 10);
@@ -189,19 +109,7 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
     const detailed = searchStreamersDetailed(cleanQuery, allStreamers);
     return detailed.map((d) => ({
       name: d.name,
-      stat: streamerStatsMap.get(d.name) || {
-        name: d.name,
-        totalGames: 0,
-        mainLane: 'mid' as LineKey,
-        vsGames: 0,
-        vsWins: 0,
-        vsLosses: 0,
-        vsWinrate: 0,
-        withGames: 0,
-        withWins: 0,
-        withLosses: 0,
-        withWinrate: 0,
-      },
+      stat: streamerStatsMap.get(d.name) || createDefaultStat(d.name),
       matchType: d.matchType,
       aliasLabel: d.aliasLabel,
     }));
@@ -221,12 +129,12 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
       let sLine: LineKey | null = null;
 
       for (const k of LINE_KEYS) {
-        if ((m.team_a?.[k] || '').trim() === cleanName) {
+        if (isStreamerMatch(m.team_a?.[k], cleanName)) {
           sTeam = 'Red';
           sLine = k;
           break;
         }
-        if ((m.team_b?.[k] || '').trim() === cleanName) {
+        if (isStreamerMatch(m.team_b?.[k], cleanName)) {
           sTeam = 'Blue';
           sLine = k;
           break;
@@ -239,7 +147,8 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
       if (role === 'ally' && !isAlly) continue;
       if (role === 'enemy' && isAlly) continue;
 
-      const won = m.winning_team === wTeam;
+      // 우리밍_ 관점 승리 여부 판정 (isMatchWonByWooriming 사용)
+      const won = isMatchWonByWooriming(m);
 
       let wLine: LineKey = 'adc';
       const wRoster = wTeam === 'Red' ? m.team_a : m.team_b;
@@ -403,8 +312,8 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                       </div>
                     </div>
 
-                    {/* 하단 클릭 버튼: 승률 정보를 포함한 [ 🤝 아군 X전 Y승 (Z%) ], [ ⚔️ 적팀 X전 Y승 (Z%) ] 기능성 버튼 */}
-                    <div className="flex items-center gap-2 pl-0.5 flex-wrap">
+                    {/* 하단 클릭 버튼: 승률 정보를 포함한 [ 🤝 아군 X전 Y승 Z패 (W%) ], [ ⚔️ 적팀 X전 Y승 Z패 (우리밍 W%) ] 기능성 버튼 */}
+                    <div className="flex items-center gap-1.5 pl-0.5 flex-wrap">
                       {stat.withGames > 0 && (
                         <button
                           type="button"
@@ -417,10 +326,10 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                               ? 'bg-[#3b82f6] text-white ring-2 ring-[#3b82f6]/50 shadow-md'
                               : 'bg-[#3b82f6]/15 hover:bg-[#3b82f6]/25 text-[#60a5fa] border border-[#3b82f6]/35'
                           }`}
-                          title={`클릭하여 ${item.name} 선수와 아군 경기 목록 확인 및 CK 일지 이동`}
+                          title={`[우리밍 기준 전적] ${item.name} 선수와 같은 팀(아군): 총 ${stat.withGames}전 ${stat.withWins}승 ${stat.withLosses}패 (승률 ${stat.withWinrate}%)`}
                         >
                           <span>🤝</span>
-                          <span>아군 {stat.withGames}전 {stat.withWins}승 ({stat.withWinrate}%)</span>
+                          <span>아군 {stat.withGames}전 {stat.withWins}승 {stat.withLosses}패 ({stat.withWinrate}%)</span>
                           {isExpanded && currentRole === 'ally' ? (
                             <ChevronUp size={12} className="ml-0.5" />
                           ) : (
@@ -441,16 +350,22 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                               ? 'bg-[#ef4444] text-white ring-2 ring-[#ef4444]/50 shadow-md'
                               : 'bg-[#ef4444]/15 hover:bg-[#ef4444]/25 text-[#f87171] border border-[#ef4444]/35'
                           }`}
-                          title={`클릭하여 ${item.name} 선수와 적팀 경기 목록 확인 및 CK 일지 이동`}
+                          title={`[우리밍 기준 전적] ${item.name} 선수와 상대팀(적팀): 우리밍 ${stat.vsGames}전 ${stat.vsWins}승 ${stat.vsLosses}패 (승률 ${stat.vsWinrate}%) | 상대 선수 기준: ${stat.opponentWins}승 ${stat.opponentLosses}패 (승률 ${stat.opponentWinrate}%)`}
                         >
                           <span>⚔️</span>
-                          <span>적팀 {stat.vsGames}전 {stat.vsWins}승 ({stat.vsWinrate}%)</span>
+                          <span>적팀 {stat.vsGames}전 {stat.vsWins}승 {stat.vsLosses}패 (우리밍 {stat.vsWinrate}%)</span>
                           {isExpanded && currentRole === 'enemy' ? (
                             <ChevronUp size={12} className="ml-0.5" />
                           ) : (
                             <ChevronDown size={12} className="ml-0.5 opacity-70" />
                           )}
                         </button>
+                      )}
+
+                      {(stat.withGames > 0 || stat.vsGames > 0) && (
+                        <span className="text-[10px] text-[#8a8aa0] bg-white/5 px-2 py-0.5 rounded-md font-semibold border border-white/5" title="모든 승패 및 승률은 우리밍_ 기준 전적으로 집계됩니다">
+                          우리밍 기준 전적
+                        </span>
                       )}
 
                       {stat.withGames === 0 && stat.vsGames === 0 && (
@@ -463,12 +378,15 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                       <div className="mt-1 bg-[#0b0b14] border border-[#26263a] rounded-xl p-2.5 flex flex-col gap-2 animate-[fadeIn_0.15s] shadow-inner">
                         {/* 인라인 헤더: 역할 전환 탭 및 일지 전체 이동 */}
                         <div className="flex items-center justify-between pb-1.5 border-b border-white/5">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-[11px] font-bold text-[#c4b5fd]">
-                              {item.name} 선수와 {currentRole === 'ally' ? '아군' : '적팀'} 경기 목록
+                              {item.name} 선수와 {currentRole === 'ally' ? '🤝 아군(같은 팀)' : '⚔️ 적팀(상대)'} 경기 목록
                             </span>
                             <span className="text-[10px] text-[#82829c] font-medium">
                               ({expandedMatches.length}경기)
+                            </span>
+                            <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-white/5 text-[#a78bfa] border border-white/10">
+                              우리밍 기준: {currentRole === 'ally' ? `${stat.withWins}승 ${stat.withLosses}패 (${stat.withWinrate}%)` : `${stat.vsWins}승 ${stat.vsLosses}패 (${stat.vsWinrate}%)`}
                             </span>
                           </div>
 
@@ -499,8 +417,9 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                                       ? 'bg-[#3b82f6] text-white shadow-sm'
                                       : 'text-[#8a8aa0] hover:text-white'
                                   }`}
+                                  title={`우리밍 기준 ${stat.withGames}전 ${stat.withWins}승 ${stat.withLosses}패`}
                                 >
-                                  아군 ({stat.withGames})
+                                  아군 ({stat.withGames}전 {stat.withWins}승)
                                 </button>
                               )}
                               {stat.vsGames > 0 && (
@@ -512,8 +431,9 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                                       ? 'bg-[#ef4444] text-white shadow-sm'
                                       : 'text-[#8a8aa0] hover:text-white'
                                   }`}
+                                  title={`우리밍 기준 ${stat.vsGames}전 ${stat.vsWins}승 ${stat.vsLosses}패`}
                                 >
-                                  적팀 ({stat.vsGames})
+                                  적팀 ({stat.vsGames}전 {stat.vsWins}승)
                                 </button>
                               )}
                             </div>
@@ -538,13 +458,14 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                                     <span
-                                      className={`text-[10px] font-black px-1.5 py-0.2 rounded shadow-xs shrink-0 ${
+                                      className={`text-[10px] font-black px-1.5 py-0.5 rounded shadow-xs shrink-0 ${
                                         m.won
                                           ? 'bg-[#3b82f6]/25 text-[#60a5fa] border border-[#3b82f6]/40'
                                           : 'bg-[#ef4444]/25 text-[#f87171] border border-[#ef4444]/40'
                                       }`}
+                                      title={m.won ? '우리밍_ 소속 팀 승리' : '우리밍_ 소속 팀 패배'}
                                     >
-                                      {m.won ? '승리' : '패배'}
+                                      {m.won ? '우리밍 승리' : '우리밍 패배'}
                                     </span>
                                     <span className="text-[11px] font-bold text-[#a0a0b8] shrink-0">
                                       {m.date}
@@ -585,8 +506,8 @@ export const StreamerSearchBar: React.FC<StreamerSearchBarProps> = ({
                                   </div>
 
                                   {/* 역할 구분 배지 */}
-                                  <div className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black text-[#9090b0] bg-white/5 border border-white/10">
-                                    {m.isAlly ? '🤝 아군' : '⚔ 적팀'}
+                                  <div className="shrink-0 px-2 py-0.5 rounded text-[9.5px] font-black text-[#d0d0e6] bg-white/5 border border-white/10">
+                                    {m.isAlly ? '🤝 같은 팀' : '⚔️ 상대팀'}
                                   </div>
 
                                   {/* 우리밍_ 당시 챔피언 */}
