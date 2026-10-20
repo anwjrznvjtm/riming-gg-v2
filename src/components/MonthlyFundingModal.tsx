@@ -1,21 +1,51 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Match } from '../types';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Match, LINE_KEYS } from '../types';
 import {
   calculateMonthlyFundingStats,
   groupMatchesIntoSeries,
 } from '../lib/fundingStats';
-import { X, Calendar, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
+import {
+  isStreamerMatch,
+  isWooriming,
+  normalizeStreamerName,
+} from '../lib/stats';
+import { getChosung } from '../lib/championSearch';
+import { StreamerAvatar } from './StreamerAvatar';
+import {
+  X,
+  Calendar,
+  TrendingUp,
+  TrendingDown,
+  ChevronDown,
+  Search,
+  RotateCcw,
+  User,
+} from 'lucide-react';
 
 interface MonthlyFundingModalProps {
   isOpen: boolean;
   onClose: () => void;
   matches: Match[];
+  allStreamers?: string[];
+}
+
+export function isStreamerInMatch(match: Match, streamerName: string): boolean {
+  if (!streamerName || !match) return false;
+  const target = streamerName.trim();
+  const a = match.team_a;
+  const b = match.team_b;
+  for (const k of LINE_KEYS) {
+    if (a && isStreamerMatch(a[k], target)) return true;
+    if (b && isStreamerMatch(b[k], target)) return true;
+  }
+  return false;
 }
 
 export const MonthlyFundingModal: React.FC<MonthlyFundingModalProps> = ({
   isOpen,
   onClose,
   matches,
+  allStreamers,
 }) => {
   // Close on ESC
   useEffect(() => {
@@ -28,10 +58,105 @@ export const MonthlyFundingModal: React.FC<MonthlyFundingModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Extract all distinct months (YYYY-MM) from matches
+  // Initial month state: default to 'all' (전체 기간)
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  // View mode: 'perPerson' (인당 기준) vs 'total' (팀 총액 기준)
+  const [calcMode, setCalcMode] = useState<'perPerson' | 'total'>('perPerson');
+
+  // Streamer filter states
+  const [selectedStreamer, setSelectedStreamer] = useState<string>('');
+  const [streamerSearchInput, setStreamerSearchInput] = useState<string>('');
+  const [isStreamerDropdownOpen, setIsStreamerDropdownOpen] = useState<boolean>(false);
+  const streamerDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Reset selectedMonth & streamer filter whenever modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedMonth('all');
+      setSelectedStreamer('');
+      setStreamerSearchInput('');
+      setIsStreamerDropdownOpen(false);
+    }
+  }, [isOpen]);
+
+  // Close streamer dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        streamerDropdownRef.current &&
+        !streamerDropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsStreamerDropdownOpen(false);
+      }
+    };
+    if (isStreamerDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isStreamerDropdownOpen]);
+
+  // Extract all distinct streamers from matches & allStreamers
+  const streamerList = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const m of matches) {
+      const a = m.team_a;
+      const b = m.team_b;
+      for (const k of LINE_KEYS) {
+        if (a && a[k]) {
+          const norm = normalizeStreamerName(a[k]) || a[k].trim();
+          if (norm && !isWooriming(norm)) {
+            map.set(norm, (map.get(norm) || 0) + 1);
+          }
+        }
+        if (b && b[k]) {
+          const norm = normalizeStreamerName(b[k]) || b[k].trim();
+          if (norm && !isWooriming(norm)) {
+            map.set(norm, (map.get(norm) || 0) + 1);
+          }
+        }
+      }
+    }
+    if (allStreamers && allStreamers.length > 0) {
+      for (const s of allStreamers) {
+        const norm = normalizeStreamerName(s) || s.trim();
+        if (norm && !isWooriming(norm) && !map.has(norm)) {
+          map.set(norm, 0);
+        }
+      }
+    }
+    return Array.from(map.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.name.localeCompare(b.name);
+      });
+  }, [matches, allStreamers]);
+
+  // Autocomplete candidate list filtered by query or chosung
+  const filteredStreamerCandidates = useMemo(() => {
+    const q = streamerSearchInput.trim().toLowerCase();
+    if (!q) return streamerList;
+    const cleanQ = q.replace(/[\s_]/g, '');
+    return streamerList.filter((s) => {
+      const cleanName = s.name.replace(/[\s_]/g, '').toLowerCase();
+      if (cleanName.includes(cleanQ)) return true;
+      const chosung = getChosung(cleanName);
+      if (chosung.includes(cleanQ)) return true;
+      return false;
+    });
+  }, [streamerList, streamerSearchInput]);
+
+  // Streamer filtered matches: When a streamer is selected, extract only matches that include them (ally or enemy)
+  const activeMatches = useMemo(() => {
+    const clean = selectedStreamer.trim();
+    if (!clean) return matches;
+    return matches.filter((m) => isStreamerInMatch(m, clean));
+  }, [matches, selectedStreamer]);
+
+  // Extract all distinct months (YYYY-MM) from activeMatches
   const availableMonths = useMemo(() => {
     const set = new Set<string>();
-    for (const m of matches) {
+    for (const m of activeMatches) {
       if (m.date) {
         const monthKey = m.date.slice(0, 7);
         if (/^\d{4}-\d{2}$/.test(monthKey)) {
@@ -40,28 +165,16 @@ export const MonthlyFundingModal: React.FC<MonthlyFundingModalProps> = ({
       }
     }
     return Array.from(set).sort().reverse();
-  }, [matches]);
+  }, [activeMatches]);
 
-  // Initial month state: default to 'all' (전체 기간)
-  const [selectedMonth, setSelectedMonth] = useState<string>('all');
-  // View mode: 'perPerson' (인당 기준) vs 'total' (팀 총액 기준)
-  const [calcMode, setCalcMode] = useState<'perPerson' | 'total'>('perPerson');
-
-  // Reset selectedMonth to 'all' whenever the modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setSelectedMonth('all');
-    }
-  }, [isOpen]);
-
-  // Calculate monthly stats grouped by match series (preventing duplicate counting of sets)
+  // Calculate monthly stats grouped by match series for activeMatches
   const stats = useMemo(() => {
-    return calculateMonthlyFundingStats(matches, selectedMonth);
-  }, [matches, selectedMonth]);
+    return calculateMonthlyFundingStats(activeMatches, selectedMonth);
+  }, [activeMatches, selectedMonth]);
 
   // Monthly summary bar chart data for All-Time view or quick monthly comparison (grouped by match series)
   const monthlyBreakdown = useMemo(() => {
-    const allSeries = groupMatchesIntoSeries(matches);
+    const allSeries = groupMatchesIntoSeries(activeMatches);
     const map: Record<
       string,
       {
@@ -118,7 +231,7 @@ export const MonthlyFundingModal: React.FC<MonthlyFundingModalProps> = ({
         netTotal: item.wonTotal - item.lostTotal,
       }))
       .sort((a, b) => a.month.localeCompare(b.month));
-  }, [matches]);
+  }, [activeMatches]);
 
   if (!isOpen) return null;
 
@@ -158,9 +271,16 @@ export const MonthlyFundingModal: React.FC<MonthlyFundingModalProps> = ({
             <div>
               <h2 className="text-[17px] font-black text-white tracking-tight flex items-center gap-2">
                 <span>월별 펀딩 & 지원금 통계</span>
+                {selectedStreamer && (
+                  <span className="text-[11px] font-bold text-[#c4b5fd] bg-[#8b5cf6]/20 border border-[#8b5cf6]/40 px-2 py-0.5 rounded-full">
+                    {selectedStreamer} 필터링
+                  </span>
+                )}
               </h2>
               <p className="text-[11.5px] text-[#8e8ea8]">
-                CK 매치별(세트 중복 없이 경기 단위 집계) 별풍선 손익 및 숲 지원금 현황
+                {selectedStreamer
+                  ? `'${selectedStreamer}' 선수가 참여한 경기(${activeMatches.length}세트 / ${stats.records.length}매치) 실시간 펀딩 집계`
+                  : 'CK 매치별(세트 중복 없이 경기 단위 집계) 별풍선 손익 및 숲 지원금 현황'}
               </p>
             </div>
           </div>
@@ -174,57 +294,200 @@ export const MonthlyFundingModal: React.FC<MonthlyFundingModalProps> = ({
           </button>
         </div>
 
-        {/* Filters Toolbar: Month Dropdown & Calculation Mode Toggle */}
-        <div className="px-4 sm:px-5 py-3 bg-[#0c0c14] border-b border-[#1a1a28] flex flex-wrap items-center justify-between gap-2.5 shrink-0">
-          {/* Month Selector Dropdown */}
-          <div className="flex items-center gap-2">
-            <Calendar size={14} className="text-[#8b5cf6]" />
-            <span className="text-[11.5px] text-[#8e8ea8] font-bold">조회 월:</span>
-            <div className="relative">
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="appearance-none bg-[#161624] border border-[#2a2a3e] hover:border-[#8b5cf6] text-white text-[12px] font-bold rounded-xl pl-3 pr-8 py-1.5 focus:outline-none focus:border-[#8b5cf6] cursor-pointer transition"
+        {/* Filters Toolbar: Month Dropdown, Streamer Search & Calculation Mode Toggle */}
+        <div className="px-4 sm:px-5 py-3 bg-[#0c0c14] border-b border-[#1a1a28] flex flex-col gap-2.5 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            {/* Left Controls: Month & Streamer Filter */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 1. Month Selector Dropdown */}
+              <div className="flex items-center gap-1.5 bg-[#161624] px-2.5 py-1.5 rounded-xl border border-[#2a2a3e]">
+                <Calendar size={13} className="text-[#8b5cf6]" />
+                <span className="text-[11px] text-[#8e8ea8] font-bold">월:</span>
+                <div className="relative">
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="appearance-none bg-transparent text-white text-[11.5px] font-bold pr-5 focus:outline-none cursor-pointer"
+                  >
+                    <option value="all" className="bg-[#161624] text-white">전체 기간</option>
+                    {availableMonths.map((mKey) => (
+                      <option key={mKey} value={mKey} className="bg-[#161624] text-white">
+                        {formatMonthTitle(mKey)}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    size={11}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 text-[#8e8ea8] pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* 2. Streamer Search / Dropdown Filter */}
+              <div className="relative flex items-center">
+                <div className="flex items-center gap-1.5 bg-[#161624] px-2.5 py-1 rounded-xl border border-[#2a2a3e] focus-within:border-[#8b5cf6] transition">
+                  <Search size={13} className="text-[#a78bfa] shrink-0" />
+                  <input
+                    type="text"
+                    value={streamerSearchInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setStreamerSearchInput(val);
+                      setIsStreamerDropdownOpen(true);
+                      if (!val.trim()) {
+                        setSelectedStreamer('');
+                      }
+                    }}
+                    onFocus={() => setIsStreamerDropdownOpen(true)}
+                    placeholder="스트리머 검색"
+                    className="bg-transparent text-[11.5px] text-white placeholder-[#686882] focus:outline-none w-[110px] sm:w-[130px] font-medium"
+                  />
+
+                  {/* Direct Dropdown Selection */}
+                  <div className="relative border-l border-white/10 pl-1.5 ml-0.5">
+                    <select
+                      value={selectedStreamer}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedStreamer(val);
+                        setStreamerSearchInput(val);
+                        setIsStreamerDropdownOpen(false);
+                      }}
+                      className="appearance-none bg-transparent text-[11px] text-[#a0a0c0] font-bold pr-4 focus:outline-none cursor-pointer"
+                      title="스트리머 목록에서 바로 선택"
+                    >
+                      <option value="" className="bg-[#161624] text-white">스트리머 선택</option>
+                      {streamerList.map((st) => (
+                        <option key={st.name} value={st.name} className="bg-[#161624] text-white">
+                          {st.name} ({st.count}경기)
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={10}
+                      className="absolute right-0 top-1/2 -translate-y-1/2 text-[#8e8ea8] pointer-events-none"
+                    />
+                  </div>
+
+                  {/* Clear / Reset button inside search box */}
+                  {(selectedStreamer || streamerSearchInput) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedStreamer('');
+                        setStreamerSearchInput('');
+                        setIsStreamerDropdownOpen(false);
+                      }}
+                      className="p-0.5 rounded-full hover:bg-white/10 text-[#8e8ea8] hover:text-white transition cursor-pointer ml-0.5"
+                      title="스트리머 검색 초기화"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Autocomplete Dropdown List */}
+                {isStreamerDropdownOpen && filteredStreamerCandidates.length > 0 && (
+                  <div
+                    ref={streamerDropdownRef}
+                    className="absolute left-0 top-full mt-1.5 w-[220px] max-h-[220px] overflow-y-auto bg-[#141424] border border-[#2a2a44] rounded-xl shadow-2xl z-30 p-1 space-y-0.5 animate-[fadeIn_0.1s]"
+                  >
+                    <div className="px-2 py-1 text-[10px] text-[#717188] font-bold border-b border-white/5 flex items-center justify-between">
+                      <span>스트리머 선택 ({filteredStreamerCandidates.length})</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsStreamerDropdownOpen(false)}
+                        className="hover:text-white cursor-pointer"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                    {filteredStreamerCandidates.map((st) => (
+                      <div
+                        key={st.name}
+                        onClick={() => {
+                          setSelectedStreamer(st.name);
+                          setStreamerSearchInput(st.name);
+                          setIsStreamerDropdownOpen(false);
+                        }}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer text-[11.5px] transition ${
+                          selectedStreamer === st.name
+                            ? 'bg-[#8b5cf6]/30 text-white font-bold border border-[#8b5cf6]/40'
+                            : 'hover:bg-white/5 text-[#d0d0e6]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <StreamerAvatar name={st.name} size={18} shape="circle" />
+                          <span className="truncate">{st.name}</span>
+                        </div>
+                        <span className="text-[10px] text-[#8e8ea8] shrink-0 font-medium">
+                          {st.count}경기
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* View Mode Toggle: Per Person vs Total */}
+            <div className="flex items-center bg-[#141422] p-0.5 rounded-xl border border-white/5">
+              <button
+                type="button"
+                onClick={() => setCalcMode('perPerson')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  calcMode === 'perPerson'
+                    ? 'bg-[#fbbf24] text-[#12121a] shadow-sm'
+                    : 'text-[#8e8ea8] hover:text-white'
+                }`}
               >
-                <option value="all">전체 기간 (누적)</option>
-                {availableMonths.map((mKey) => (
-                  <option key={mKey} value={mKey}>
-                    {formatMonthTitle(mKey)}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={13}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8e8ea8] pointer-events-none"
-              />
+                👤 인당 기준
+              </button>
+              <button
+                type="button"
+                onClick={() => setCalcMode('total')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  calcMode === 'total'
+                    ? 'bg-[#8b5cf6] text-white shadow-sm'
+                    : 'text-[#8e8ea8] hover:text-white'
+                }`}
+              >
+                👥 팀 총액 기준
+              </button>
             </div>
           </div>
 
-          {/* View Mode Toggle: Per Person vs Total */}
-          <div className="flex items-center bg-[#141422] p-0.5 rounded-xl border border-white/5">
-            <button
-              type="button"
-              onClick={() => setCalcMode('perPerson')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                calcMode === 'perPerson'
-                  ? 'bg-[#fbbf24] text-[#12121a] shadow-sm'
-                  : 'text-[#8e8ea8] hover:text-white'
-              }`}
-            >
-              👤 인당 기준
-            </button>
-            <button
-              type="button"
-              onClick={() => setCalcMode('total')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                calcMode === 'total'
-                  ? 'bg-[#8b5cf6] text-white shadow-sm'
-                  : 'text-[#8e8ea8] hover:text-white'
-              }`}
-            >
-              👥 팀 총액 기준
-            </button>
-          </div>
+          {/* Active Streamer Filter Pill Banner */}
+          {selectedStreamer && (
+            <div className="flex items-center justify-between bg-[#8b5cf6]/10 border border-[#8b5cf6]/30 px-3 py-1.5 rounded-xl text-[11px] animate-[fadeIn_0.15s]">
+              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                <span className="text-[#a78bfa] font-bold flex items-center gap-1">
+                  <User size={12} />
+                  <span>필터링 중인 스트리머:</span>
+                </span>
+                <span className="font-extrabold text-white px-2 py-0.2 rounded-md bg-[#8b5cf6]/20 border border-[#8b5cf6]/40">
+                  {selectedStreamer}
+                </span>
+                <span className="text-[#b4b4cb]">
+                  참여 경기 <b>{activeMatches.length}세트</b> (<b>{stats.records.length}매치</b>) 실시간 집계 반영
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedStreamer('');
+                  setStreamerSearchInput('');
+                  setIsStreamerDropdownOpen(false);
+                }}
+                className="flex items-center gap-1 text-[10.5px] font-bold text-[#c4b5fd] hover:text-white px-2 py-0.5 rounded-lg bg-white/5 hover:bg-white/10 transition shrink-0 ml-2 cursor-pointer"
+                title="필터를 해제하고 전체 통계로 돌아갑니다"
+              >
+                <RotateCcw size={10} />
+                <span>검색 초기화</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Modal Scrollable Body */}
@@ -592,8 +855,24 @@ export const MonthlyFundingModal: React.FC<MonthlyFundingModalProps> = ({
                 })}
               </div>
             ) : (
-              <div className="p-6 text-center bg-[#0a0a14] rounded-xl border border-white/5 text-[12px] text-[#6b6b80]">
-                선택한 월({formatMonthTitle(selectedMonth)})에 펀딩 또는 지원금이 걸린 경기가 없습니다.
+              <div className="p-6 text-center bg-[#0a0a14] rounded-xl border border-white/5 text-[12px] text-[#6b6b80] space-y-2">
+                <div>
+                  선택한 조건{selectedStreamer ? ` (스트리머: ${selectedStreamer})` : ''}의 {formatMonthTitle(selectedMonth)}에 펀딩 또는 지원금이 걸린 경기가 없습니다.
+                </div>
+                {selectedStreamer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedStreamer('');
+                      setStreamerSearchInput('');
+                      setIsStreamerDropdownOpen(false);
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-[#c4b5fd] hover:text-white px-3 py-1 rounded-lg bg-[#8b5cf6]/20 border border-[#8b5cf6]/40 transition cursor-pointer"
+                  >
+                    <RotateCcw size={11} />
+                    <span>스트리머 필터 해제</span>
+                  </button>
+                )}
               </div>
             )}
           </div>

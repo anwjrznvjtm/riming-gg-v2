@@ -1133,6 +1133,7 @@ export const MainTab: React.FC<MainTabProps> = ({
           isOpen={isFundingModalOpen}
           onClose={() => setIsFundingModalOpen(false)}
           matches={matches}
+          allStreamers={allStreamers}
         />
       )}
 
