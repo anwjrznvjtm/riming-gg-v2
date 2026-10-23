@@ -502,13 +502,11 @@ export const MainTab: React.FC<MainTabProps> = ({
             </div>
           </div>
 
-          {/* 메인 상단 통계: '이번 달 펀딩 요약' 카드 (관리자 로그인 시에만 노출) */}
-          {isAdmin && (
-            <MonthlyFundingSummaryCard
-              matches={matches}
-              onClick={() => setIsFundingModalOpen(true)}
-            />
-          )}
+          {/* 메인 상단 통계: '이번 달 펀딩 요약' 카드 (비로그인 게스트 포함 전체 공개) */}
+          <MonthlyFundingSummaryCard
+            matches={matches}
+            onClick={() => setIsFundingModalOpen(true)}
+          />
 
           {/* 1. '최근 30일' CK 통계 카드 (오직 CK 데이터 기반 / 큐타입 드롭다운 없음) */}
           <div className="bg-[#12121a] border border-[#1e1e2a] rounded-[20px] p-4 shadow-lg">
@@ -1127,8 +1125,8 @@ export const MainTab: React.FC<MainTabProps> = ({
         />
       )}
 
-      {/* 3. Monthly Funding & Subsidy Detail Modal (관리자 전용) */}
-      {isAdmin && isFundingModalOpen && (
+      {/* 3. Monthly Funding & Subsidy Detail Modal (비로그인 게스트 포함 전체 공개) */}
+      {isFundingModalOpen && (
         <MonthlyFundingModal
           isOpen={isFundingModalOpen}
           onClose={() => setIsFundingModalOpen(false)}
