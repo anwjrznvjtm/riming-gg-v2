@@ -931,3 +931,179 @@ export function getPlayerLineChampionStats(
     .sort((a, b) => b.games - a.games || b.winrate - a.winrate || b.wins - a.wins);
 }
 
+export interface StreamerLaneOpponentRecord {
+  opponentName: string;
+  games: number;
+  wins: number;      // 기준 스트리머 기준 승리 수
+  losses: number;    // 기준 스트리머 기준 패배 수
+  winRate: number;   // 기준 스트리머의 승률 (%)
+  opponentWins: number;   // 맞라인 상대 기준 승리 수
+  opponentLosses: number; // 맞라인 상대 기준 패배 수
+  opponentWinRate: number;// 맞라인 상대의 승률 (%)
+  lines: LineKey[];  // 맞라인으로 대결했던 포지션 목록
+}
+
+/**
+ * CK 일지(매치 데이터)를 전체 조회하여, 특정 기준 스트리머와 동일 라인(맞라인)으로 대결했던
+ * 모든 상대 스트리머 및 상대 전적(승/패/승률)을 산출합니다.
+ * 특정 라인(specificLine)이 주어지면 해당 포지션 맞대결만 필터링합니다.
+ */
+export function calculateOpponentsForStreamer(
+  matches: Match[],
+  targetStreamerName: string,
+  specificLine?: LineKey
+): StreamerLaneOpponentRecord[] {
+  if (!targetStreamerName || !matches || matches.length === 0) return [];
+  const canonicalTarget = normalizeStreamerName(targetStreamerName) || targetStreamerName.trim();
+
+  const oppMap = new Map<
+    string,
+    {
+      opponentName: string;
+      games: number;
+      wins: number;
+      losses: number;
+      lines: Set<LineKey>;
+    }
+  >();
+
+  for (const m of matches) {
+    if (!m) continue;
+
+    // Check if target is in Team A (Red) or Team B (Blue)
+    let targetTeam: 'Red' | 'Blue' | null = null;
+    let targetLine: LineKey | null = null;
+
+    // 1. Check Team A
+    if (m.team_a) {
+      for (const line of LINE_KEYS) {
+        if (isStreamerMatch(m.team_a[line], canonicalTarget)) {
+          targetTeam = 'Red';
+          targetLine = line;
+          break;
+        }
+      }
+      if (!targetLine) {
+        for (const line of LINE_KEYS) {
+          const raw = getRosterPlayerAtRole(m.team_a, line);
+          if (isStreamerMatch(raw, canonicalTarget)) {
+            targetTeam = 'Red';
+            targetLine = line;
+            break;
+          }
+        }
+      }
+    }
+
+    // 2. Check Team B if not found in Team A
+    if (!targetTeam && m.team_b) {
+      for (const line of LINE_KEYS) {
+        if (isStreamerMatch(m.team_b[line], canonicalTarget)) {
+          targetTeam = 'Blue';
+          targetLine = line;
+          break;
+        }
+      }
+      if (!targetLine) {
+        for (const line of LINE_KEYS) {
+          const raw = getRosterPlayerAtRole(m.team_b, line);
+          if (isStreamerMatch(raw, canonicalTarget)) {
+            targetTeam = 'Blue';
+            targetLine = line;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!targetTeam || !targetLine) continue;
+
+    // 특정 라인이 지정된 경우 해당 라인 경기만 필터링
+    if (specificLine && targetLine !== specificLine) continue;
+
+    // 3. Extract the opponent player in the SAME line on the other team
+    const oppRoster = targetTeam === 'Red' ? m.team_b : m.team_a;
+    const oppRaw = getRosterPlayerAtRole(oppRoster, targetLine);
+    const oppName = normalizeStreamerName(oppRaw);
+
+    if (!oppName || isStreamerMatch(oppName, canonicalTarget)) continue;
+
+    // 4. Determine if targetTeam won this match
+    const winStr = (m.winning_team || '').trim().toLowerCase();
+    let targetWon = false;
+    if (targetTeam === 'Red') {
+      if (
+        winStr === 'red' ||
+        winStr === '레드' ||
+        winStr === 'team_a' ||
+        winStr === 'a' ||
+        winStr === '1' ||
+        winStr.startsWith('red') ||
+        winStr.startsWith('레드') ||
+        winStr.includes('red') ||
+        winStr.includes('레드')
+      ) {
+        targetWon = true;
+      } else if (!winStr && m.score) {
+        const parts = m.score.split(':').map((s) => parseInt(s.trim(), 10));
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          targetWon = parts[0] > parts[1];
+        }
+      }
+    } else {
+      if (
+        winStr === 'blue' ||
+        winStr === '블루' ||
+        winStr === 'team_b' ||
+        winStr === 'b' ||
+        winStr === '2' ||
+        winStr.startsWith('blue') ||
+        winStr.startsWith('블루') ||
+        winStr.includes('blue') ||
+        winStr.includes('블루')
+      ) {
+        targetWon = true;
+      } else if (!winStr && m.score) {
+        const parts = m.score.split(':').map((s) => parseInt(s.trim(), 10));
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          targetWon = parts[1] > parts[0];
+        }
+      }
+    }
+
+    if (!oppMap.has(oppName)) {
+      oppMap.set(oppName, {
+        opponentName: oppName,
+        games: 0,
+        wins: 0,
+        losses: 0,
+        lines: new Set<LineKey>(),
+      });
+    }
+
+    const stat = oppMap.get(oppName)!;
+    stat.games += 1;
+    if (targetWon) {
+      stat.wins += 1;
+    } else {
+      stat.losses += 1;
+    }
+    stat.lines.add(targetLine);
+  }
+
+  return Array.from(oppMap.values())
+    .map((item) => ({
+      opponentName: item.opponentName,
+      games: item.games,
+      wins: item.wins,
+      losses: item.losses,
+      winRate: item.games > 0 ? Math.round((item.wins / item.games) * 100) : 0,
+      opponentWins: item.losses,
+      opponentLosses: item.wins,
+      opponentWinRate: item.games > 0 ? Math.round((item.losses / item.games) * 100) : 0,
+      lines: Array.from(item.lines),
+    }))
+    .sort((a, b) => b.games - a.games || b.winRate - a.winRate);
+}
+
+

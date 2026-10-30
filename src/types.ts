@@ -121,3 +121,32 @@ export interface SynergyAnalysisResult {
   breakdown: { name: string; winrate: number; games: number; line: LineName }[];
   wTeam: WinningTeam;
 }
+
+export interface StreamerProfile {
+  name: string; // 닉네임 (e.g. "우리밍_", "김민교")
+  soop_id: string; // SOOP user_id (e.g. "kmj05317", "minkyo1994")
+  main_position: LineKey; // 'top' | 'jgl' | 'mid' | 'adc' | 'sup'
+  is_hidden?: boolean; // 숨김/비활성화 (true일 경우 라이브 방송 중이어도 화면 노출 제외)
+  updated_at?: string;
+  memo?: string;
+}
+
+export interface SoopLiveBroadcast {
+  broad_no: string | number;
+  user_id: string;
+  user_nick: string;
+  broad_title: string;
+  broad_thumb: string;
+  profile_img: string;
+  total_view_cnt: string | number;
+  broad_start: string;
+  broad_resolution?: string;
+  broad_bps?: string;
+}
+
+export interface LiveStreamerMember {
+  profile: StreamerProfile;
+  live?: SoopLiveBroadcast;
+  isLive: boolean;
+}
+

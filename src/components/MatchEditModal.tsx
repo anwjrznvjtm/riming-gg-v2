@@ -5,12 +5,14 @@ import {
   LINE_KEYS,
   LINE_LABELS,
   MatchFormat,
+  StreamerProfile,
 } from '../types';
 import { normalizeChampionName } from '../lib/champions';
 import { isWooriming, isMatchWonByWooriming } from '../lib/stats';
 import { calculateScoreForSetInSeries } from '../lib/seriesScores';
 import { verifyAdminPasscode } from '../data/initialMatches';
 import { FundingRatioSelector } from './FundingRatioSelector';
+import { getStoredStreamerProfiles, saveStreamerProfilesBatch } from '../lib/streamerApi';
 import {
   X,
   Copy,
@@ -90,6 +92,9 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   const [formError, setFormError] = useState('');
   const [successBanner, setSuccessBanner] = useState('');
   const [activeEditingMatch, setActiveEditingMatch] = useState<Match | null>(editingMatch);
+  const [playerSoopIds, setPlayerSoopIds] = useState<Record<string, string>>({});
+
+  const storedProfiles = useMemo(() => getStoredStreamerProfiles(), [isOpen]);
 
   // Local state isolation: Do not reset form data during typing or parent re-renders
   const isInitializedRef = useRef(false);
@@ -113,6 +118,16 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     isInitializedRef.current = true;
     editingIdRef.current = editingMatch ? editingMatch.id : '__new__';
     setActiveEditingMatch(editingMatch);
+
+    // Initialize SOOP IDs from stored profiles
+    const idMap: Record<string, string> = {};
+    for (const p of storedProfiles) {
+      if (p.name && p.soop_id) {
+        idMap[p.name.trim()] = p.soop_id.trim();
+        idMap[p.name.replace(/_$/, '').trim()] = p.soop_id.trim();
+      }
+    }
+    setPlayerSoopIds(idMap);
 
     if (editingMatch) {
       const calcResult = calculateScoreForSetInSeries({
@@ -564,6 +579,32 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     };
   };
 
+  const upsertPlayersFromForm = () => {
+    try {
+      const profilesToSave: StreamerProfile[] = [];
+      for (const tKey of ['team_a', 'team_b'] as const) {
+        for (const lKey of LINE_KEYS) {
+          const pName = formData[tKey][lKey]?.trim();
+          if (pName) {
+            const rawId = playerSoopIds[pName] !== undefined ? playerSoopIds[pName] : playerSoopIds[pName.replace(/_$/, '')];
+            const sId = (rawId !== undefined ? rawId : '').trim();
+            profilesToSave.push({
+              name: pName,
+              soop_id: sId,
+              main_position: lKey,
+              updated_at: new Date().toISOString(),
+            });
+          }
+        }
+      }
+      if (profilesToSave.length > 0) {
+        saveStreamerProfilesBatch(profilesToSave);
+      }
+    } catch (err) {
+      console.warn('[MatchEditModal] Failed to upsert streamer profiles:', err);
+    }
+  };
+
   const handleSaveMatch = () => {
     const val = validateMatchForm(formData);
     if (!val.isValid) {
@@ -575,6 +616,9 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     if (!isAdmin && persistAdminInForm) {
       onAdminLoginSuccess();
     }
+
+    // Auto Upsert streamer profiles to DB/store
+    upsertPlayersFromForm();
 
     const matchToSave = buildMatchToSave(formData);
 
@@ -606,6 +650,9 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     if (!isAdmin && persistAdminInForm) {
       onAdminLoginSuccess();
     }
+
+    // Auto Upsert streamer profiles to DB/store
+    upsertPlayersFromForm();
 
     const matchToSave = buildMatchToSave(formData);
 
@@ -1074,10 +1121,10 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
                 style={{ color: isRed ? '#ef4444' : '#3b82f6' }}
               >
                 <span>
-                  {isRed ? '🔴 Red팀' : '🔵 Blue팀'} 로스터 (플레이어 / 챔피언 / KDA)
+                  {isRed ? '🔴 Red팀' : '🔵 Blue팀'} 로스터 (플레이어 / SOOP ID / 챔피언 / KDA)
                 </span>
                 <span className="text-[10px] text-[#8a8aa0] font-normal">
-                  우리밍_은 '밍' 버튼으로 빠른 지정 가능
+                  SOOP ID 입력 시 실시간 라이브 연동 자동 반영
                 </span>
               </div>
 
@@ -1092,7 +1139,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
                   return (
                     <div
                       key={lineKey}
-                      className={`flex items-center gap-2 p-1.5 rounded-[10px] transition ${
+                      className={`flex items-center gap-1.5 sm:gap-2 p-1.5 rounded-[10px] transition ${
                         isW
                           ? 'bg-[#8b5cf6]/10 border border-[#8b5cf6]/30'
                           : 'bg-[#0f0f16] border border-transparent'
@@ -1105,12 +1152,24 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
                       <div className="relative flex-1">
                         <input
                           value={playerName}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const val = e.target.value;
                             setFormData((prev) => ({
                               ...prev,
-                              [teamKey]: { ...prev[teamKey], [lineKey]: e.target.value },
-                            }))
-                          }
+                              [teamKey]: { ...prev[teamKey], [lineKey]: val },
+                            }));
+                            const trimmed = val.trim();
+                            if (trimmed && !playerSoopIds[trimmed]) {
+                              const found = storedProfiles.find(
+                                (p) =>
+                                  p.name.toLowerCase() === trimmed.toLowerCase() ||
+                                  p.name.toLowerCase() === trimmed.toLowerCase().replace(/_$/, '')
+                              );
+                              if (found?.soop_id) {
+                                setPlayerSoopIds((prev) => ({ ...prev, [trimmed]: found.soop_id }));
+                              }
+                            }
+                          }}
                           placeholder={isW ? '👑 우리밍_' : '스트리머 닉네임'}
                           list="players-datalist"
                           className={`h-[32px] w-full bg-[#12121a] border rounded-full px-3 text-[11px] text-white focus:outline-none transition ${
@@ -1129,6 +1188,23 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
                             중복
                           </span>
                         )}
+                      </div>
+
+                      {/* SOOP ID input */}
+                      <div className="relative shrink-0">
+                        <input
+                          value={playerSoopIds[playerName.trim()] ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value.trim();
+                            const pName = playerName.trim();
+                            if (pName) {
+                              setPlayerSoopIds((prev) => ({ ...prev, [pName]: val }));
+                            }
+                          }}
+                          placeholder="SOOP ID"
+                          title="스트리머 SOOP(숲TV) ID (라이브 방송 연동용)"
+                          className="h-[32px] w-[88px] sm:w-[105px] bg-[#12121a] border border-[#1e1e2a] focus:border-[#8b5cf6] rounded-full px-2.5 text-[10px] sm:text-[10.5px] text-[#c4b5fd] placeholder-[#4a4a60] focus:outline-none transition"
+                        />
                       </div>
 
                       <div className="relative">
