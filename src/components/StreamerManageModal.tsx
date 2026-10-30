@@ -3,7 +3,9 @@ import { LineKey, LINE_KEYS, LINE_LABELS, Match, StreamerProfile } from '../type
 import {
   saveStreamerProfile,
   saveStreamerProfilesBatch,
+  saveStreamerProfilesBatchAsync,
   deleteStreamerProfile,
+  deleteStreamerProfileAsync,
   autoCollectStreamersFromMatches,
 } from '../lib/streamerApi';
 import { StreamerAvatar } from './StreamerAvatar';
@@ -30,6 +32,7 @@ interface StreamerManageModalProps {
   matches: Match[];
   allProfiles: StreamerProfile[];
   onProfilesUpdated: (profiles: StreamerProfile[]) => void;
+  onSaveComplete?: (profiles: StreamerProfile[]) => Promise<void> | void;
   liveUserIds?: Set<string>;
   onToast: (msg: string) => void;
   isAdmin?: boolean;
@@ -49,6 +52,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   matches,
   allProfiles,
   onProfilesUpdated,
+  onSaveComplete,
   liveUserIds = new Set(),
   onToast,
   isAdmin = false,
@@ -74,6 +78,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   const [newSoopId, setNewSoopId] = useState('');
   const [newLine, setNewLine] = useState<LineKey>('mid');
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Sync when modal opens or initial load (do NOT overwrite during active editing)
   useEffect(() => {
@@ -85,7 +90,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       setLocalMap(map);
       setDeleteTargetName(null);
     }
-  }, [isOpen]);
+  }, [isOpen, allProfiles]);
 
   if (!isOpen) return null;
 
@@ -137,7 +142,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     });
   };
 
-  const handleToggleHidden = (name: string) => {
+  const handleToggleHidden = async (name: string) => {
     if (!isAdmin) {
       onToast('숨김 설정은 관리자만 가능합니다.');
       return;
@@ -155,8 +160,11 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       ...prev,
       [key]: updatedTarget,
     }));
-    const updated = saveStreamerProfile(updatedTarget);
+    const updated = await saveStreamerProfilesBatchAsync([updatedTarget]);
     onProfilesUpdated(updated);
+    if (onSaveComplete) {
+      await onSaveComplete(updated);
+    }
     onToast(
       nextHidden
         ? `'${target.name}' 스트리머가 숨김 처리되었습니다. (CK멤버 라이브 목록에서 제외)`
@@ -164,7 +172,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     );
   };
 
-  const handleSaveSingle = (name: string) => {
+  const handleSaveSingle = async (name: string) => {
     if (!isAdmin) {
       onToast('저장 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
@@ -180,12 +188,20 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       is_hidden: Boolean(target.is_hidden),
       updated_at: new Date().toISOString(),
     };
-    const updated = saveStreamerProfile(cleanTarget);
-    onProfilesUpdated(updated);
-    onToast(`'${target.name}' 스트리머 정보가 저장되었습니다.`);
+    setIsSaving(true);
+    try {
+      const updated = await saveStreamerProfilesBatchAsync([cleanTarget]);
+      onProfilesUpdated(updated);
+      if (onSaveComplete) {
+        await onSaveComplete(updated);
+      }
+      onToast(`'${target.name}' 스트리머 정보가 저장 및 실시간 동기화되었습니다.`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     if (!isAdmin) {
       onToast('저장 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
@@ -199,12 +215,20 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       is_hidden: Boolean(item.is_hidden),
       updated_at: new Date().toISOString(),
     }));
-    const updated = saveStreamerProfilesBatch(list);
-    onProfilesUpdated(updated);
-    onToast(`총 ${list.length}명의 스트리머 정보가 저장되었습니다.`);
+    setIsSaving(true);
+    try {
+      const updated = await saveStreamerProfilesBatchAsync(list);
+      onProfilesUpdated(updated);
+      if (onSaveComplete) {
+        await onSaveComplete(updated);
+      }
+      onToast(`총 ${list.length}명의 스트리머 정보가 저장 및 실시간 동기화되었습니다.`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleConfirmDelete = (name: string) => {
+  const handleConfirmDelete = async (name: string) => {
     if (!isAdmin) {
       onToast('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
@@ -215,13 +239,21 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       delete next[key];
       return next;
     });
-    const updated = deleteStreamerProfile(name);
-    onProfilesUpdated(updated);
-    setDeleteTargetName(null);
-    onToast(`'${name}' 스트리머가 목록 및 DB에서 영구 삭제되었습니다.`);
+    setIsSaving(true);
+    try {
+      const updated = await deleteStreamerProfileAsync(name);
+      onProfilesUpdated(updated);
+      if (onSaveComplete) {
+        await onSaveComplete(updated);
+      }
+      setDeleteTargetName(null);
+      onToast(`'${name}' 스트리머가 목록 및 DB에서 영구 삭제되었습니다.`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleAddNew = (e: React.FormEvent) => {
+  const handleAddNew = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) {
       onToast('스트리머 추가는 관리자만 가능합니다.');
@@ -240,19 +272,27 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       is_hidden: false,
       updated_at: new Date().toISOString(),
     };
-    const updated = saveStreamerProfile(newProfile);
-    onProfilesUpdated(updated);
-    setLocalMap((prev) => ({
-      ...prev,
-      [cleanName.toLowerCase()]: newProfile,
-    }));
-    setNewName('');
-    setNewSoopId('');
-    setIsAddingNew(false);
-    onToast(`새 스트리머 '${cleanName}'이 등록되었습니다.`);
+    setIsSaving(true);
+    try {
+      const updated = await saveStreamerProfilesBatchAsync([newProfile]);
+      onProfilesUpdated(updated);
+      if (onSaveComplete) {
+        await onSaveComplete(updated);
+      }
+      setLocalMap((prev) => ({
+        ...prev,
+        [cleanName.toLowerCase()]: newProfile,
+      }));
+      setNewName('');
+      setNewSoopId('');
+      setIsAddingNew(false);
+      onToast(`새 스트리머 '${cleanName}'이 등록 및 동기화되었습니다.`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleAutoCollect = () => {
+  const handleAutoCollect = async () => {
     if (!isAdmin) {
       onToast('경기 일지 자동 수집은 관리자만 가능합니다.');
       return;
@@ -260,13 +300,22 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     const currentList: StreamerProfile[] = Object.values(localMap) as StreamerProfile[];
     const { updatedList, addedCount } = autoCollectStreamersFromMatches(matches, currentList);
     if (addedCount > 0) {
-      onProfilesUpdated(updatedList);
-      const nextMap: Record<string, StreamerProfile> = {};
-      for (const p of updatedList) {
-        nextMap[p.name.toLowerCase().trim()] = { ...p };
+      setIsSaving(true);
+      try {
+        const updated = await saveStreamerProfilesBatchAsync(updatedList);
+        onProfilesUpdated(updated);
+        if (onSaveComplete) {
+          await onSaveComplete(updated);
+        }
+        const nextMap: Record<string, StreamerProfile> = {};
+        for (const p of updated) {
+          nextMap[p.name.toLowerCase().trim()] = { ...p };
+        }
+        setLocalMap(nextMap);
+        onToast(`경기 기록에서 새로운 스트리머 ${addedCount}명을 자동으로 수집 및 동기화했습니다!`);
+      } finally {
+        setIsSaving(false);
       }
-      setLocalMap(nextMap);
-      onToast(`경기 기록에서 새로운 스트리머 ${addedCount}명을 자동으로 수집했습니다!`);
     } else {
       onToast('경기 기록에서 누락된 새로운 스트리머가 없습니다.');
     }

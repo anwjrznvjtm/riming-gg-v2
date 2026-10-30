@@ -269,7 +269,7 @@ export function saveStreamerProfilesBatch(newProfiles: StreamerProfile[]): Strea
     console.warn('[StreamerApi] Failed to save profiles to localStorage:', err);
   }
 
-  // Sync to Express backend API with replace: true
+  // Sync to Express backend API with replace: true and invalidate cache
   fetch('/api/streamers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -278,7 +278,67 @@ export function saveStreamerProfilesBatch(newProfiles: StreamerProfile[]): Strea
     console.warn('[StreamerApi] Backend POST /api/streamers warning:', err);
   });
 
+  fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+
   return updatedList;
+}
+
+/**
+ * Async Batch Upsert multiple streamer profiles with guaranteed backend persistence & cache invalidation
+ */
+export async function saveStreamerProfilesBatchAsync(newProfiles: StreamerProfile[]): Promise<StreamerProfile[]> {
+  const updatedList = saveStreamerProfilesBatch(newProfiles);
+  try {
+    await fetch('/api/streamers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ replace: true, streamers: updatedList }),
+    });
+    await fetch('/api/soop/live/invalidate', { method: 'POST' });
+  } catch (err) {
+    console.warn('[StreamerApi] saveStreamerProfilesBatchAsync warning:', err);
+  }
+  return updatedList;
+}
+
+/**
+ * Fetch and synchronize streamer profiles from backend server storage
+ */
+export async function syncStreamersFromBackend(): Promise<StreamerProfile[]> {
+  try {
+    const res = await fetch('/api/streamers', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.streamers) && data.streamers.length > 0) {
+        const deletedSet = getDeletedStreamers();
+        const cleanList: StreamerProfile[] = data.streamers
+          .filter((s: any) => s?.name && !deletedSet.has(s.name.toLowerCase().trim()))
+          .map((s: any) => ({
+            name: s.name.trim(),
+            soop_id: typeof s.soop_id === 'string' ? s.soop_id.trim() : '',
+            main_position: s.main_position || 'mid',
+            is_hidden: Boolean(s.is_hidden),
+            updated_at: s.updated_at,
+            memo: s.memo,
+          }));
+
+        if (cleanList.length > 0) {
+          cleanList.sort((a, b) => {
+            if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+            if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+            return a.name.localeCompare(b.name);
+          });
+          try {
+            localStorage.setItem(STORAGE_KEY_STREAMER_PROFILES, JSON.stringify(cleanList));
+          } catch {}
+          return cleanList;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[StreamerApi] Failed to sync streamers from backend:', err);
+  }
+  return getStoredStreamerProfiles();
 }
 
 /**
@@ -304,7 +364,7 @@ export function deleteStreamerProfile(name: string): StreamerProfile[] {
     console.warn('[StreamerApi] Failed to update localStorage on delete:', err);
   }
 
-  // Sync deletion to Express backend API
+  // Sync deletion to Express backend API and invalidate live cache
   fetch(`/api/streamers?name=${encodeURIComponent(cleanName)}`, {
     method: 'DELETE',
   }).catch(() => {});
@@ -315,6 +375,24 @@ export function deleteStreamerProfile(name: string): StreamerProfile[] {
     body: JSON.stringify({ replace: true, streamers: updatedList }),
   }).catch(() => {});
 
+  fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+
+  return updatedList;
+}
+
+export async function deleteStreamerProfileAsync(name: string): Promise<StreamerProfile[]> {
+  const updatedList = deleteStreamerProfile(name);
+  try {
+    await fetch(`/api/streamers?name=${encodeURIComponent(name.trim())}`, { method: 'DELETE' });
+    await fetch('/api/streamers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ replace: true, streamers: updatedList }),
+    });
+    await fetch('/api/soop/live/invalidate', { method: 'POST' });
+  } catch (err) {
+    console.warn('[StreamerApi] deleteStreamerProfileAsync warning:', err);
+  }
   return updatedList;
 }
 
@@ -424,7 +502,7 @@ export function autoCollectStreamersFromMatches(
  * Fetch all live broadcasts from SOOP (숲TV)
  * Uses backend proxy /api/soop/live first, falls back to direct client-side openapi fetch
  */
-export async function fetchSoopLiveBroadcasts(): Promise<{
+export async function fetchSoopLiveBroadcasts(forceRefresh = false): Promise<{
   success: boolean;
   total_cnt: number;
   broad: SoopLiveBroadcast[];
@@ -433,8 +511,13 @@ export async function fetchSoopLiveBroadcasts(): Promise<{
 }> {
   // 1. Try Express backend proxy endpoint (/api/soop/live)
   try {
-    const res = await fetch('/api/soop/live', {
-      headers: { Accept: 'application/json' },
+    const url = forceRefresh ? `/api/soop/live?force=true&_t=${Date.now()}` : '/api/soop/live';
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        ...(forceRefresh ? { 'x-cache-bypass': 'true' } : {}),
+      },
+      cache: forceRefresh ? 'no-store' : 'default',
     });
     if (res.ok) {
       const data = await res.json();

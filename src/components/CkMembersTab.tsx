@@ -13,6 +13,7 @@ import {
   matchStreamersWithLiveBroadcasts,
   getStoredStreamerProfiles,
   autoCollectStreamersFromMatches,
+  syncStreamersFromBackend,
 } from '../lib/streamerApi';
 import { StreamerAvatar } from './StreamerAvatar';
 import { StreamerManageModal } from './StreamerManageModal';
@@ -144,11 +145,11 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     }
   }, [matches]);
 
-  // Main fetch function
-  const handleFetchLive = async (showToastOnManual = false) => {
+  // Main fetch function with optional cache-bypassing forceRefresh
+  const handleFetchLive = async (showToastOnManual = false, forceRefresh = false) => {
     setIsLoading(true);
     try {
-      const result = await fetchSoopLiveBroadcasts();
+      const result = await fetchSoopLiveBroadcasts(forceRefresh);
       if (result.success) {
         setLiveBroadcasts(result.broad);
         setLastUpdated(result.fetchedAt);
@@ -170,9 +171,14 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     }
   };
 
-  // Initial load
+  // Initial load: sync latest streamers from server/streamers.json and fetch live broadcasts
   useEffect(() => {
-    handleFetchLive(false);
+    syncStreamersFromBackend().then((serverList) => {
+      if (serverList && serverList.length > 0) {
+        setProfiles(serverList);
+      }
+      handleFetchLive(false, false);
+    });
   }, []);
 
   // 3-minute auto refresh timer
@@ -427,7 +433,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
               {/* 새로고침 버튼 */}
               <button
                 type="button"
-                onClick={() => handleFetchLive(true)}
+                onClick={() => handleFetchLive(true, true)}
                 disabled={isLoading}
                 title="SOOP 실시간 방송 정보 새로고침"
                 className="h-[34px] px-3 bg-[#1e1e2e] hover:bg-[#2a2a40] border border-[#2e2e42] text-white rounded-xl text-[11.5px] font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 shadow-sm"
@@ -750,7 +756,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <button
               type="button"
-              onClick={() => handleFetchLive(true)}
+              onClick={() => handleFetchLive(true, true)}
               className="px-5 py-2.5 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-white rounded-xl text-[12px] font-bold transition flex items-center gap-2 cursor-pointer border border-[#2a2a3a]"
             >
               <RefreshCw size={14} />
@@ -780,6 +786,11 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
           matches={matches}
           allProfiles={profiles}
           onProfilesUpdated={(updated) => setProfiles(updated)}
+          onSaveComplete={async (updated) => {
+            setProfiles(updated);
+            // Immediately force re-fetch SOOP live broadcasts with bypassed cache
+            await handleFetchLive(false, true);
+          }}
           liveUserIds={liveUserIds}
           onToast={onToast}
           isAdmin={isAdmin}
@@ -796,7 +807,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
           matches={matches}
           allProfiles={profiles}
           liveBroadcasts={liveBroadcasts}
-          onRefresh={() => handleFetchLive(true)}
+          onRefresh={() => handleFetchLive(true, true)}
           isLoading={isLoading}
           isAdmin={isAdmin}
           onToast={onToast}
