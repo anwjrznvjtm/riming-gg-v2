@@ -18,6 +18,7 @@ import {
   updateMatchOnApi,
   deleteMatchOnApi,
 } from './lib/matchApi';
+import { syncStreamersFromBackend } from './lib/streamerApi';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { MainTab } from './components/MainTab';
@@ -104,14 +105,17 @@ export default function App() {
 
   useEffect(() => {
     syncFromApi(false);
+    syncStreamersFromBackend().catch(() => {});
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         syncFromApi(true);
+        syncStreamersFromBackend().catch(() => {});
       }
     }, 20000);
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         syncFromApi(true);
+        syncStreamersFromBackend().catch(() => {});
       }
     };
     window.addEventListener('visibilitychange', handleVisibilityChange);
