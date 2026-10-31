@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { LineKey, LINE_KEYS, LINE_LABELS, Match, StreamerProfile } from '../types';
 import {
   saveStreamerProfile,
@@ -7,6 +7,7 @@ import {
   deleteStreamerProfile,
   deleteStreamerProfileAsync,
   autoCollectStreamersFromMatches,
+  syncStreamersFromBackend,
 } from '../lib/streamerApi';
 import { StreamerAvatar } from './StreamerAvatar';
 import { getChosung } from '../lib/championSearch';
@@ -79,18 +80,54 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   const [newLine, setNewLine] = useState<LineKey>('mid');
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncingWithServer, setIsSyncingWithServer] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
-  // Sync when modal opens or initial load (do NOT overwrite during active editing)
+  // Authoritative server DB fetch & sync handler
+  const handleSyncFromServer = useCallback(
+    async (showToastNotice = false) => {
+      setIsSyncingWithServer(true);
+      try {
+        const serverProfiles = await syncStreamersFromBackend();
+        if (serverProfiles && serverProfiles.length > 0) {
+          const nextMap: Record<string, StreamerProfile> = {};
+          for (const p of serverProfiles) {
+            nextMap[p.name.toLowerCase().trim()] = { ...p };
+          }
+          setLocalMap(nextMap);
+          setLastSyncTime(new Date());
+          onProfilesUpdated(serverProfiles);
+          if (showToastNotice) {
+            onToast(`서버 DB에서 최신 스트리머 프로필(${serverProfiles.length}명)을 동기화했습니다.`);
+          }
+        }
+      } catch (err) {
+        console.warn('[StreamerManageModal] Server sync error:', err);
+        if (showToastNotice) {
+          onToast('서버 데이터 동기화 중 오류가 발생했습니다.');
+        }
+      } finally {
+        setIsSyncingWithServer(false);
+      }
+    },
+    [onProfilesUpdated, onToast]
+  );
+
+  // Sync when modal opens: prioritize authoritative server DB data (server/streamers.json)
   useEffect(() => {
     if (isOpen) {
+      // 1. Quick initial population from current profiles to prevent screen pop
       const map: Record<string, StreamerProfile> = {};
       for (const p of allProfiles) {
         map[p.name.toLowerCase().trim()] = { ...p };
       }
       setLocalMap(map);
       setDeleteTargetName(null);
+
+      // 2. Fetch latest authoritative data from server immediately on open
+      handleSyncFromServer(false);
     }
-  }, [isOpen, allProfiles]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -374,7 +411,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
         {/* Stats Summary & Quick Action Bar */}
         <div className="py-3 flex flex-wrap items-center justify-between gap-2.5 bg-[#0a0a10] -mx-4 sm:-mx-6 px-4 sm:px-6 border-b border-[#1e1e2a] text-[11px] sm:text-[12px]">
-          <div className="flex items-center gap-3 text-[#a0a0b8] flex-wrap">
+          <div className="flex items-center gap-2.5 text-[#a0a0b8] flex-wrap">
             <span>
               전체: <strong className="text-white font-black">{totalRegistered}</strong>명
             </span>
@@ -396,30 +433,66 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 </span>
               </>
             )}
+            <span>•</span>
+            {/* Server Sync Status Badge */}
+            <span className="flex items-center gap-1">
+              {isSyncingWithServer ? (
+                <span className="text-[#38bdf8] font-bold flex items-center gap-1 bg-[#38bdf8]/10 border border-[#38bdf8]/30 px-2 py-0.5 rounded-full text-[10.5px]">
+                  <RefreshCw size={11} className="animate-spin" />
+                  서버 동기화 중...
+                </span>
+              ) : (
+                <span
+                  className="text-[#10b981] font-bold flex items-center gap-1 bg-[#10b981]/10 border border-[#10b981]/30 px-2 py-0.5 rounded-full text-[10.5px]"
+                  title={
+                    lastSyncTime
+                      ? `서버 DB(streamers.json) 동기화 완료: ${lastSyncTime.toLocaleTimeString()}`
+                      : '서버 DB(streamers.json) 최신 데이터 연동됨'
+                  }
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                  서버 연동됨
+                </span>
+              )}
+            </span>
           </div>
 
-          {/* Admin-only action buttons */}
-          {isAdmin && (
-            <div className="flex items-center gap-2 ml-auto">
-              <button
-                type="button"
-                onClick={handleAutoCollect}
-                title="모든 경기 일지(CK 일지)를 분석하여 아직 등록되지 않은 스트리머를 자동 등록합니다"
-                className="h-[30px] px-3 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#c4b5fd] rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw size={13} />
-                <span>경기 일지 자동 수집</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsAddingNew((prev) => !prev)}
-                className="h-[30px] px-3 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <Plus size={14} />
-                <span>{isAddingNew ? '추가 닫기' : '새 스트리머 추가'}</span>
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2 ml-auto">
+            {/* Manual Server Sync button: directly fetches latest streamers from server DB */}
+            <button
+              type="button"
+              onClick={() => handleSyncFromServer(true)}
+              disabled={isSyncingWithServer}
+              title="서버 DB(server/streamers.json)에서 최신 스트리머 프로필, SOOP ID 및 숨김 상태를 실시간 재조회합니다"
+              className="h-[30px] px-3 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#38bdf8] border border-[#38bdf8]/30 hover:border-[#38bdf8]/60 rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={isSyncingWithServer ? 'animate-spin' : ''} />
+              <span>{isSyncingWithServer ? '동기화 중...' : '서버 데이터 동기화'}</span>
+            </button>
+
+            {/* Admin-only action buttons */}
+            {isAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleAutoCollect}
+                  title="모든 경기 일지(CK 일지)를 분석하여 아직 등록되지 않은 스트리머를 자동 등록합니다"
+                  className="h-[30px] px-3 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#c4b5fd] rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw size={12} />
+                  <span>경기 일지 자동 수집</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingNew((prev) => !prev)}
+                  className="h-[30px] px-3 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus size={13} />
+                  <span>{isAddingNew ? '추가 닫기' : '새 스트리머 추가'}</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Collapsible: Add New Streamer Form */}
@@ -786,14 +859,15 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
             {isAdmin && (
               <button
                 type="button"
-                onClick={() => {
-                  handleSaveAll();
+                disabled={isSaving}
+                onClick={async () => {
+                  await handleSaveAll();
                   onClose();
                 }}
-                className="h-[36px] px-5 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:from-[#7c3aed] hover:to-[#4f46e5] text-white rounded-xl text-[12px] font-black shadow-lg transition flex items-center gap-1.5 cursor-pointer"
+                className="h-[36px] px-5 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:from-[#7c3aed] hover:to-[#4f46e5] text-white rounded-xl text-[12px] font-black shadow-lg transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <CheckCircle2 size={15} />
-                <span>전체 저장 완료</span>
+                {isSaving ? <RefreshCw size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+                <span>{isSaving ? '저장 중...' : '전체 저장 완료'}</span>
               </button>
             )}
           </div>

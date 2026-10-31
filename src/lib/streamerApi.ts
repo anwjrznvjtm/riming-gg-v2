@@ -306,7 +306,13 @@ export async function saveStreamerProfilesBatchAsync(newProfiles: StreamerProfil
  */
 export async function syncStreamersFromBackend(): Promise<StreamerProfile[]> {
   try {
-    const res = await fetch('/api/streamers', { cache: 'no-store' });
+    const res = await fetch(`/api/streamers?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache',
+      },
+    });
     if (res.ok) {
       const data = await res.json();
       if (data?.success && Array.isArray(data.streamers) && data.streamers.length > 0) {

@@ -269,6 +269,9 @@ async function startServer() {
   ensureDefaultStreamersFile();
 
   app.get('/api/streamers', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     const list = readStreamersFromFile();
     return res.json({ success: true, streamers: list });
   });
