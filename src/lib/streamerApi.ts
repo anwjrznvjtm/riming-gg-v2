@@ -166,6 +166,19 @@ export function getDeletedStreamers(): Set<string> {
   return set;
 }
 
+export function unmarkDeletedStreamer(name: string): void {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DELETED_STREAMERS);
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) {
+      const key = name.toLowerCase().trim();
+      const nextArr = arr.filter((s: string) => typeof s === 'string' && s.toLowerCase().trim() !== key);
+      localStorage.setItem(STORAGE_KEY_DELETED_STREAMERS, JSON.stringify(nextArr));
+    }
+  } catch {}
+}
+
 /**
  * Load stored streamer profiles from localStorage
  */
@@ -232,9 +245,13 @@ export function saveStreamerProfile(profile: StreamerProfile): StreamerProfile[]
 }
 
 /**
- * Batch Upsert multiple streamer profiles
+ * Batch Upsert multiple streamer profiles (synchronous local update + background sync)
  */
 export function saveStreamerProfilesBatch(newProfiles: StreamerProfile[]): StreamerProfile[] {
+  for (const p of newProfiles) {
+    if (p?.name) unmarkDeletedStreamer(p.name);
+  }
+
   const current = getStoredStreamerProfiles();
   const map = new Map<string, StreamerProfile>();
   for (const p of current) {
@@ -269,13 +286,13 @@ export function saveStreamerProfilesBatch(newProfiles: StreamerProfile[]): Strea
     console.warn('[StreamerApi] Failed to save profiles to localStorage:', err);
   }
 
-  // Sync to Express backend API with replace: true and invalidate cache
+  // Safe background append/update to Express backend API without wiping
   fetch('/api/streamers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ replace: true, streamers: updatedList }),
+    body: JSON.stringify({ replace: false, streamers: newProfiles }),
   }).catch((err) => {
-    console.warn('[StreamerApi] Backend POST /api/streamers warning:', err);
+    console.warn('[StreamerApi] Backend POST /api/streamers background warning:', err);
   });
 
   fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
@@ -286,19 +303,48 @@ export function saveStreamerProfilesBatch(newProfiles: StreamerProfile[]): Strea
 /**
  * Async Batch Upsert multiple streamer profiles with guaranteed backend persistence & cache invalidation
  */
-export async function saveStreamerProfilesBatchAsync(newProfiles: StreamerProfile[]): Promise<StreamerProfile[]> {
-  const updatedList = saveStreamerProfilesBatch(newProfiles);
+export async function saveStreamerProfilesBatchAsync(
+  newProfiles: StreamerProfile[],
+  options?: { replace?: boolean }
+): Promise<StreamerProfile[]> {
+  for (const p of newProfiles) {
+    if (p?.name) unmarkDeletedStreamer(p.name);
+  }
+
+  // Authoritative server write
   try {
-    await fetch('/api/streamers', {
+    const res = await fetch('/api/streamers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ replace: true, streamers: updatedList }),
+      body: JSON.stringify({
+        replace: Boolean(options?.replace),
+        streamers: newProfiles,
+      }),
     });
-    await fetch('/api/soop/live/invalidate', { method: 'POST' });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.streamers)) {
+        const serverList: StreamerProfile[] = data.streamers;
+        serverList.sort((a, b) => {
+          if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+          if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+          return a.name.localeCompare(b.name);
+        });
+
+        try {
+          localStorage.setItem(STORAGE_KEY_STREAMER_PROFILES, JSON.stringify(serverList));
+        } catch {}
+
+        await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+        return serverList;
+      }
+    }
   } catch (err) {
-    console.warn('[StreamerApi] saveStreamerProfilesBatchAsync warning:', err);
+    console.warn('[StreamerApi] saveStreamerProfilesBatchAsync server save failed, fallback to local:', err);
   }
-  return updatedList;
+
+  return saveStreamerProfilesBatch(newProfiles);
 }
 
 /**
@@ -315,7 +361,7 @@ export async function syncStreamersFromBackend(): Promise<StreamerProfile[]> {
     });
     if (res.ok) {
       const data = await res.json();
-      if (data?.success && Array.isArray(data.streamers) && data.streamers.length > 0) {
+      if (data?.success && Array.isArray(data.streamers)) {
         const deletedSet = getDeletedStreamers();
         const cleanList: StreamerProfile[] = data.streamers
           .filter((s: any) => s?.name && !deletedSet.has(s.name.toLowerCase().trim()))
@@ -328,17 +374,16 @@ export async function syncStreamersFromBackend(): Promise<StreamerProfile[]> {
             memo: s.memo,
           }));
 
-        if (cleanList.length > 0) {
-          cleanList.sort((a, b) => {
-            if (a.name === '우리밍_' || a.name === '우리밍') return -1;
-            if (b.name === '우리밍_' || b.name === '우리밍') return 1;
-            return a.name.localeCompare(b.name);
-          });
-          try {
-            localStorage.setItem(STORAGE_KEY_STREAMER_PROFILES, JSON.stringify(cleanList));
-          } catch {}
-          return cleanList;
-        }
+        cleanList.sort((a, b) => {
+          if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+          if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+          return a.name.localeCompare(b.name);
+        });
+
+        try {
+          localStorage.setItem(STORAGE_KEY_STREAMER_PROFILES, JSON.stringify(cleanList));
+        } catch {}
+        return cleanList;
       }
     }
   } catch (err) {
@@ -370,15 +415,11 @@ export function deleteStreamerProfile(name: string): StreamerProfile[] {
     console.warn('[StreamerApi] Failed to update localStorage on delete:', err);
   }
 
-  // Sync deletion to Express backend API and invalidate live cache
-  fetch(`/api/streamers?name=${encodeURIComponent(cleanName)}`, {
-    method: 'DELETE',
-  }).catch(() => {});
-
-  fetch('/api/streamers', {
+  // Sync deletion to Express backend API
+  fetch('/api/streamers/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ replace: true, streamers: updatedList }),
+    body: JSON.stringify({ name: cleanName }),
   }).catch(() => {});
 
   fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
@@ -387,18 +428,42 @@ export function deleteStreamerProfile(name: string): StreamerProfile[] {
 }
 
 export async function deleteStreamerProfileAsync(name: string): Promise<StreamerProfile[]> {
-  const updatedList = deleteStreamerProfile(name);
+  const cleanName = (name || '').trim();
+  if (!cleanName) return getStoredStreamerProfiles();
+  const key = cleanName.toLowerCase();
+
+  const deletedSet = getDeletedStreamers();
+  deletedSet.add(key);
   try {
-    await fetch(`/api/streamers?name=${encodeURIComponent(name.trim())}`, { method: 'DELETE' });
-    await fetch('/api/streamers', {
+    localStorage.setItem(STORAGE_KEY_DELETED_STREAMERS, JSON.stringify(Array.from(deletedSet)));
+  } catch {}
+
+  try {
+    const res = await fetch('/api/streamers/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ replace: true, streamers: updatedList }),
+      body: JSON.stringify({ name: cleanName }),
     });
-    await fetch('/api/soop/live/invalidate', { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.streamers)) {
+        const serverList: StreamerProfile[] = data.streamers;
+        try {
+          localStorage.setItem(STORAGE_KEY_STREAMER_PROFILES, JSON.stringify(serverList));
+        } catch {}
+        await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+        return serverList;
+      }
+    }
   } catch (err) {
     console.warn('[StreamerApi] deleteStreamerProfileAsync warning:', err);
   }
+
+  const current = getStoredStreamerProfiles();
+  const updatedList = current.filter((p) => p.name.toLowerCase().trim() !== key);
+  try {
+    localStorage.setItem(STORAGE_KEY_STREAMER_PROFILES, JSON.stringify(updatedList));
+  } catch {}
   return updatedList;
 }
 

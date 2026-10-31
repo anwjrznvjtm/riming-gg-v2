@@ -193,20 +193,29 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       is_hidden: nextHidden,
       updated_at: new Date().toISOString(),
     };
-    setLocalMap((prev) => ({
-      ...prev,
-      [key]: updatedTarget,
-    }));
-    const updated = await saveStreamerProfilesBatchAsync([updatedTarget]);
-    onProfilesUpdated(updated);
-    if (onSaveComplete) {
-      await onSaveComplete(updated);
+
+    setIsSaving(true);
+    try {
+      const updated = await saveStreamerProfilesBatchAsync([updatedTarget], { replace: false });
+      const nextMap: Record<string, StreamerProfile> = {};
+      for (const p of updated) {
+        nextMap[p.name.toLowerCase().trim()] = { ...p };
+      }
+      setLocalMap(nextMap);
+      onProfilesUpdated(updated);
+      if (onSaveComplete) {
+        await onSaveComplete(updated);
+      }
+      onToast(
+        nextHidden
+          ? `'${target.name}' 스트리머가 숨김 처리되었습니다. (CK멤버 라이브 목록에서 제외)`
+          : `'${target.name}' 스트리머가 정상 노출로 변경되었습니다.`
+      );
+    } catch {
+      onToast('숨김 상태 변경 중 오류가 발생했습니다.');
+    } finally {
+      setIsSaving(false);
     }
-    onToast(
-      nextHidden
-        ? `'${target.name}' 스트리머가 숨김 처리되었습니다. (CK멤버 라이브 목록에서 제외)`
-        : `'${target.name}' 스트리머가 정상 노출로 변경되었습니다.`
-    );
   };
 
   const handleSaveSingle = async (name: string) => {
@@ -227,12 +236,19 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     };
     setIsSaving(true);
     try {
-      const updated = await saveStreamerProfilesBatchAsync([cleanTarget]);
+      const updated = await saveStreamerProfilesBatchAsync([cleanTarget], { replace: false });
+      const nextMap: Record<string, StreamerProfile> = {};
+      for (const p of updated) {
+        nextMap[p.name.toLowerCase().trim()] = { ...p };
+      }
+      setLocalMap(nextMap);
       onProfilesUpdated(updated);
       if (onSaveComplete) {
         await onSaveComplete(updated);
       }
-      onToast(`'${target.name}' 스트리머 정보가 저장 및 실시간 동기화되었습니다.`);
+      onToast(`'${target.name}' 스트리머 정보가 서버에 영구 저장 및 동기화되었습니다.`);
+    } catch {
+      onToast('스트리머 저장 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -254,12 +270,19 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     }));
     setIsSaving(true);
     try {
-      const updated = await saveStreamerProfilesBatchAsync(list);
+      const updated = await saveStreamerProfilesBatchAsync(list, { replace: true });
+      const nextMap: Record<string, StreamerProfile> = {};
+      for (const p of updated) {
+        nextMap[p.name.toLowerCase().trim()] = { ...p };
+      }
+      setLocalMap(nextMap);
       onProfilesUpdated(updated);
       if (onSaveComplete) {
         await onSaveComplete(updated);
       }
-      onToast(`총 ${list.length}명의 스트리머 정보가 저장 및 실시간 동기화되었습니다.`);
+      onToast(`총 ${updated.length}명의 스트리머 정보가 서버에 영구 저장 완료되었습니다.`);
+    } catch {
+      onToast('전체 저장 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -270,21 +293,22 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       onToast('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
     }
-    const key = name.toLowerCase().trim();
-    setLocalMap((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
     setIsSaving(true);
     try {
       const updated = await deleteStreamerProfileAsync(name);
+      const nextMap: Record<string, StreamerProfile> = {};
+      for (const p of updated) {
+        nextMap[p.name.toLowerCase().trim()] = { ...p };
+      }
+      setLocalMap(nextMap);
       onProfilesUpdated(updated);
       if (onSaveComplete) {
         await onSaveComplete(updated);
       }
       setDeleteTargetName(null);
-      onToast(`'${name}' 스트리머가 목록 및 DB에서 영구 삭제되었습니다.`);
+      onToast(`'${name}' 스트리머가 목록 및 서버 DB에서 완전히 삭제되었습니다.`);
+    } catch {
+      onToast('스트리머 삭제 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -311,19 +335,22 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     };
     setIsSaving(true);
     try {
-      const updated = await saveStreamerProfilesBatchAsync([newProfile]);
+      const updated = await saveStreamerProfilesBatchAsync([newProfile], { replace: false });
+      const nextMap: Record<string, StreamerProfile> = {};
+      for (const p of updated) {
+        nextMap[p.name.toLowerCase().trim()] = { ...p };
+      }
+      setLocalMap(nextMap);
       onProfilesUpdated(updated);
       if (onSaveComplete) {
         await onSaveComplete(updated);
       }
-      setLocalMap((prev) => ({
-        ...prev,
-        [cleanName.toLowerCase()]: newProfile,
-      }));
       setNewName('');
       setNewSoopId('');
       setIsAddingNew(false);
-      onToast(`새 스트리머 '${cleanName}'이 등록 및 동기화되었습니다.`);
+      onToast(`새 스트리머 '${cleanName}'이 서버 DB에 등록 및 영구 저장되었습니다.`);
+    } catch {
+      onToast('새 스트리머 등록 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -339,7 +366,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     if (addedCount > 0) {
       setIsSaving(true);
       try {
-        const updated = await saveStreamerProfilesBatchAsync(updatedList);
+        const updated = await saveStreamerProfilesBatchAsync(updatedList, { replace: false });
         onProfilesUpdated(updated);
         if (onSaveComplete) {
           await onSaveComplete(updated);
@@ -349,7 +376,9 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
           nextMap[p.name.toLowerCase().trim()] = { ...p };
         }
         setLocalMap(nextMap);
-        onToast(`경기 기록에서 새로운 스트리머 ${addedCount}명을 자동으로 수집 및 동기화했습니다!`);
+        onToast(`경기 기록에서 새로운 스트리머 ${addedCount}명을 자동으로 수집 및 영구 저장했습니다!`);
+      } catch {
+        onToast('자동 수집 저장 중 오류가 발생했습니다.');
       } finally {
         setIsSaving(false);
       }

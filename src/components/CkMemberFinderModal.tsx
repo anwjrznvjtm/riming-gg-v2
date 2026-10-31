@@ -8,7 +8,7 @@ import {
   LiveStreamerMember,
   Match,
 } from '../types';
-import { matchStreamersWithLiveBroadcasts, saveStreamerProfile } from '../lib/streamerApi';
+import { matchStreamersWithLiveBroadcasts, saveStreamerProfile, saveStreamerProfilesBatchAsync } from '../lib/streamerApi';
 import {
   normalizeStreamerName,
   isStreamerMatch,
@@ -477,7 +477,7 @@ export const CkMemberFinderModal: React.FC<CkMemberFinderModalProps> = ({
   }, [openDropdown]);
 
   // Admin DB saving
-  const handleAdminSaveStreamer = (playerName: string, line: LineKey) => {
+  const handleAdminSaveStreamer = async (playerName: string, line: LineKey) => {
     if (!isAdmin) {
       onToast('스트리머 DB 저장은 관리자 권한이 필요합니다.');
       return;
@@ -486,12 +486,14 @@ export const CkMemberFinderModal: React.FC<CkMemberFinderModalProps> = ({
     if (!cleanName) return;
 
     try {
-      const updated = saveStreamerProfile({
-        name: cleanName,
-        soop_id: customSoopIdInput.trim() || '',
-        main_position: line,
-        is_hidden: false,
-      });
+      const updated = await saveStreamerProfilesBatchAsync([
+        {
+          name: cleanName,
+          soop_id: customSoopIdInput.trim() || '',
+          main_position: line,
+          is_hidden: false,
+        },
+      ]);
       onProfilesUpdated(updated);
       onToast(`[${cleanName}] 스트리머가 DB에 성공적으로 등록되었습니다.`);
       setEditingCustomSlot(null);

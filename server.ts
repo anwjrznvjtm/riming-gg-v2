@@ -126,15 +126,27 @@ async function startServer() {
     return [];
   }
 
-  function writeStreamersToFile(data: any[]) {
+  function writeStreamersToFile(data: any[]): boolean {
     try {
       const dir = path.dirname(streamersFilePath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(streamersFilePath, JSON.stringify(data, null, 2), 'utf-8');
+      const tmpPath = path.join(dir, `.streamers.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`);
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, streamersFilePath);
+      cachedLiveResponse = null;
+      return true;
     } catch (err) {
-      console.warn('[Server] Error writing streamers.json:', err);
+      console.warn('[Server] Error writing streamers.json via tmp rename, attempting direct write:', err);
+      try {
+        fs.writeFileSync(streamersFilePath, JSON.stringify(data, null, 2), 'utf-8');
+        cachedLiveResponse = null;
+        return true;
+      } catch (err2) {
+        console.error('[Server] Fatal error writing streamers.json:', err2);
+        return false;
+      }
     }
   }
 
@@ -278,17 +290,37 @@ async function startServer() {
 
   app.post('/api/streamers', (req, res) => {
     try {
-      // Invalidate SOOP live cache immediately so new SOOP IDs are mapped freshly
       cachedLiveResponse = null;
 
       const { streamers, streamer, replace } = req.body || {};
 
-      // If full replace is requested
+      // If full replace is requested (e.g. from handleSaveAll)
       if (replace && Array.isArray(streamers)) {
-        writeStreamersToFile(streamers);
-        return res.json({ success: true, count: streamers.length, streamers });
+        const cleanList = streamers
+          .filter((s: any) => s && typeof s.name === 'string' && s.name.trim())
+          .map((s: any) => ({
+            name: s.name.trim(),
+            soop_id: typeof s.soop_id === 'string' ? s.soop_id.trim() : '',
+            main_position: s.main_position || 'mid',
+            is_hidden: Boolean(s.is_hidden),
+            memo: s.memo,
+            updated_at: s.updated_at || new Date().toISOString(),
+          }))
+          .sort((a: any, b: any) => {
+            if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+            if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+            return a.name.localeCompare(b.name);
+          });
+
+        const success = writeStreamersToFile(cleanList);
+        if (!success) {
+          return res.status(500).json({ success: false, error: 'Failed to write streamers to disk' });
+        }
+        console.log(`[Server] Streamers replaced and saved: count=${cleanList.length}`);
+        return res.json({ success: true, count: cleanList.length, streamers: cleanList });
       }
 
+      // Safe Incremental Append / Update mode (for individual save, add new streamer, etc.)
       const current = readStreamersFromFile();
       const map = new Map<string, any>();
       for (const item of current) {
@@ -299,7 +331,7 @@ async function startServer() {
       const nowIso = new Date().toISOString();
 
       for (const item of incoming) {
-        if (!item?.name?.trim()) continue;
+        if (!item?.name || typeof item.name !== 'string' || !item.name.trim()) continue;
         const key = item.name.toLowerCase().trim();
         const existing = map.get(key) || {};
         map.set(key, {
@@ -309,14 +341,25 @@ async function startServer() {
           soop_id: typeof item.soop_id === 'string' ? item.soop_id.trim() : (existing.soop_id || '').trim(),
           main_position: item.main_position || existing.main_position || 'mid',
           is_hidden: item.is_hidden !== undefined ? Boolean(item.is_hidden) : Boolean(existing.is_hidden),
-          updated_at: nowIso,
+          updated_at: item.updated_at || nowIso,
+          memo: item.memo || existing.memo,
         });
       }
 
-      const updated = Array.from(map.values());
-      writeStreamersToFile(updated);
+      const updated = Array.from(map.values()).sort((a: any, b: any) => {
+        if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+        if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      const success = writeStreamersToFile(updated);
+      if (!success) {
+        return res.status(500).json({ success: false, error: 'Failed to write streamers to disk' });
+      }
+      console.log(`[Server] Streamers appended/updated: count=${updated.length}, incomingCount=${incoming.length}`);
       return res.json({ success: true, count: updated.length, streamers: updated });
     } catch (err: any) {
+      console.error('[Server] POST /api/streamers error:', err);
       return res.status(500).json({ success: false, error: err?.message || 'Failed to update streamers' });
     }
   });
@@ -329,7 +372,11 @@ async function startServer() {
       const targetKey = name.toLowerCase().trim();
       const current = readStreamersFromFile();
       const updated = current.filter((s: any) => (s?.name || '').toLowerCase().trim() !== targetKey);
-      writeStreamersToFile(updated);
+      const success = writeStreamersToFile(updated);
+      if (!success) {
+        return res.status(500).json({ success: false, error: 'Failed to write streamers to disk on delete' });
+      }
+      console.log(`[Server] Streamer deleted: name=${name}, remaining=${updated.length}`);
       return res.json({ success: true, count: updated.length, streamers: updated });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to delete streamer' });
@@ -344,7 +391,11 @@ async function startServer() {
       const targetKey = name.toLowerCase().trim();
       const current = readStreamersFromFile();
       const updated = current.filter((s: any) => (s?.name || '').toLowerCase().trim() !== targetKey);
-      writeStreamersToFile(updated);
+      const success = writeStreamersToFile(updated);
+      if (!success) {
+        return res.status(500).json({ success: false, error: 'Failed to write streamers to disk on delete' });
+      }
+      console.log(`[Server] Streamer deleted via POST: name=${name}, remaining=${updated.length}`);
       return res.json({ success: true, count: updated.length, streamers: updated });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to delete streamer' });
