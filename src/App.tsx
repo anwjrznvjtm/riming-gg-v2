@@ -31,6 +31,11 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 export default function App() {
   const [matches, setMatches] = useState<Match[]>(() => {
     try {
+      // Proactively purge legacy streamer localStorage keys to ensure DB is Single Source of Truth
+      localStorage.removeItem('ck_streamer_profiles');
+      localStorage.removeItem('streamer_profiles');
+      localStorage.removeItem('ck_streamers');
+
       const alreadyPurged = localStorage.getItem('riming_mock_purged_v1');
       if (!alreadyPurged) {
         localStorage.removeItem(STORAGE_KEY_MATCHES);

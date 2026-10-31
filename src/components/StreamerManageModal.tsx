@@ -48,41 +48,27 @@ const LINE_COLOR_CLASSES: Record<LineKey, { bg: string; text: string; border: st
 };
 
 /**
- * Robust streamer dictionary mapper that preserves SOOP IDs and utilizes SOOP_STREAMER_IDS fallbacks
- * preventing any blanking out or overwriting with empty string.
+ * Authoritative streamer dictionary mapper from server DB profiles (Single Source of Truth).
+ * Strictly mirrors the server list, prevents empty string overwriting by falling back to known IDs.
  */
-function mapStreamersToDict(
-  profiles: StreamerProfile[],
-  prevMap?: Record<string, StreamerProfile>
-): Record<string, StreamerProfile> {
+function mapStreamersToDict(profiles: StreamerProfile[]): Record<string, StreamerProfile> {
   const result: Record<string, StreamerProfile> = {};
   for (const p of profiles) {
     if (!p?.name?.trim()) continue;
     const cleanName = p.name.trim();
     const key = cleanName.toLowerCase();
-    const prev = prevMap ? prevMap[key] : undefined;
     const serverId = typeof p.soop_id === 'string' ? p.soop_id.trim() : '';
-    const prevId = (prev?.soop_id || '').trim();
     const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
-    const effectiveId = serverId || prevId || fallbackId;
+    const effectiveId = serverId || fallbackId;
 
     result[key] = {
       name: cleanName,
       soop_id: effectiveId,
-      main_position: p.main_position || prev?.main_position || 'mid',
-      is_hidden: p.is_hidden !== undefined ? Boolean(p.is_hidden) : Boolean(prev?.is_hidden),
-      memo: p.memo || prev?.memo,
-      updated_at: p.updated_at || prev?.updated_at,
+      main_position: p.main_position || 'mid',
+      is_hidden: Boolean(p.is_hidden),
+      memo: p.memo,
+      updated_at: p.updated_at,
     };
-  }
-
-  // Preserve any locally tracked streamers
-  if (prevMap) {
-    for (const [key, prevItem] of Object.entries(prevMap)) {
-      if (!result[key]) {
-        result[key] = prevItem;
-      }
-    }
   }
 
   return result;
@@ -145,7 +131,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       try {
         const serverProfiles = await syncStreamersFromBackend(true);
         if (serverProfiles && serverProfiles.length > 0) {
-          setLocalMap((prev) => mapStreamersToDict(serverProfiles, prev));
+          setLocalMap(mapStreamersToDict(serverProfiles));
           setLastSyncTime(new Date());
           setSyncStatus('synced');
           onProfilesUpdatedRef.current(serverProfiles);
@@ -253,7 +239,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     try {
       await saveStreamerProfilesBatchAsync([updatedTarget], { replace: false });
       const fresh = await syncStreamersFromBackend(true);
-      setLocalMap((prev) => mapStreamersToDict(fresh, prev));
+      setLocalMap(mapStreamersToDict(fresh));
       setLastSyncTime(new Date());
       setSyncStatus('synced');
       onProfilesUpdatedRef.current(fresh);
@@ -292,7 +278,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     try {
       await saveStreamerProfilesBatchAsync([cleanTarget], { replace: false });
       const fresh = await syncStreamersFromBackend(true);
-      setLocalMap((prev) => mapStreamersToDict(fresh, prev));
+      setLocalMap(mapStreamersToDict(fresh));
       setLastSyncTime(new Date());
       setSyncStatus('synced');
       onProfilesUpdatedRef.current(fresh);
@@ -389,7 +375,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     try {
       await saveStreamerProfilesBatchAsync([newProfile], { replace: false });
       const fresh = await syncStreamersFromBackend(true);
-      setLocalMap((prev) => mapStreamersToDict(fresh, prev));
+      setLocalMap(mapStreamersToDict(fresh));
       setLastSyncTime(new Date());
       setSyncStatus('synced');
       onProfilesUpdatedRef.current(fresh);
@@ -419,7 +405,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       try {
         await saveStreamerProfilesBatchAsync(updatedList, { replace: false });
         const fresh = await syncStreamersFromBackend(true);
-        setLocalMap((prev) => mapStreamersToDict(fresh, prev));
+        setLocalMap(mapStreamersToDict(fresh));
         setLastSyncTime(new Date());
         setSyncStatus('synced');
         onProfilesUpdatedRef.current(fresh);
