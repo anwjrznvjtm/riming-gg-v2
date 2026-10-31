@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   LineKey,
   LINE_KEYS,
@@ -137,16 +137,8 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
   const [isFinderModalOpen, setIsFinderModalOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Auto collect streamers from matches on mount or when matches change
-  useEffect(() => {
-    const { updatedList, addedCount } = autoCollectStreamersFromMatches(matches, profiles);
-    if (addedCount > 0) {
-      setProfiles(updatedList);
-    }
-  }, [matches]);
-
   // Main fetch function with optional cache-bypassing forceRefresh
-  const handleFetchLive = async (showToastOnManual = false, forceRefresh = false) => {
+  const handleFetchLive = useCallback(async (showToastOnManual = false, forceRefresh = false) => {
     setIsLoading(true);
     try {
       const result = await fetchSoopLiveBroadcasts(forceRefresh);
@@ -169,11 +161,23 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [onToast]);
 
-  // Initial load: sync latest streamers from server/streamers.json and fetch live broadcasts
+  const handleProfilesUpdated = useCallback((updated: StreamerProfile[]) => {
+    setProfiles(updated);
+  }, []);
+
+  const handleSaveComplete = useCallback(
+    async (updated: StreamerProfile[]) => {
+      setProfiles(updated);
+      await handleFetchLive(false, true);
+    },
+    [handleFetchLive]
+  );
+
+  // Initial load: sync latest streamers directly from authoritative server DB (server/streamers.json)
   useEffect(() => {
-    syncStreamersFromBackend().then((serverList) => {
+    syncStreamersFromBackend(true).then((serverList) => {
       if (serverList && serverList.length > 0) {
         setProfiles(serverList);
       }
@@ -785,12 +789,8 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
           onClose={() => setIsManageModalOpen(false)}
           matches={matches}
           allProfiles={profiles}
-          onProfilesUpdated={(updated) => setProfiles(updated)}
-          onSaveComplete={async (updated) => {
-            setProfiles(updated);
-            // Immediately force re-fetch SOOP live broadcasts with bypassed cache
-            await handleFetchLive(false, true);
-          }}
+          onProfilesUpdated={handleProfilesUpdated}
+          onSaveComplete={handleSaveComplete}
           liveUserIds={liveUserIds}
           onToast={onToast}
           isAdmin={isAdmin}

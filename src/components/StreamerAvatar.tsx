@@ -108,6 +108,7 @@ export const SOOP_STREAMER_IDS: Record<string, string> = {
   '오너': 'oner',
   '구마유시': 'gumayusi',
   '케리아': 'keria',
+  '김세아': 'kimseah94',
 };
 
 export function getSoopProfileUrl(streamerName?: string): string | null {

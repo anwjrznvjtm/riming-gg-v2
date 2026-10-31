@@ -259,6 +259,7 @@ async function startServer() {
         { name: '오너', soop_id: 'oner', main_position: 'jgl', is_hidden: false },
         { name: '구마유시', soop_id: 'gumayusi', main_position: 'adc', is_hidden: false },
         { name: '케리아', soop_id: 'keria', main_position: 'sup', is_hidden: false },
+        { name: '김세아', soop_id: 'kimseah94', main_position: 'mid', is_hidden: false },
       ];
 
       const map = new Map<string, any>();

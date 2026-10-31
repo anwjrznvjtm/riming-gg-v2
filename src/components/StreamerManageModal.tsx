@@ -9,7 +9,7 @@ import {
   autoCollectStreamersFromMatches,
   syncStreamersFromBackend,
 } from '../lib/streamerApi';
-import { StreamerAvatar } from './StreamerAvatar';
+import { StreamerAvatar, SOOP_STREAMER_IDS } from './StreamerAvatar';
 import { getChosung } from '../lib/championSearch';
 import {
   X,
@@ -47,6 +47,47 @@ const LINE_COLOR_CLASSES: Record<LineKey, { bg: string; text: string; border: st
   sup: { bg: 'bg-[#eab308]/15', text: 'text-[#facc15]', border: 'border-[#eab308]/40' },
 };
 
+/**
+ * Robust streamer dictionary mapper that preserves SOOP IDs and utilizes SOOP_STREAMER_IDS fallbacks
+ * preventing any blanking out or overwriting with empty string.
+ */
+function mapStreamersToDict(
+  profiles: StreamerProfile[],
+  prevMap?: Record<string, StreamerProfile>
+): Record<string, StreamerProfile> {
+  const result: Record<string, StreamerProfile> = {};
+  for (const p of profiles) {
+    if (!p?.name?.trim()) continue;
+    const cleanName = p.name.trim();
+    const key = cleanName.toLowerCase();
+    const prev = prevMap ? prevMap[key] : undefined;
+    const serverId = typeof p.soop_id === 'string' ? p.soop_id.trim() : '';
+    const prevId = (prev?.soop_id || '').trim();
+    const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
+    const effectiveId = serverId || prevId || fallbackId;
+
+    result[key] = {
+      name: cleanName,
+      soop_id: effectiveId,
+      main_position: p.main_position || prev?.main_position || 'mid',
+      is_hidden: p.is_hidden !== undefined ? Boolean(p.is_hidden) : Boolean(prev?.is_hidden),
+      memo: p.memo || prev?.memo,
+      updated_at: p.updated_at || prev?.updated_at,
+    };
+  }
+
+  // Preserve any locally tracked streamers
+  if (prevMap) {
+    for (const [key, prevItem] of Object.entries(prevMap)) {
+      if (!result[key]) {
+        result[key] = prevItem;
+      }
+    }
+  }
+
+  return result;
+}
+
 export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   isOpen,
   onClose,
@@ -67,11 +108,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
   // Local state for editing multiple profiles
   const [localMap, setLocalMap] = useState<Record<string, StreamerProfile>>(() => {
-    const map: Record<string, StreamerProfile> = {};
-    for (const p of allProfiles) {
-      map[p.name.toLowerCase().trim()] = { ...p };
-    }
-    return map;
+    return mapStreamersToDict(allProfiles);
   });
 
   // New streamer addition inputs
@@ -81,60 +118,78 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncingWithServer, setIsSyncingWithServer] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('synced');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
-  // Authoritative server DB fetch & sync handler
+  // Stable references for parent callback props to prevent re-creation loops
+  const onProfilesUpdatedRef = React.useRef(onProfilesUpdated);
+  useEffect(() => {
+    onProfilesUpdatedRef.current = onProfilesUpdated;
+  }, [onProfilesUpdated]);
+
+  const onToastRef = React.useRef(onToast);
+  useEffect(() => {
+    onToastRef.current = onToast;
+  }, [onToast]);
+
+  const isSyncingRef = React.useRef(false);
+
+  // Authoritative server DB fetch & sync handler (Single Source of Truth: server/streamers.json)
   const handleSyncFromServer = useCallback(
     async (showToastNotice = false) => {
+      if (isSyncingRef.current) return;
+      isSyncingRef.current = true;
       setIsSyncingWithServer(true);
+      setSyncStatus('syncing');
+
       try {
-        const serverProfiles = await syncStreamersFromBackend();
+        const serverProfiles = await syncStreamersFromBackend(true);
         if (serverProfiles && serverProfiles.length > 0) {
-          const nextMap: Record<string, StreamerProfile> = {};
-          for (const p of serverProfiles) {
-            nextMap[p.name.toLowerCase().trim()] = { ...p };
-          }
-          setLocalMap(nextMap);
+          setLocalMap((prev) => mapStreamersToDict(serverProfiles, prev));
           setLastSyncTime(new Date());
-          onProfilesUpdated(serverProfiles);
+          setSyncStatus('synced');
+          onProfilesUpdatedRef.current(serverProfiles);
           if (showToastNotice) {
-            onToast(`서버 DB에서 최신 스트리머 프로필(${serverProfiles.length}명)을 동기화했습니다.`);
+            onToastRef.current(`서버 DB에서 최신 스트리머 프로필(${serverProfiles.length}명)을 동기화했습니다.`);
           }
+        } else {
+          setSyncStatus('synced');
         }
       } catch (err) {
         console.warn('[StreamerManageModal] Server sync error:', err);
+        setSyncStatus('error');
         if (showToastNotice) {
-          onToast('서버 데이터 동기화 중 오류가 발생했습니다.');
+          onToastRef.current('서버 데이터 동기화 중 오류가 발생했습니다.');
         }
       } finally {
+        isSyncingRef.current = false;
         setIsSyncingWithServer(false);
       }
     },
-    [onProfilesUpdated, onToast]
+    []
   );
 
-  // Sync when modal opens: prioritize authoritative server DB data (server/streamers.json)
+  // Sync directly from DB server API when modal opens (isOpen === true)
   useEffect(() => {
     if (isOpen) {
-      // 1. Quick initial population from current profiles to prevent screen pop
-      const map: Record<string, StreamerProfile> = {};
-      for (const p of allProfiles) {
-        map[p.name.toLowerCase().trim()] = { ...p };
-      }
-      setLocalMap(map);
       setDeleteTargetName(null);
-
-      // 2. Fetch latest authoritative data from server immediately on open
       handleSyncFromServer(false);
     }
-  }, [isOpen]);
+  }, [isOpen, handleSyncFromServer]);
+
+  // Synchronize localMap with allProfiles when modal is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setLocalMap(mapStreamersToDict(allProfiles));
+    }
+  }, [allProfiles, isOpen]);
 
   if (!isOpen) return null;
 
   const profileList: StreamerProfile[] = (Object.values(localMap) as StreamerProfile[]).sort((a, b) => {
     if (a.name === '우리밍_' || a.name === '우리밍') return -1;
     if (b.name === '우리밍_' || b.name === '우리밍') return 1;
-    return a.name.localeCompare(b.name);
+    return a.name.localeCompare(b.name, 'ko-KR');
   });
 
   // Filtered list
@@ -196,23 +251,22 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
     setIsSaving(true);
     try {
-      const updated = await saveStreamerProfilesBatchAsync([updatedTarget], { replace: false });
-      const nextMap: Record<string, StreamerProfile> = {};
-      for (const p of updated) {
-        nextMap[p.name.toLowerCase().trim()] = { ...p };
-      }
-      setLocalMap(nextMap);
-      onProfilesUpdated(updated);
+      await saveStreamerProfilesBatchAsync([updatedTarget], { replace: false });
+      const fresh = await syncStreamersFromBackend(true);
+      setLocalMap((prev) => mapStreamersToDict(fresh, prev));
+      setLastSyncTime(new Date());
+      setSyncStatus('synced');
+      onProfilesUpdatedRef.current(fresh);
       if (onSaveComplete) {
-        await onSaveComplete(updated);
+        await onSaveComplete(fresh);
       }
-      onToast(
+      onToastRef.current(
         nextHidden
           ? `'${target.name}' 스트리머가 숨김 처리되었습니다. (CK멤버 라이브 목록에서 제외)`
           : `'${target.name}' 스트리머가 정상 노출로 변경되었습니다.`
       );
     } catch {
-      onToast('숨김 상태 변경 중 오류가 발생했습니다.');
+      onToastRef.current('숨김 상태 변경 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -220,7 +274,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
   const handleSaveSingle = async (name: string) => {
     if (!isAdmin) {
-      onToast('저장 권한이 없습니다. 관리자 로그인이 필요합니다.');
+      onToastRef.current('저장 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
     }
     const key = name.toLowerCase().trim();
@@ -236,19 +290,18 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     };
     setIsSaving(true);
     try {
-      const updated = await saveStreamerProfilesBatchAsync([cleanTarget], { replace: false });
-      const nextMap: Record<string, StreamerProfile> = {};
-      for (const p of updated) {
-        nextMap[p.name.toLowerCase().trim()] = { ...p };
-      }
-      setLocalMap(nextMap);
-      onProfilesUpdated(updated);
+      await saveStreamerProfilesBatchAsync([cleanTarget], { replace: false });
+      const fresh = await syncStreamersFromBackend(true);
+      setLocalMap((prev) => mapStreamersToDict(fresh, prev));
+      setLastSyncTime(new Date());
+      setSyncStatus('synced');
+      onProfilesUpdatedRef.current(fresh);
       if (onSaveComplete) {
-        await onSaveComplete(updated);
+        await onSaveComplete(fresh);
       }
-      onToast(`'${target.name}' 스트리머 정보가 서버에 영구 저장 및 동기화되었습니다.`);
+      onToastRef.current(`'${target.name}' 스트리머 정보가 서버에 영구 저장 및 동기화되었습니다.`);
     } catch {
-      onToast('스트리머 저장 중 오류가 발생했습니다.');
+      onToastRef.current('스트리머 저장 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -256,7 +309,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
   const handleSaveAll = async () => {
     if (!isAdmin) {
-      onToast('저장 권한이 없습니다. 관리자 로그인이 필요합니다.');
+      onToastRef.current('저장 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
     }
     const rawList = Object.values(localMap) as StreamerProfile[];
@@ -270,19 +323,18 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     }));
     setIsSaving(true);
     try {
-      const updated = await saveStreamerProfilesBatchAsync(list, { replace: true });
-      const nextMap: Record<string, StreamerProfile> = {};
-      for (const p of updated) {
-        nextMap[p.name.toLowerCase().trim()] = { ...p };
-      }
-      setLocalMap(nextMap);
-      onProfilesUpdated(updated);
+      await saveStreamerProfilesBatchAsync(list, { replace: true });
+      const fresh = await syncStreamersFromBackend(true);
+      setLocalMap(mapStreamersToDict(fresh));
+      setLastSyncTime(new Date());
+      setSyncStatus('synced');
+      onProfilesUpdatedRef.current(fresh);
       if (onSaveComplete) {
-        await onSaveComplete(updated);
+        await onSaveComplete(fresh);
       }
-      onToast(`총 ${updated.length}명의 스트리머 정보가 서버에 영구 저장 완료되었습니다.`);
+      onToastRef.current(`총 ${fresh.length}명의 스트리머 정보가 서버에 영구 저장 완료되었습니다.`);
     } catch {
-      onToast('전체 저장 중 오류가 발생했습니다.');
+      onToastRef.current('전체 저장 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -290,25 +342,24 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
   const handleConfirmDelete = async (name: string) => {
     if (!isAdmin) {
-      onToast('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
+      onToastRef.current('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
     }
     setIsSaving(true);
     try {
-      const updated = await deleteStreamerProfileAsync(name);
-      const nextMap: Record<string, StreamerProfile> = {};
-      for (const p of updated) {
-        nextMap[p.name.toLowerCase().trim()] = { ...p };
-      }
-      setLocalMap(nextMap);
-      onProfilesUpdated(updated);
+      await deleteStreamerProfileAsync(name);
+      const fresh = await syncStreamersFromBackend(true);
+      setLocalMap(mapStreamersToDict(fresh));
+      setLastSyncTime(new Date());
+      setSyncStatus('synced');
+      onProfilesUpdatedRef.current(fresh);
       if (onSaveComplete) {
-        await onSaveComplete(updated);
+        await onSaveComplete(fresh);
       }
       setDeleteTargetName(null);
-      onToast(`'${name}' 스트리머가 목록 및 서버 DB에서 완전히 삭제되었습니다.`);
+      onToastRef.current(`'${name}' 스트리머가 목록 및 서버 DB에서 완전히 삭제되었습니다.`);
     } catch {
-      onToast('스트리머 삭제 중 오류가 발생했습니다.');
+      onToastRef.current('스트리머 삭제 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -317,15 +368,16 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   const handleAddNew = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) {
-      onToast('스트리머 추가는 관리자만 가능합니다.');
+      onToastRef.current('스트리머 추가는 관리자만 가능합니다.');
       return;
     }
     if (!newName.trim()) {
-      onToast('스트리머 이름을 입력해 주세요.');
+      onToastRef.current('스트리머 이름을 입력해 주세요.');
       return;
     }
     const cleanName = newName.trim();
-    const cleanId = newSoopId.trim();
+    const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
+    const cleanId = newSoopId.trim() || fallbackId;
     const newProfile: StreamerProfile = {
       name: cleanName,
       soop_id: cleanId,
@@ -335,22 +387,21 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     };
     setIsSaving(true);
     try {
-      const updated = await saveStreamerProfilesBatchAsync([newProfile], { replace: false });
-      const nextMap: Record<string, StreamerProfile> = {};
-      for (const p of updated) {
-        nextMap[p.name.toLowerCase().trim()] = { ...p };
-      }
-      setLocalMap(nextMap);
-      onProfilesUpdated(updated);
+      await saveStreamerProfilesBatchAsync([newProfile], { replace: false });
+      const fresh = await syncStreamersFromBackend(true);
+      setLocalMap((prev) => mapStreamersToDict(fresh, prev));
+      setLastSyncTime(new Date());
+      setSyncStatus('synced');
+      onProfilesUpdatedRef.current(fresh);
       if (onSaveComplete) {
-        await onSaveComplete(updated);
+        await onSaveComplete(fresh);
       }
       setNewName('');
       setNewSoopId('');
       setIsAddingNew(false);
-      onToast(`새 스트리머 '${cleanName}'이 서버 DB에 등록 및 영구 저장되었습니다.`);
+      onToastRef.current(`새 스트리머 '${cleanName}'이 서버 DB에 등록 및 영구 저장되었습니다.`);
     } catch {
-      onToast('새 스트리머 등록 중 오류가 발생했습니다.');
+      onToastRef.current('새 스트리머 등록 중 오류가 발생했습니다.');
     } finally {
       setIsSaving(false);
     }
@@ -358,7 +409,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
   const handleAutoCollect = async () => {
     if (!isAdmin) {
-      onToast('경기 일지 자동 수집은 관리자만 가능합니다.');
+      onToastRef.current('경기 일지 자동 수집은 관리자만 가능합니다.');
       return;
     }
     const currentList: StreamerProfile[] = Object.values(localMap) as StreamerProfile[];
@@ -366,24 +417,23 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     if (addedCount > 0) {
       setIsSaving(true);
       try {
-        const updated = await saveStreamerProfilesBatchAsync(updatedList, { replace: false });
-        onProfilesUpdated(updated);
+        await saveStreamerProfilesBatchAsync(updatedList, { replace: false });
+        const fresh = await syncStreamersFromBackend(true);
+        setLocalMap((prev) => mapStreamersToDict(fresh, prev));
+        setLastSyncTime(new Date());
+        setSyncStatus('synced');
+        onProfilesUpdatedRef.current(fresh);
         if (onSaveComplete) {
-          await onSaveComplete(updated);
+          await onSaveComplete(fresh);
         }
-        const nextMap: Record<string, StreamerProfile> = {};
-        for (const p of updated) {
-          nextMap[p.name.toLowerCase().trim()] = { ...p };
-        }
-        setLocalMap(nextMap);
-        onToast(`경기 기록에서 새로운 스트리머 ${addedCount}명을 자동으로 수집 및 영구 저장했습니다!`);
+        onToastRef.current(`경기 기록에서 새로운 스트리머 ${addedCount}명을 자동으로 수집 및 영구 저장했습니다!`);
       } catch {
-        onToast('자동 수집 저장 중 오류가 발생했습니다.');
+        onToastRef.current('자동 수집 저장 중 오류가 발생했습니다.');
       } finally {
         setIsSaving(false);
       }
     } else {
-      onToast('경기 기록에서 누락된 새로운 스트리머가 없습니다.');
+      onToastRef.current('경기 기록에서 누락된 새로운 스트리머가 없습니다.');
     }
   };
 
@@ -465,10 +515,15 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
             <span>•</span>
             {/* Server Sync Status Badge */}
             <span className="flex items-center gap-1">
-              {isSyncingWithServer ? (
+              {isSyncingWithServer || syncStatus === 'syncing' ? (
                 <span className="text-[#38bdf8] font-bold flex items-center gap-1 bg-[#38bdf8]/10 border border-[#38bdf8]/30 px-2 py-0.5 rounded-full text-[10.5px]">
                   <RefreshCw size={11} className="animate-spin" />
                   서버 동기화 중...
+                </span>
+              ) : syncStatus === 'error' ? (
+                <span className="text-[#f87171] font-bold flex items-center gap-1 bg-[#ef4444]/10 border border-[#ef4444]/30 px-2 py-0.5 rounded-full text-[10.5px]">
+                  <AlertCircle size={11} />
+                  연동 재시도 필요
                 </span>
               ) : (
                 <span
@@ -679,7 +734,13 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
         {/* Streamers List / Table */}
         <div className="flex-1 overflow-y-auto space-y-2 pr-1 my-2">
-          {filteredProfiles.length === 0 ? (
+          {isSyncingWithServer && profileList.length === 0 ? (
+            <div className="p-12 text-center text-[#7a7a90] bg-[#0a0a10] rounded-[16px] border border-[#1e1e2a] flex flex-col items-center justify-center">
+              <RefreshCw size={26} className="animate-spin text-[#8b5cf6] mb-3" />
+              <p className="text-[13px] font-bold text-white mb-1">서버 DB에서 최신 스트리머 목록을 동기화하는 중입니다...</p>
+              <p className="text-[11px] text-[#7a7a90]">잠시만 기다려 주세요.</p>
+            </div>
+          ) : filteredProfiles.length === 0 ? (
             <div className="p-10 text-center text-[#7a7a90] bg-[#0a0a10] rounded-[16px] border border-[#1e1e2a]">
               <AlertCircle size={28} className="mx-auto mb-2 text-[#5a5a70]" />
               <p className="text-[13px] font-bold text-white mb-1">조건에 맞는 스트리머가 없습니다.</p>

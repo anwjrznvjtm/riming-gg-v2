@@ -8,7 +8,7 @@ import {
   LiveStreamerMember,
   Match,
 } from '../types';
-import { matchStreamersWithLiveBroadcasts, saveStreamerProfile, saveStreamerProfilesBatchAsync } from '../lib/streamerApi';
+import { matchStreamersWithLiveBroadcasts, saveStreamerProfilesBatchAsync, syncStreamersFromBackend } from '../lib/streamerApi';
 import {
   normalizeStreamerName,
   isStreamerMatch,
@@ -486,7 +486,7 @@ export const CkMemberFinderModal: React.FC<CkMemberFinderModalProps> = ({
     if (!cleanName) return;
 
     try {
-      const updated = await saveStreamerProfilesBatchAsync([
+      await saveStreamerProfilesBatchAsync([
         {
           name: cleanName,
           soop_id: customSoopIdInput.trim() || '',
@@ -494,7 +494,8 @@ export const CkMemberFinderModal: React.FC<CkMemberFinderModalProps> = ({
           is_hidden: false,
         },
       ]);
-      onProfilesUpdated(updated);
+      const fresh = await syncStreamersFromBackend(true);
+      onProfilesUpdated(fresh);
       onToast(`[${cleanName}] 스트리머가 DB에 성공적으로 등록되었습니다.`);
       setEditingCustomSlot(null);
       setCustomSoopIdInput('');

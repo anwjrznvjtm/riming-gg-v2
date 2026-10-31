@@ -165,14 +165,18 @@ export function getDefaultStreamerProfiles(): StreamerProfile[] {
  * Pure server fetch directly from backend DB API (GET /api/streamers)
  * Single Source of Truth: server/streamers.json
  */
-export async function fetchStreamersFromServer(): Promise<StreamerProfile[]> {
-  if (_activeFetchPromise) {
+export async function fetchStreamersFromServer(forceRefresh = false): Promise<StreamerProfile[]> {
+  if (!forceRefresh && _activeFetchPromise) {
     return _activeFetchPromise;
   }
 
-  _activeFetchPromise = (async () => {
+  const fetchPromise = (async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
     try {
       const res = await fetch(`/api/streamers?_t=${Date.now()}`, {
+        signal: controller.signal,
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -185,24 +189,36 @@ export async function fetchStreamersFromServer(): Promise<StreamerProfile[]> {
         if (data?.success && Array.isArray(data.streamers)) {
           const list: StreamerProfile[] = data.streamers
             .filter((s: any) => s && typeof s.name === 'string' && s.name.trim())
-            .map((s: any) => ({
-              name: s.name.trim(),
-              soop_id: typeof s.soop_id === 'string' ? s.soop_id.trim() : '',
-              main_position: s.main_position || 'mid',
-              is_hidden: Boolean(s.is_hidden),
-              updated_at: s.updated_at,
-              memo: s.memo,
-            }));
+            .map((s: any) => {
+              const cleanName = s.name.trim();
+              const serverId = typeof s.soop_id === 'string' ? s.soop_id.trim() : '';
+              const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
+              return {
+                name: cleanName,
+                soop_id: serverId || fallbackId,
+                main_position: s.main_position || KNOWN_MAIN_POSITIONS[cleanName] || 'mid',
+                is_hidden: Boolean(s.is_hidden),
+                updated_at: s.updated_at,
+                memo: s.memo,
+              };
+            });
 
           const sorted = sortStreamerProfiles(list);
           _cachedStreamerProfiles = sorted;
           return sorted;
         }
       }
-    } catch (err) {
-      console.warn('[StreamerApi] GET /api/streamers fetch warning:', err);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        console.warn('[StreamerApi] GET /api/streamers timed out after 6000ms');
+      } else {
+        console.warn('[StreamerApi] GET /api/streamers fetch warning:', err);
+      }
     } finally {
-      _activeFetchPromise = null;
+      clearTimeout(timeoutId);
+      if (_activeFetchPromise === fetchPromise) {
+        _activeFetchPromise = null;
+      }
     }
 
     // Fallback if network or server temporarily down
@@ -212,14 +228,15 @@ export async function fetchStreamersFromServer(): Promise<StreamerProfile[]> {
     return _cachedStreamerProfiles;
   })();
 
-  return _activeFetchPromise;
+  _activeFetchPromise = fetchPromise;
+  return fetchPromise;
 }
 
 /**
  * Synchronize streamer profiles from backend server storage (GET /api/streamers)
  */
-export async function syncStreamersFromBackend(): Promise<StreamerProfile[]> {
-  return fetchStreamersFromServer();
+export async function syncStreamersFromBackend(forceRefresh = false): Promise<StreamerProfile[]> {
+  return fetchStreamersFromServer(forceRefresh);
 }
 
 /**
@@ -292,8 +309,12 @@ export async function saveStreamerProfilesBatchAsync(
   newProfiles: StreamerProfile[],
   options?: { replace?: boolean }
 ): Promise<StreamerProfile[]> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const res = await fetch('/api/streamers', {
+      signal: controller.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -311,8 +332,14 @@ export async function saveStreamerProfilesBatchAsync(
         return serverList;
       }
     }
-  } catch (err) {
-    console.warn('[StreamerApi] saveStreamerProfilesBatchAsync server save failed:', err);
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      console.warn('[StreamerApi] POST /api/streamers timed out after 8000ms');
+    } else {
+      console.warn('[StreamerApi] saveStreamerProfilesBatchAsync server save failed:', err);
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   return saveStreamerProfilesBatch(newProfiles);
@@ -347,8 +374,12 @@ export async function deleteStreamerProfileAsync(name: string): Promise<Streamer
   if (!cleanName) return getStoredStreamerProfiles();
   const key = cleanName.toLowerCase();
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const res = await fetch('/api/streamers/delete', {
+      signal: controller.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: cleanName }),
@@ -362,14 +393,17 @@ export async function deleteStreamerProfileAsync(name: string): Promise<Streamer
         return serverList;
       }
     }
-  } catch (err) {
-    console.warn('[StreamerApi] deleteStreamerProfileAsync error:', err);
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      console.warn('[StreamerApi] POST /api/streamers/delete timed out after 8000ms');
+    } else {
+      console.warn('[StreamerApi] deleteStreamerProfileAsync error:', err);
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
 
-  const current = getStoredStreamerProfiles();
-  const updatedList = current.filter((p) => p.name.toLowerCase().trim() !== key);
-  _cachedStreamerProfiles = updatedList;
-  return updatedList;
+  return deleteStreamerProfile(cleanName);
 }
 
 /**
