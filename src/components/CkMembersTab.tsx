@@ -786,7 +786,13 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
       {isManageModalOpen && (
         <StreamerManageModal
           isOpen={isManageModalOpen}
-          onClose={() => setIsManageModalOpen(false)}
+          onClose={() => {
+            setIsManageModalOpen(false);
+            syncStreamersFromBackend(true).then((fresh) => {
+              if (fresh && fresh.length > 0) setProfiles(fresh);
+              handleFetchLive(false, true);
+            });
+          }}
           matches={matches}
           allProfiles={profiles}
           onProfilesUpdated={handleProfilesUpdated}

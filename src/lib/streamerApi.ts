@@ -508,6 +508,117 @@ export function autoCollectStreamersFromMatches(
 }
 
 /**
+ * Tidy and synchronize streamer profiles strictly based on CK Match database (Single Source of Truth).
+ * - Extracts all valid streamer nicknames who have played in CK matches.
+ * - Auto-infers their most frequent position.
+ * - Retains streamers who have a configured SOOP ID (e.g. manual additions).
+ * - Purges unreferenced ghost records (0 matches AND 0 SOOP ID).
+ * - Persists directly to the backend DB with replace: true.
+ */
+export async function tidyStreamersFromMatches(
+  matches: Match[],
+  currentProfiles: StreamerProfile[]
+): Promise<{
+  updatedList: StreamerProfile[];
+  addedCount: number;
+  ghostCount: number;
+}> {
+  const profileMap = new Map<string, StreamerProfile>();
+  for (const p of currentProfiles || []) {
+    if (p?.name?.trim()) {
+      profileMap.set(p.name.toLowerCase().trim(), p);
+    }
+  }
+
+  // Count matches & positions for all streamers in CK database
+  const matchPositionCounts = new Map<string, Record<LineKey, number>>();
+  const matchDisplayNames = new Map<string, string>();
+
+  for (const m of matches) {
+    for (const line of LINE_KEYS) {
+      for (const roster of [m.team_a, m.team_b]) {
+        const rawName = roster?.[line]?.trim();
+        if (!rawName) continue;
+        const normKey = rawName.toLowerCase();
+        if (!matchPositionCounts.has(normKey)) {
+          matchPositionCounts.set(normKey, { top: 0, jgl: 0, mid: 0, adc: 0, sup: 0 });
+          matchDisplayNames.set(normKey, rawName);
+        }
+        matchPositionCounts.get(normKey)![line]++;
+      }
+    }
+  }
+
+  let addedCount = 0;
+  const nowIso = new Date().toISOString();
+
+  // 1. Ensure all streamers with match history exist in the map
+  for (const [normKey, counts] of matchPositionCounts.entries()) {
+    let bestLine: LineKey = 'mid';
+    let maxPlayed = -1;
+    for (const line of LINE_KEYS) {
+      if (counts[line] > maxPlayed) {
+        maxPlayed = counts[line];
+        bestLine = line;
+      }
+    }
+
+    const displayName = matchDisplayNames.get(normKey) || normKey;
+    const existing = profileMap.get(normKey);
+
+    if (!existing) {
+      const knownSoopId = SOOP_STREAMER_IDS[displayName] || SOOP_STREAMER_IDS[displayName.replace(/_$/, '')] || '';
+      profileMap.set(normKey, {
+        name: displayName,
+        soop_id: knownSoopId,
+        main_position: bestLine,
+        is_hidden: false,
+        updated_at: nowIso,
+      });
+      addedCount++;
+    } else {
+      const knownSoopId = (existing.soop_id || '').trim() || SOOP_STREAMER_IDS[displayName] || '';
+      profileMap.set(normKey, {
+        ...existing,
+        name: existing.name || displayName,
+        soop_id: knownSoopId,
+        main_position: existing.main_position || bestLine,
+      });
+    }
+  }
+
+  // 2. Identify & prune empty ghost entries: streamers with 0 matches AND no SOOP ID
+  const cleaned: StreamerProfile[] = [];
+  let ghostCount = 0;
+
+  for (const [key, p] of profileMap.entries()) {
+    const hasMatches = matchPositionCounts.has(key);
+    const hasSoopId = Boolean(p.soop_id && p.soop_id.trim());
+    const isWooriming = p.name === '우리밍_' || p.name === '우리밍';
+
+    // Keep if: has matches OR has valid SOOP ID (manually added streamer) OR is benchmark streamer
+    if (hasMatches || hasSoopId || isWooriming) {
+      cleaned.push(p);
+    } else {
+      ghostCount++;
+    }
+  }
+
+  const sorted = sortStreamerProfiles(cleaned);
+  _cachedStreamerProfiles = sorted;
+
+  // Persist directly to backend DB
+  await saveStreamerProfilesBatchAsync(sorted, { replace: true });
+  await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+
+  return {
+    updatedList: sorted,
+    addedCount,
+    ghostCount,
+  };
+}
+
+/**
  * Fetch all live broadcasts from SOOP (숲TV)
  * Uses backend proxy /api/soop/live first, falls back to direct client-side openapi fetch
  */

@@ -1,13 +1,10 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { LineKey, LINE_KEYS, LINE_LABELS, Match, StreamerProfile } from '../types';
 import {
-  saveStreamerProfile,
-  saveStreamerProfilesBatch,
-  saveStreamerProfilesBatchAsync,
-  deleteStreamerProfile,
-  deleteStreamerProfileAsync,
-  autoCollectStreamersFromMatches,
   syncStreamersFromBackend,
+  saveStreamerProfilesBatchAsync,
+  deleteStreamerProfileAsync,
+  tidyStreamersFromMatches,
 } from '../lib/streamerApi';
 import { StreamerAvatar, SOOP_STREAMER_IDS } from './StreamerAvatar';
 import { getChosung } from '../lib/championSearch';
@@ -16,15 +13,19 @@ import {
   Search,
   Plus,
   ExternalLink,
-  Save,
-  CheckCircle2,
-  Radio,
-  RefreshCw,
   Sparkles,
-  AlertCircle,
   Trash2,
   Eye,
   EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  Radio,
+  Lock,
+  Swords,
+  ShieldCheck,
+  RefreshCw,
+  Layers,
+  ChevronDown,
 } from 'lucide-react';
 
 interface StreamerManageModalProps {
@@ -48,10 +49,10 @@ const LINE_COLOR_CLASSES: Record<LineKey, { bg: string; text: string; border: st
 };
 
 /**
- * Authoritative streamer dictionary mapper from server DB profiles (Single Source of Truth).
- * Strictly mirrors the server list, prevents empty string overwriting by falling back to known IDs.
+ * Standard streamer dictionary mapper strictly from authoritative server DB profiles.
+ * Single Source of Truth: server/streamers.json via GET /api/streamers.
  */
-function mapStreamersToDict(profiles: StreamerProfile[]): Record<string, StreamerProfile> {
+function mapProfilesToDict(profiles: StreamerProfile[]): Record<string, StreamerProfile> {
   const result: Record<string, StreamerProfile> = {};
   for (const p of profiles) {
     if (!p?.name?.trim()) continue;
@@ -59,18 +60,16 @@ function mapStreamersToDict(profiles: StreamerProfile[]): Record<string, Streame
     const key = cleanName.toLowerCase();
     const serverId = typeof p.soop_id === 'string' ? p.soop_id.trim() : '';
     const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
-    const effectiveId = serverId || fallbackId;
 
     result[key] = {
       name: cleanName,
-      soop_id: effectiveId,
+      soop_id: serverId || fallbackId,
       main_position: p.main_position || 'mid',
       is_hidden: Boolean(p.is_hidden),
       memo: p.memo,
       updated_at: p.updated_at,
     };
   }
-
   return result;
 }
 
@@ -85,112 +84,438 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   onToast,
   isAdmin = false,
 }) => {
+  // Search & Filter state
   const [search, setSearch] = useState('');
   const [selectedLine, setSelectedLine] = useState<'ALL' | LineKey>('ALL');
-  const [filterMode, setFilterMode] = useState<'ALL' | 'LIVE' | 'VISIBLE' | 'HIDDEN' | 'NO_ID'>('ALL');
+  const [filterMode, setFilterMode] = useState<
+    'ALL' | 'LIVE' | 'VISIBLE' | 'HIDDEN' | 'HAS_MATCHES' | 'NO_MATCHES' | 'NO_ID'
+  >('ALL');
 
-  // Confirmation state for deleting a streamer
-  const [deleteTargetName, setDeleteTargetName] = useState<string | null>(null);
+  // Main local editable map (keyed by lowercase streamer name)
+  const [localMap, setLocalMap] = useState<Record<string, StreamerProfile>>(() =>
+    mapProfilesToDict(allProfiles)
+  );
 
-  // Local state for editing multiple profiles
-  const [localMap, setLocalMap] = useState<Record<string, StreamerProfile>>(() => {
-    return mapStreamersToDict(allProfiles);
-  });
+  // Per-streamer temporary input state for smooth typing before Auto-Save
+  const [editingIds, setEditingIds] = useState<Record<string, string>>({});
+  const [savedIndicatorName, setSavedIndicatorName] = useState<string | null>(null);
 
-  // New streamer addition inputs
+  // Manual Add Form state
+  const [isAddingNew, setIsAddingNew] = useState(false);
   const [newName, setNewName] = useState('');
   const [newSoopId, setNewSoopId] = useState('');
   const [newLine, setNewLine] = useState<LineKey>('mid');
-  const [isAddingNew, setIsAddingNew] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSyncingWithServer, setIsSyncingWithServer] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('synced');
-  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
-  // Stable references for parent callback props to prevent re-creation loops
-  const onProfilesUpdatedRef = React.useRef(onProfilesUpdated);
+  // Status & Confirmation states
+  const [deleteTargetName, setDeleteTargetName] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<string>('연동됨');
+
+  // Stable callback refs to prevent re-renders
+  const onProfilesUpdatedRef = useRef(onProfilesUpdated);
   useEffect(() => {
     onProfilesUpdatedRef.current = onProfilesUpdated;
   }, [onProfilesUpdated]);
 
-  const onToastRef = React.useRef(onToast);
+  const onSaveCompleteRef = useRef(onSaveComplete);
+  useEffect(() => {
+    onSaveCompleteRef.current = onSaveComplete;
+  }, [onSaveComplete]);
+
+  const onToastRef = useRef(onToast);
   useEffect(() => {
     onToastRef.current = onToast;
   }, [onToast]);
 
-  const isSyncingRef = React.useRef(false);
+  // Compute CK Match statistics for each streamer from matches array (Single Source of Truth)
+  const matchStatsMap = useMemo(() => {
+    const stats = new Map<string, { total: number; wins: number; losses: number; winRate: number }>();
 
-  // Authoritative server DB fetch & sync handler (Single Source of Truth: server/streamers.json)
-  const handleSyncFromServer = useCallback(
-    async (showToastNotice = false) => {
-      if (isSyncingRef.current) return;
-      isSyncingRef.current = true;
-      setIsSyncingWithServer(true);
-      setSyncStatus('syncing');
+    for (const m of matches) {
+      for (const line of LINE_KEYS) {
+        // Red team (team_a)
+        const nameA = m.team_a?.[line]?.trim();
+        if (nameA) {
+          const keyA = nameA.toLowerCase();
+          const cur = stats.get(keyA) || { total: 0, wins: 0, losses: 0, winRate: 0 };
+          cur.total++;
+          if (m.winning_team === 'Red') cur.wins++;
+          else cur.losses++;
+          cur.winRate = Math.round((cur.wins / cur.total) * 100);
+          stats.set(keyA, cur);
+        }
 
+        // Blue team (team_b)
+        const nameB = m.team_b?.[line]?.trim();
+        if (nameB) {
+          const keyB = nameB.toLowerCase();
+          const cur = stats.get(keyB) || { total: 0, wins: 0, losses: 0, winRate: 0 };
+          cur.total++;
+          if (m.winning_team === 'Blue') cur.wins++;
+          else cur.losses++;
+          cur.winRate = Math.round((cur.wins / cur.total) * 100);
+          stats.set(keyB, cur);
+        }
+      }
+    }
+
+    return stats;
+  }, [matches]);
+
+  // Authoritative server fetch on modal open (Strictly DB, 0 localStorage)
+  const fetchAuthoritativeProfiles = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const serverList = await syncStreamersFromBackend(true);
+      if (Array.isArray(serverList) && serverList.length > 0) {
+        const dict = mapProfilesToDict(serverList);
+        setLocalMap(dict);
+        onProfilesUpdatedRef.current(serverList);
+        // Pre-fill editingIds
+        const idMap: Record<string, string> = {};
+        for (const [k, p] of Object.entries(dict)) {
+          idMap[k] = p.soop_id || '';
+        }
+        setEditingIds(idMap);
+      }
+      setAutoSaveStatus('연동됨');
+    } catch (err) {
+      console.warn('[StreamerManageModal] Server fetch error:', err);
+      setAutoSaveStatus('연동 오류');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchAuthoritativeProfiles();
+      setDeleteTargetName(null);
+      setIsAddingNew(false);
+    }
+  }, [isOpen, fetchAuthoritativeProfiles]);
+
+  // Close handler: Trigger parent Re-fetch so main page reflects latest DB streamers & live list immediately
+  const handleModalClose = useCallback(async () => {
+    const currentList = (Object.values(localMap) as StreamerProfile[]).sort((a, b) => {
+      if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+      if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+      return a.name.localeCompare(b.name, 'ko-KR');
+    });
+
+    onProfilesUpdatedRef.current(currentList);
+    if (onSaveCompleteRef.current) {
       try {
-        const serverProfiles = await syncStreamersFromBackend(true);
-        if (serverProfiles && serverProfiles.length > 0) {
-          setLocalMap(mapStreamersToDict(serverProfiles));
-          setLastSyncTime(new Date());
-          setSyncStatus('synced');
-          onProfilesUpdatedRef.current(serverProfiles);
-          if (showToastNotice) {
-            onToastRef.current(`서버 DB에서 최신 스트리머 프로필(${serverProfiles.length}명)을 동기화했습니다.`);
-          }
-        } else {
-          setSyncStatus('synced');
+        await onSaveCompleteRef.current(currentList);
+      } catch {}
+    }
+    onClose();
+  }, [localMap, onClose]);
+
+  // --------------------------------------------------------------------------
+  // 1. AUTO-SAVE HELPER: Persists a profile directly to DB API (POST /api/streamers)
+  // --------------------------------------------------------------------------
+  const executeAutoSave = useCallback(
+    async (profile: StreamerProfile, actionLabel?: string) => {
+      setAutoSaveStatus('저장 중...');
+      try {
+        const serverList = await saveStreamerProfilesBatchAsync([profile], { replace: false });
+        if (serverList && serverList.length > 0) {
+          const dict = mapProfilesToDict(serverList);
+          setLocalMap(dict);
+          onProfilesUpdatedRef.current(serverList);
+        }
+        setAutoSaveStatus('자동 저장됨 ✓');
+        setSavedIndicatorName(profile.name);
+        setTimeout(() => setSavedIndicatorName(null), 2500);
+
+        if (actionLabel) {
+          onToastRef.current(actionLabel);
         }
       } catch (err) {
-        console.warn('[StreamerManageModal] Server sync error:', err);
-        setSyncStatus('error');
-        if (showToastNotice) {
-          onToastRef.current('서버 데이터 동기화 중 오류가 발생했습니다.');
-        }
-      } finally {
-        isSyncingRef.current = false;
-        setIsSyncingWithServer(false);
+        console.warn('[StreamerManageModal] Auto-save failed:', err);
+        setAutoSaveStatus('저장 실패');
+        onToastRef.current('서버 자동 저장에 실패했습니다.');
       }
     },
     []
   );
 
-  // Sync directly from DB server API when modal opens (isOpen === true)
-  useEffect(() => {
-    if (isOpen) {
-      setDeleteTargetName(null);
-      handleSyncFromServer(false);
-    }
-  }, [isOpen, handleSyncFromServer]);
+  // --------------------------------------------------------------------------
+  // 2. SOOP ID Edit & Auto-Save (onBlur or Enter)
+  // --------------------------------------------------------------------------
+  const handleIdChange = (name: string, val: string) => {
+    const key = name.toLowerCase().trim();
+    setEditingIds((prev) => ({ ...prev, [key]: val }));
+  };
 
-  // Synchronize localMap with allProfiles when modal is closed
-  useEffect(() => {
-    if (!isOpen) {
-      setLocalMap(mapStreamersToDict(allProfiles));
+  const handleIdCommit = async (name: string) => {
+    const key = name.toLowerCase().trim();
+    const target = localMap[key];
+    if (!target) return;
+
+    const currentEntered = (editingIds[key] ?? target.soop_id ?? '').trim();
+    if (currentEntered === (target.soop_id || '').trim()) {
+      return; // No change, do not trigger request
     }
-  }, [allProfiles, isOpen]);
+
+    if (!isAdmin) {
+      onToastRef.current('스트리머 수정은 관리자만 가능합니다.');
+      // Revert editing input to current target soop_id
+      setEditingIds((prev) => ({ ...prev, [key]: target.soop_id || '' }));
+      return;
+    }
+
+    const updatedProfile: StreamerProfile = {
+      ...target,
+      soop_id: currentEntered,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Optimistically update localMap
+    setLocalMap((prev) => ({
+      ...prev,
+      [key]: updatedProfile,
+    }));
+
+    await executeAutoSave(
+      updatedProfile,
+      currentEntered
+        ? `'${target.name}' SOOP ID가 '${currentEntered}'(으)로 자동 저장되었습니다.`
+        : `'${target.name}' SOOP ID가 삭제되었습니다.`
+    );
+  };
+
+  // --------------------------------------------------------------------------
+  // 3. Position Change & Auto-Save
+  // --------------------------------------------------------------------------
+  const handlePositionChange = async (name: string, newPosition: LineKey) => {
+    if (!isAdmin) {
+      onToastRef.current('포지션 변경은 관리자만 가능합니다.');
+      return;
+    }
+    const key = name.toLowerCase().trim();
+    const target = localMap[key];
+    if (!target || target.main_position === newPosition) return;
+
+    const updatedProfile: StreamerProfile = {
+      ...target,
+      main_position: newPosition,
+      updated_at: new Date().toISOString(),
+    };
+
+    setLocalMap((prev) => ({
+      ...prev,
+      [key]: updatedProfile,
+    }));
+
+    await executeAutoSave(
+      updatedProfile,
+      `'${target.name}' 주 포지션이 ${LINE_LABELS[newPosition]}(으)로 변경되었습니다.`
+    );
+  };
+
+  // --------------------------------------------------------------------------
+  // 4. [숨기기 / 노출] 토글 & Auto-Save (전적 유무 상관없이 가능)
+  // --------------------------------------------------------------------------
+  const handleToggleHidden = async (name: string) => {
+    if (!isAdmin) {
+      onToastRef.current('숨김 설정은 관리자만 가능합니다.');
+      return;
+    }
+    const key = name.toLowerCase().trim();
+    const target = localMap[key];
+    if (!target) return;
+
+    const nextHidden = !target.is_hidden;
+    const updatedProfile: StreamerProfile = {
+      ...target,
+      is_hidden: nextHidden,
+      updated_at: new Date().toISOString(),
+    };
+
+    setLocalMap((prev) => ({
+      ...prev,
+      [key]: updatedProfile,
+    }));
+
+    await executeAutoSave(
+      updatedProfile,
+      nextHidden
+        ? `'${target.name}' 스트리머가 숨김 처리되었습니다. (메인 라이브 및 찾기 목록 제외)`
+        : `'${target.name}' 스트리머가 정상 노출로 변경되었습니다.`
+    );
+  };
+
+  // --------------------------------------------------------------------------
+  // 5. [삭제 (휴지통)] 분기 처리: 전적 0건인 스트리머만 DB 완전 삭제 가능
+  // --------------------------------------------------------------------------
+  const handleRequestDelete = (name: string) => {
+    if (!isAdmin) {
+      onToastRef.current('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
+      return;
+    }
+
+    const key = name.toLowerCase().trim();
+    const stat = matchStatsMap.get(key) || { total: 0, wins: 0, losses: 0, winRate: 0 };
+
+    if (stat.total > 0) {
+      onToastRef.current(
+        `'${name}' 스트리머는 CK 전적(${stat.total}전)이 기록되어 있어 삭제할 수 없습니다. 대신 [숨기기]를 사용해주세요.`
+      );
+      return;
+    }
+
+    setDeleteTargetName(name);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetName || !isAdmin) return;
+
+    setIsProcessing(true);
+    setAutoSaveStatus('삭제 중...');
+    const targetName = deleteTargetName;
+
+    try {
+      const serverList = await deleteStreamerProfileAsync(targetName);
+      if (Array.isArray(serverList)) {
+        const dict = mapProfilesToDict(serverList);
+        setLocalMap(dict);
+        onProfilesUpdatedRef.current(serverList);
+      }
+      setDeleteTargetName(null);
+      setAutoSaveStatus('자동 저장됨 ✓');
+      onToastRef.current(`'${targetName}' 스트리머가 서버 DB에서 완전히 삭제되었습니다.`);
+    } catch {
+      setAutoSaveStatus('삭제 실패');
+      onToastRef.current('스트리머 삭제 중 오류가 발생했습니다.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // 6. [CK일지 전적 기반 명단 정돈] (Requirement 2)
+  // --------------------------------------------------------------------------
+  const handleTidyStreamersFromCK = async () => {
+    if (!isAdmin) {
+      onToastRef.current('명단 정돈은 관리자만 실행할 수 있습니다.');
+      return;
+    }
+
+    setIsProcessing(true);
+    setAutoSaveStatus('명단 정돈 중...');
+    try {
+      const currentList = Object.values(localMap) as StreamerProfile[];
+      const { updatedList, addedCount, ghostCount } = await tidyStreamersFromMatches(
+        matches,
+        currentList
+      );
+
+      const dict = mapProfilesToDict(updatedList);
+      setLocalMap(dict);
+      onProfilesUpdatedRef.current(updatedList);
+      setAutoSaveStatus('정돈 완료 ✓');
+
+      onToastRef.current(
+        `CK일지 전적 기반 명단 정돈 완료! (출전 스트리머 +${addedCount}명 등록, 유령 데이터 ${ghostCount}건 정리)`
+      );
+    } catch (err) {
+      console.warn('[StreamerManageModal] Tidy error:', err);
+      setAutoSaveStatus('정돈 실패');
+      onToastRef.current('CK일지 기반 명단 정돈 중 오류가 발생했습니다.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // 7. [수동 추가] 신규 스트리머 등록 & Auto-Save (Requirement 3)
+  // --------------------------------------------------------------------------
+  const handleAddNewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) {
+      onToastRef.current('스트리머 추가는 관리자만 가능합니다.');
+      return;
+    }
+
+    const cleanName = newName.trim();
+    if (!cleanName) {
+      onToastRef.current('스트리머 닉네임을 입력해 주세요.');
+      return;
+    }
+
+    const key = cleanName.toLowerCase();
+    if (localMap[key]) {
+      onToastRef.current(`'${cleanName}' 스트리머가 이미 명단에 존재합니다.`);
+      return;
+    }
+
+    const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
+    const cleanId = newSoopId.trim() || fallbackId;
+
+    const newProfile: StreamerProfile = {
+      name: cleanName,
+      soop_id: cleanId,
+      main_position: newLine,
+      is_hidden: false,
+      updated_at: new Date().toISOString(),
+    };
+
+    setIsProcessing(true);
+    setAutoSaveStatus('등록 중...');
+
+    try {
+      const serverList = await saveStreamerProfilesBatchAsync([newProfile], { replace: false });
+      if (Array.isArray(serverList)) {
+        const dict = mapProfilesToDict(serverList);
+        setLocalMap(dict);
+        onProfilesUpdatedRef.current(serverList);
+      }
+
+      setNewName('');
+      setNewSoopId('');
+      setIsAddingNew(false);
+      setAutoSaveStatus('자동 저장됨 ✓');
+      onToastRef.current(`새 스트리머 '${cleanName}'이 서버 DB에 등록 및 영구 저장되었습니다.`);
+    } catch {
+      setAutoSaveStatus('등록 실패');
+      onToastRef.current('스트리머 등록 중 오류가 발생했습니다.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   if (!isOpen) return null;
 
-  const profileList: StreamerProfile[] = (Object.values(localMap) as StreamerProfile[]).sort((a, b) => {
-    if (a.name === '우리밍_' || a.name === '우리밍') return -1;
-    if (b.name === '우리밍_' || b.name === '우리밍') return 1;
-    return a.name.localeCompare(b.name, 'ko-KR');
-  });
+  // Sorted list for rendering
+  const allStreamerProfiles: StreamerProfile[] = (Object.values(localMap) as StreamerProfile[]).sort(
+    (a, b) => {
+      if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+      if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+      return a.name.localeCompare(b.name, 'ko-KR');
+    }
+  );
 
-  // Filtered list
-  const filteredProfiles: StreamerProfile[] = profileList.filter((p) => {
-    // Line filter
+  // Filtered List
+  const filteredProfiles = allStreamerProfiles.filter((p) => {
+    // 1. Line filter
     if (selectedLine !== 'ALL' && p.main_position !== selectedLine) return false;
 
-    // Status filter
+    // 2. Status filter
     const isLive = Boolean(p.soop_id && liveUserIds.has(p.soop_id.toLowerCase().trim()));
+    const stat = matchStatsMap.get(p.name.toLowerCase().trim()) || { total: 0, wins: 0, losses: 0, winRate: 0 };
+    const hasMatches = stat.total > 0;
+
     if (filterMode === 'LIVE' && !isLive) return false;
     if (filterMode === 'VISIBLE' && p.is_hidden) return false;
     if (filterMode === 'HIDDEN' && !p.is_hidden) return false;
+    if (filterMode === 'HAS_MATCHES' && !hasMatches) return false;
+    if (filterMode === 'NO_MATCHES' && hasMatches) return false;
     if (filterMode === 'NO_ID' && p.soop_id?.trim()) return false;
 
-    // Search filter
+    // 3. Search query filter
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       const chosung = getChosung(p.name).toLowerCase();
@@ -202,712 +527,480 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     return true;
   });
 
-  const handleFieldChange = (name: string, field: keyof StreamerProfile, value: any) => {
-    if (!isAdmin) {
-      onToast('스트리머 정보 수정은 관리자만 가능합니다.');
-      return;
-    }
-    setLocalMap((prev) => {
-      const key = name.toLowerCase().trim();
-      const existing: StreamerProfile = prev[key] || { name, soop_id: '', main_position: 'mid' };
-      return {
-        ...prev,
-        [key]: {
-          ...existing,
-          [field]: value,
-        },
-      };
-    });
-  };
-
-  const handleToggleHidden = async (name: string) => {
-    if (!isAdmin) {
-      onToast('숨김 설정은 관리자만 가능합니다.');
-      return;
-    }
-    const key = name.toLowerCase().trim();
-    const target = localMap[key];
-    if (!target) return;
-    const nextHidden = !target.is_hidden;
-    const updatedTarget: StreamerProfile = {
-      ...target,
-      is_hidden: nextHidden,
-      updated_at: new Date().toISOString(),
-    };
-
-    setIsSaving(true);
-    try {
-      await saveStreamerProfilesBatchAsync([updatedTarget], { replace: false });
-      const fresh = await syncStreamersFromBackend(true);
-      setLocalMap(mapStreamersToDict(fresh));
-      setLastSyncTime(new Date());
-      setSyncStatus('synced');
-      onProfilesUpdatedRef.current(fresh);
-      if (onSaveComplete) {
-        await onSaveComplete(fresh);
-      }
-      onToastRef.current(
-        nextHidden
-          ? `'${target.name}' 스트리머가 숨김 처리되었습니다. (CK멤버 라이브 목록에서 제외)`
-          : `'${target.name}' 스트리머가 정상 노출로 변경되었습니다.`
-      );
-    } catch {
-      onToastRef.current('숨김 상태 변경 중 오류가 발생했습니다.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSaveSingle = async (name: string) => {
-    if (!isAdmin) {
-      onToastRef.current('저장 권한이 없습니다. 관리자 로그인이 필요합니다.');
-      return;
-    }
-    const key = name.toLowerCase().trim();
-    const target = localMap[key];
-    if (!target) return;
-    const cleanTarget: StreamerProfile = {
-      ...target,
-      name: target.name.trim(),
-      soop_id: (target.soop_id ?? '').trim(),
-      main_position: target.main_position || 'mid',
-      is_hidden: Boolean(target.is_hidden),
-      updated_at: new Date().toISOString(),
-    };
-    setIsSaving(true);
-    try {
-      await saveStreamerProfilesBatchAsync([cleanTarget], { replace: false });
-      const fresh = await syncStreamersFromBackend(true);
-      setLocalMap(mapStreamersToDict(fresh));
-      setLastSyncTime(new Date());
-      setSyncStatus('synced');
-      onProfilesUpdatedRef.current(fresh);
-      if (onSaveComplete) {
-        await onSaveComplete(fresh);
-      }
-      onToastRef.current(`'${target.name}' 스트리머 정보가 서버에 영구 저장 및 동기화되었습니다.`);
-    } catch {
-      onToastRef.current('스트리머 저장 중 오류가 발생했습니다.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSaveAll = async () => {
-    if (!isAdmin) {
-      onToastRef.current('저장 권한이 없습니다. 관리자 로그인이 필요합니다.');
-      return;
-    }
-    const rawList = Object.values(localMap) as StreamerProfile[];
-    const list: StreamerProfile[] = rawList.map((item) => ({
-      ...item,
-      name: item.name.trim(),
-      soop_id: (item.soop_id ?? '').trim(),
-      main_position: item.main_position || 'mid',
-      is_hidden: Boolean(item.is_hidden),
-      updated_at: new Date().toISOString(),
-    }));
-    setIsSaving(true);
-    try {
-      await saveStreamerProfilesBatchAsync(list, { replace: true });
-      const fresh = await syncStreamersFromBackend(true);
-      setLocalMap(mapStreamersToDict(fresh));
-      setLastSyncTime(new Date());
-      setSyncStatus('synced');
-      onProfilesUpdatedRef.current(fresh);
-      if (onSaveComplete) {
-        await onSaveComplete(fresh);
-      }
-      onToastRef.current(`총 ${fresh.length}명의 스트리머 정보가 서버에 영구 저장 완료되었습니다.`);
-    } catch {
-      onToastRef.current('전체 저장 중 오류가 발생했습니다.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleConfirmDelete = async (name: string) => {
-    if (!isAdmin) {
-      onToastRef.current('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
-      return;
-    }
-    setIsSaving(true);
-    try {
-      await deleteStreamerProfileAsync(name);
-      const fresh = await syncStreamersFromBackend(true);
-      setLocalMap(mapStreamersToDict(fresh));
-      setLastSyncTime(new Date());
-      setSyncStatus('synced');
-      onProfilesUpdatedRef.current(fresh);
-      if (onSaveComplete) {
-        await onSaveComplete(fresh);
-      }
-      setDeleteTargetName(null);
-      onToastRef.current(`'${name}' 스트리머가 목록 및 서버 DB에서 완전히 삭제되었습니다.`);
-    } catch {
-      onToastRef.current('스트리머 삭제 중 오류가 발생했습니다.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleAddNew = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isAdmin) {
-      onToastRef.current('스트리머 추가는 관리자만 가능합니다.');
-      return;
-    }
-    if (!newName.trim()) {
-      onToastRef.current('스트리머 이름을 입력해 주세요.');
-      return;
-    }
-    const cleanName = newName.trim();
-    const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
-    const cleanId = newSoopId.trim() || fallbackId;
-    const newProfile: StreamerProfile = {
-      name: cleanName,
-      soop_id: cleanId,
-      main_position: newLine,
-      is_hidden: false,
-      updated_at: new Date().toISOString(),
-    };
-    setIsSaving(true);
-    try {
-      await saveStreamerProfilesBatchAsync([newProfile], { replace: false });
-      const fresh = await syncStreamersFromBackend(true);
-      setLocalMap(mapStreamersToDict(fresh));
-      setLastSyncTime(new Date());
-      setSyncStatus('synced');
-      onProfilesUpdatedRef.current(fresh);
-      if (onSaveComplete) {
-        await onSaveComplete(fresh);
-      }
-      setNewName('');
-      setNewSoopId('');
-      setIsAddingNew(false);
-      onToastRef.current(`새 스트리머 '${cleanName}'이 서버 DB에 등록 및 영구 저장되었습니다.`);
-    } catch {
-      onToastRef.current('새 스트리머 등록 중 오류가 발생했습니다.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleAutoCollect = async () => {
-    if (!isAdmin) {
-      onToastRef.current('경기 일지 자동 수집은 관리자만 가능합니다.');
-      return;
-    }
-    const currentList: StreamerProfile[] = Object.values(localMap) as StreamerProfile[];
-    const { updatedList, addedCount } = autoCollectStreamersFromMatches(matches, currentList);
-    if (addedCount > 0) {
-      setIsSaving(true);
-      try {
-        await saveStreamerProfilesBatchAsync(updatedList, { replace: false });
-        const fresh = await syncStreamersFromBackend(true);
-        setLocalMap(mapStreamersToDict(fresh));
-        setLastSyncTime(new Date());
-        setSyncStatus('synced');
-        onProfilesUpdatedRef.current(fresh);
-        if (onSaveComplete) {
-          await onSaveComplete(fresh);
-        }
-        onToastRef.current(`경기 기록에서 새로운 스트리머 ${addedCount}명을 자동으로 수집 및 영구 저장했습니다!`);
-      } catch {
-        onToastRef.current('자동 수집 저장 중 오류가 발생했습니다.');
-      } finally {
-        setIsSaving(false);
-      }
-    } else {
-      onToastRef.current('경기 기록에서 누락된 새로운 스트리머가 없습니다.');
-    }
-  };
-
-  const totalRegistered = profileList.length;
-  const mappedCount = profileList.filter((p) => Boolean(p.soop_id?.trim())).length;
-  const liveCount = profileList.filter(
-    (p) => !p.is_hidden && Boolean(p.soop_id && liveUserIds.has(p.soop_id.toLowerCase().trim()))
+  // Summary counts
+  const totalCount = allStreamerProfiles.length;
+  const visibleCount = allStreamerProfiles.filter((p) => !p.is_hidden).length;
+  const hiddenCount = allStreamerProfiles.filter((p) => p.is_hidden).length;
+  const liveCount = allStreamerProfiles.filter(
+    (p) => p.soop_id && liveUserIds.has(p.soop_id.toLowerCase().trim())
   ).length;
-  const hiddenCount = profileList.filter((p) => Boolean(p.is_hidden)).length;
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md animate-[fadeIn_0.15s]"
-      onClick={onClose}
-    >
-      <div
-        className="relative z-[10000] w-full max-w-[900px] bg-[#12121a] border border-[#1e1e2a] rounded-[24px] p-4 sm:p-6 shadow-2xl max-h-[90vh] flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-[#1e1e2a]">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[17px] sm:text-[19px] font-black text-white tracking-tight flex items-center gap-2">
-                <Radio className="text-[#8b5cf6]" size={20} />
-                CK 스트리머 SOOP ID 관리
-              </span>
-              <span className="text-[11px] bg-[#8b5cf6]/20 border border-[#8b5cf6]/40 text-[#c4b5fd] font-bold px-2 py-0.5 rounded-full">
-                숲TV 라이브 연동 및 노출 설정
-              </span>
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-[fadeIn_0.15s]">
+      <div className="relative w-full max-w-[960px] h-[92vh] max-h-[880px] bg-[#0e0e16] border border-[#222234] rounded-[24px] shadow-[0_20px_60px_rgba(0,0,0,0.8),0_0_40px_rgba(139,92,246,0.15)] flex flex-col overflow-hidden text-[#e6e6ef]">
+        {/* ================================================================= */}
+        {/* 1. MODAL HEADER & AUTO-SAVE STATUS                                */}
+        {/* ================================================================= */}
+        <div className="px-5 sm:px-6 py-4 border-b border-[#1e1e2c] bg-[#12121c] flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#8b5cf6]/30 to-[#3b82f6]/20 border border-[#8b5cf6]/40 flex items-center justify-center shadow-inner">
+              <Radio size={20} className="text-[#a78bfa] animate-pulse" />
             </div>
-            <p className="text-[12px] text-[#8a8aa0] mt-1">
-              스트리머의 SOOP user_id 및 주 포지션을 등록하고, 삭제 또는 숨김(라이브 노출 제외)을 관리합니다.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-[32px] h-[32px] bg-[#1e1e2a] hover:bg-[#2a2a3a] text-white rounded-full flex items-center justify-center transition shrink-0 cursor-pointer"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Read-Only Warning Banner for Non-Admin Guests */}
-        {!isAdmin && (
-          <div className="my-2.5 p-3 rounded-xl bg-[#ef4444]/15 border border-[#ef4444]/35 flex items-center gap-2.5 text-[#fca5a5] text-[12px] shadow-sm">
-            <AlertCircle size={16} className="shrink-0 text-[#ef4444]" />
-            <span>
-              <strong>조회 전용 모드:</strong> 관리자 로그인이 되어 있지 않아 읽기 전용으로 표시됩니다. 스트리머 추가, 정보 수정, 삭제는 관리자만 가능합니다.
-            </span>
-          </div>
-        )}
-
-        {/* Stats Summary & Quick Action Bar */}
-        <div className="py-3 flex flex-wrap items-center justify-between gap-2.5 bg-[#0a0a10] -mx-4 sm:-mx-6 px-4 sm:px-6 border-b border-[#1e1e2a] text-[11px] sm:text-[12px]">
-          <div className="flex items-center gap-2.5 text-[#a0a0b8] flex-wrap">
-            <span>
-              전체: <strong className="text-white font-black">{totalRegistered}</strong>명
-            </span>
-            <span>•</span>
-            <span>
-              ID 등록: <strong className="text-[#10b981] font-black">{mappedCount}</strong>명
-            </span>
-            <span>•</span>
-            <span className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-[#ef4444] animate-pulse" />
-              LIVE: <strong className="text-[#ef4444] font-black">{liveCount}</strong>명
-            </span>
-            {hiddenCount > 0 && (
-              <>
-                <span>•</span>
-                <span className="text-[#fca5a5] flex items-center gap-1">
-                  <EyeOff size={12} />
-                  숨김: <strong className="font-bold">{hiddenCount}</strong>명
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-[17px] text-white tracking-tight">
+                  SOOP ID & 스트리머 관리
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#10b981]/15 text-[#34d399] border border-[#10b981]/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-ping" />
+                  DB 실시간 직통 연동
                 </span>
-              </>
-            )}
-            <span>•</span>
-            {/* Server Sync Status Badge */}
-            <span className="flex items-center gap-1">
-              {isSyncingWithServer || syncStatus === 'syncing' ? (
-                <span className="text-[#38bdf8] font-bold flex items-center gap-1 bg-[#38bdf8]/10 border border-[#38bdf8]/30 px-2 py-0.5 rounded-full text-[10.5px]">
-                  <RefreshCw size={11} className="animate-spin" />
-                  서버 동기화 중...
-                </span>
-              ) : syncStatus === 'error' ? (
-                <span className="text-[#f87171] font-bold flex items-center gap-1 bg-[#ef4444]/10 border border-[#ef4444]/30 px-2 py-0.5 rounded-full text-[10.5px]">
-                  <AlertCircle size={11} />
-                  연동 재시도 필요
-                </span>
-              ) : (
-                <span
-                  className="text-[#10b981] font-bold flex items-center gap-1 bg-[#10b981]/10 border border-[#10b981]/30 px-2 py-0.5 rounded-full text-[10.5px]"
-                  title={
-                    lastSyncTime
-                      ? `서버 DB(streamers.json) 동기화 완료: ${lastSyncTime.toLocaleTimeString()}`
-                      : '서버 DB(streamers.json) 최신 데이터 연동됨'
-                  }
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-                  서버 연동됨
-                </span>
-              )}
-            </span>
+              </div>
+              <p className="text-[11px] text-[#8a8aa0] mt-0.5">
+                수정 즉시 서버 DB에 자동 저장(Auto-Save)되며, 메인 라이브 및 멤버 목록에 실시간 반영됩니다.
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
-            {/* Manual Server Sync button: directly fetches latest streamers from server DB */}
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            {/* Auto-Save Live Badge */}
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1 bg-[#181826] border border-[#26263a] rounded-full text-[11px] font-mono text-[#a0a0c0]">
+              <span className="w-2 h-2 rounded-full bg-[#10b981]" />
+              <span>{autoSaveStatus}</span>
+            </div>
+
             <button
               type="button"
-              onClick={() => handleSyncFromServer(true)}
-              disabled={isSyncingWithServer}
-              title="서버 DB(server/streamers.json)에서 최신 스트리머 프로필, SOOP ID 및 숨김 상태를 실시간 재조회합니다"
-              className="h-[30px] px-3 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#38bdf8] border border-[#38bdf8]/30 hover:border-[#38bdf8]/60 rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              onClick={handleModalClose}
+              className="w-8 h-8 rounded-full bg-[#1a1a28] hover:bg-[#28283e] text-[#a0a0b8] hover:text-white border border-[#2a2a3e] flex items-center justify-center transition-all cursor-pointer"
+              title="모달 닫기 (자동 갱신 반영)"
             >
-              <RefreshCw size={12} className={isSyncingWithServer ? 'animate-spin' : ''} />
-              <span>{isSyncingWithServer ? '동기화 중...' : '서버 데이터 동기화'}</span>
+              <X size={16} />
             </button>
-
-            {/* Admin-only action buttons */}
-            {isAdmin && (
-              <>
-                <button
-                  type="button"
-                  onClick={handleAutoCollect}
-                  title="모든 경기 일지(CK 일지)를 분석하여 아직 등록되지 않은 스트리머를 자동 등록합니다"
-                  className="h-[30px] px-3 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#c4b5fd] rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <RefreshCw size={12} />
-                  <span>경기 일지 자동 수집</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingNew((prev) => !prev)}
-                  className="h-[30px] px-3 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus size={13} />
-                  <span>{isAddingNew ? '추가 닫기' : '새 스트리머 추가'}</span>
-                </button>
-              </>
-            )}
           </div>
         </div>
 
-        {/* Collapsible: Add New Streamer Form */}
+        {/* ================================================================= */}
+        {/* 2. TOP ACTION BAR ([CK일지 기반 명단 정돈] + [새 스트리머 추가])    */}
+        {/* ================================================================= */}
+        <div className="px-5 sm:px-6 py-3 bg-[#141420]/80 border-b border-[#1f1f30] flex flex-wrap items-center justify-between gap-2.5">
+          {/* Summary Pills */}
+          <div className="flex items-center gap-1.5 text-[11px] font-medium flex-wrap">
+            <span className="px-2.5 py-1 bg-[#1a1a2a] text-[#d0d0e0] rounded-lg border border-[#2a2a3e]">
+              총 <strong className="text-white font-bold">{totalCount}</strong>명
+            </span>
+            <span className="px-2.5 py-1 bg-[#10b981]/10 text-[#34d399] rounded-lg border border-[#10b981]/25">
+              노출 <strong className="font-bold">{visibleCount}</strong>명
+            </span>
+            <span className="px-2.5 py-1 bg-[#f59e0b]/10 text-[#fbbf24] rounded-lg border border-[#f59e0b]/25">
+              숨김 <strong className="font-bold">{hiddenCount}</strong>명
+            </span>
+            <span className="px-2.5 py-1 bg-[#ec4899]/10 text-[#f472b6] rounded-lg border border-[#ec4899]/25 flex items-center gap-1">
+              <Radio size={11} className="animate-pulse" />
+              <span>방송 중 {liveCount}명</span>
+            </span>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            {/* [CK일지 전적 기반 명단 정돈] (Requirement 2) */}
+            <button
+              type="button"
+              onClick={handleTidyStreamersFromCK}
+              disabled={isProcessing || isSyncing}
+              className="h-[34px] px-3.5 bg-gradient-to-r from-[#8b5cf6]/20 to-[#6366f1]/25 hover:from-[#8b5cf6]/35 hover:to-[#6366f1]/40 border border-[#8b5cf6]/50 text-[#c4b5fd] hover:text-white rounded-xl text-[12px] font-bold flex items-center gap-1.5 transition-all shadow-[0_2px_10px_rgba(139,92,246,0.15)] disabled:opacity-50 cursor-pointer"
+              title="CK일지 경기 기록 DB에 존재하는 실제 출전 스트리머를 자동 추출하고 미등록 유령 데이터를 정돈합니다"
+            >
+              <Sparkles size={14} className={isProcessing ? 'animate-spin' : 'text-[#a78bfa]'} />
+              <span>CK일지 전적 기반 명단 정돈</span>
+            </button>
+
+            {/* [새 스트리머 수동 추가] (Requirement 3) */}
+            <button
+              type="button"
+              onClick={() => setIsAddingNew((prev) => !prev)}
+              className={`h-[34px] px-3.5 rounded-xl text-[12px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                isAddingNew
+                  ? 'bg-[#3b82f6] text-white border-[#3b82f6]'
+                  : 'bg-[#181828] hover:bg-[#222238] text-[#c0c0d8] hover:text-white border-[#2c2c42]'
+              }`}
+            >
+              <Plus size={14} className={isAddingNew ? 'rotate-45 transition-transform' : ''} />
+              <span>{isAddingNew ? '추가 닫기' : '새 스트리머 추가'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ================================================================= */}
+        {/* 3. COLLAPSIBLE MANUAL ADD FORM (수동 추가 기능)                     */}
+        {/* ================================================================= */}
         {isAddingNew && (
           <form
-            onSubmit={handleAddNew}
-            className="p-3.5 my-3 bg-[#161622] border border-[#8b5cf6]/40 rounded-[16px] animate-[fadeIn_0.2s] space-y-3"
+            onSubmit={handleAddNewSubmit}
+            className="px-5 sm:px-6 py-4 bg-[#161626] border-b border-[#282840] animate-[fadeIn_0.15s] flex flex-col md:flex-row items-center gap-3"
           >
-            <div className="text-[12px] font-bold text-white flex items-center gap-1.5">
-              <Sparkles size={14} className="text-[#a78bfa]" />
-              <span>신규 스트리머 등록</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
-              <div className="sm:col-span-4">
-                <label className="text-[10px] text-[#8a8aa0] mb-1 block">닉네임 / 이름 *</label>
+            <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div>
+                <label className="block text-[10px] text-[#8a8aa0] uppercase font-bold mb-1 ml-1">
+                  스트리머 닉네임 *
+                </label>
                 <input
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="예: 우리밍_, 김민교, 서리"
-                  className="w-full h-[34px] bg-[#0a0a10] border border-[#2a2a3a] rounded-xl px-3 text-[12px] text-white focus:outline-none focus:border-[#8b5cf6]"
-                  required
+                  placeholder="예: 김세아"
+                  className="w-full h-[36px] bg-[#0c0c14] border border-[#2a2a40] focus:border-[#8b5cf6] rounded-xl px-3 text-[12px] text-white placeholder-[#606078] outline-none"
+                  autoFocus
                 />
               </div>
 
-              <div className="sm:col-span-4">
-                <label className="text-[10px] text-[#8a8aa0] mb-1 block">SOOP ID (user_id)</label>
+              <div>
+                <label className="block text-[10px] text-[#8a8aa0] uppercase font-bold mb-1 ml-1">
+                  SOOP 아이디 (선택)
+                </label>
                 <input
                   type="text"
                   value={newSoopId}
                   onChange={(e) => setNewSoopId(e.target.value)}
-                  placeholder="예: kmj05317, minkyo1994"
-                  className="w-full h-[34px] bg-[#0a0a10] border border-[#2a2a3a] rounded-xl px-3 text-[12px] text-white focus:outline-none focus:border-[#8b5cf6]"
+                  placeholder="예: kimseah94"
+                  className="w-full h-[36px] bg-[#0c0c14] border border-[#2a2a40] focus:border-[#8b5cf6] rounded-xl px-3 text-[12px] text-white placeholder-[#606078] outline-none"
                 />
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="text-[10px] text-[#8a8aa0] mb-1 block">주 포지션</label>
+              <div>
+                <label className="block text-[10px] text-[#8a8aa0] uppercase font-bold mb-1 ml-1">
+                  주 포지션
+                </label>
                 <select
                   value={newLine}
                   onChange={(e) => setNewLine(e.target.value as LineKey)}
-                  className="w-full h-[34px] bg-[#0a0a10] border border-[#2a2a3a] rounded-xl px-2 text-[12px] text-white focus:outline-none focus:border-[#8b5cf6]"
+                  className="w-full h-[36px] bg-[#0c0c14] border border-[#2a2a40] focus:border-[#8b5cf6] rounded-xl px-3 text-[12px] text-white outline-none cursor-pointer"
                 >
                   {LINE_KEYS.map((k) => (
                     <option key={k} value={k}>
-                      {LINE_LABELS[k]}
+                      {LINE_LABELS[k]} ({k.toUpperCase()})
                     </option>
                   ))}
                 </select>
               </div>
+            </div>
 
-              <div className="sm:col-span-2">
-                <button
-                  type="submit"
-                  className="w-full h-[34px] bg-[#10b981] hover:bg-[#059669] text-white rounded-xl text-[12px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
-                >
-                  <Plus size={14} />
-                  <span>등록</span>
-                </button>
-              </div>
+            <div className="flex items-center gap-2 w-full md:w-auto self-end mt-1 md:mt-0">
+              <button
+                type="button"
+                onClick={() => setIsAddingNew(false)}
+                className="h-[36px] px-3.5 bg-[#1f1f30] hover:bg-[#2a2a40] text-[#a0a0b8] rounded-xl text-[12px] font-medium"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                disabled={isProcessing || !newName.trim()}
+                className="h-[36px] px-5 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-bold rounded-xl text-[12px] shadow-[0_2px_12px_rgba(139,92,246,0.3)] disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              >
+                <CheckCircle2 size={14} />
+                <span>DB에 즉시 등록</span>
+              </button>
             </div>
           </form>
         )}
 
-        {/* Filter & Search Bar */}
-        <div className="py-3 space-y-2.5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            {/* Search Input */}
-            <div className="relative flex-1">
+        {/* ================================================================= */}
+        {/* 4. SEARCH & FILTER CONTROLS                                       */}
+        {/* ================================================================= */}
+        <div className="px-5 sm:px-6 py-3 bg-[#10101a] border-b border-[#1b1b28] space-y-2.5">
+          <div className="flex flex-col sm:flex-row items-center gap-2.5">
+            {/* Search Input with Chosung support */}
+            <div className="relative flex-1 w-full">
               <Search
                 size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7a7a90]"
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#656580]"
               />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="스트리머 검색 (초성 검색 가능: ㄱㅁㄱ, ㄷㅎ, ㅅㄹ)"
-                className="w-full h-[34px] bg-[#0a0a10] border border-[#1e1e2a] rounded-full pl-9 pr-8 text-[12px] text-white focus:outline-none focus:border-[#8b5cf6] placeholder-[#5a5a70]"
+                placeholder="스트리머 닉네임, 초성(ㄱㅅㅇ), 또는 SOOP ID 검색..."
+                className="w-full h-[36px] bg-[#090910] border border-[#202030] focus:border-[#8b5cf6]/60 rounded-xl pl-9 pr-8 text-[12px] text-white placeholder-[#555568] outline-none"
               />
               {search && (
                 <button
                   type="button"
                   onClick={() => setSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#7a7a90] hover:text-white"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#707088] hover:text-white"
                 >
-                  <X size={13} />
+                  <X size={14} />
                 </button>
               )}
             </div>
 
-            {/* Status Filter Buttons */}
-            <div className="flex items-center gap-1 shrink-0 overflow-x-auto pb-1 sm:pb-0">
-              {(
-                [
-                  { id: 'ALL', label: '전체' },
-                  { id: 'LIVE', label: `🔴 LIVE (${liveCount})` },
-                  { id: 'VISIBLE', label: '👁 노출중' },
-                  { id: 'HIDDEN', label: `🙈 숨김 (${hiddenCount})` },
-                  { id: 'NO_ID', label: 'ID 미등록' },
-                ] as const
-              ).map((mode) => (
+            {/* Line Filter */}
+            <div className="flex items-center gap-1 p-1 bg-[#090910] border border-[#202030] rounded-xl shrink-0 overflow-x-auto max-w-full">
+              <button
+                type="button"
+                onClick={() => setSelectedLine('ALL')}
+                className={`h-[28px] px-3 rounded-lg text-[11px] font-bold transition-all ${
+                  selectedLine === 'ALL'
+                    ? 'bg-[#8b5cf6] text-white'
+                    : 'text-[#808098] hover:text-white'
+                }`}
+              >
+                전체 라인
+              </button>
+              {LINE_KEYS.map((k) => (
                 <button
-                  key={mode.id}
+                  key={k}
                   type="button"
-                  onClick={() => setFilterMode(mode.id)}
-                  className={`h-[28px] px-3 rounded-full text-[11px] font-bold transition whitespace-nowrap cursor-pointer ${
-                    filterMode === mode.id
-                      ? 'bg-[#8b5cf6] text-white'
-                      : 'bg-[#161622] text-[#8a8aa0] hover:text-white border border-[#1e1e2a]'
+                  onClick={() => setSelectedLine(k)}
+                  className={`h-[28px] px-2.5 rounded-lg text-[11px] font-bold transition-all ${
+                    selectedLine === k
+                      ? `${LINE_COLOR_CLASSES[k].bg} ${LINE_COLOR_CLASSES[k].text} border ${LINE_COLOR_CLASSES[k].border}`
+                      : 'text-[#808098] hover:text-white'
                   }`}
                 >
-                  {mode.label}
+                  {LINE_LABELS[k]}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Line Filter Buttons */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-            <span className="text-[11px] text-[#7a7a90] font-semibold mr-1 shrink-0">포지션:</span>
-            <button
-              type="button"
-              onClick={() => setSelectedLine('ALL')}
-              className={`h-[26px] px-3 rounded-full text-[11px] font-bold transition whitespace-nowrap cursor-pointer ${
-                selectedLine === 'ALL'
-                  ? 'bg-white text-black'
-                  : 'bg-[#161622] text-[#8a8aa0] hover:text-white border border-[#1e1e2a]'
-              }`}
-            >
-              전체 ({profileList.length})
-            </button>
-            {LINE_KEYS.map((k) => {
-              const count = profileList.filter((p) => p.main_position === k).length;
-              const isSelected = selectedLine === k;
-              const cl = LINE_COLOR_CLASSES[k];
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setSelectedLine(k)}
-                  className={`h-[26px] px-3 rounded-full text-[11px] font-bold transition whitespace-nowrap flex items-center gap-1 cursor-pointer border ${
-                    isSelected
-                      ? `${cl.bg} ${cl.text} ${cl.border} ring-1 ring-white/20`
-                      : 'bg-[#161622] text-[#8a8aa0] hover:text-white border-[#1e1e2a]'
-                  }`}
-                >
-                  <span>{LINE_LABELS[k]}</span>
-                  <span className="text-[9.5px] opacity-75">({count})</span>
-                </button>
-              );
-            })}
+          {/* Status Filter Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-[11px]">
+            <span className="text-[10px] text-[#606078] font-bold mr-1 shrink-0">상태 필터:</span>
+            {[
+              { id: 'ALL', label: '전체' },
+              { id: 'LIVE', label: '🔴 방송 중' },
+              { id: 'VISIBLE', label: '👁 정상 노출' },
+              { id: 'HIDDEN', label: '🔒 숨김' },
+              { id: 'HAS_MATCHES', label: '⚔ 전적 있음' },
+              { id: 'NO_MATCHES', label: '신규 (전적 0)' },
+              { id: 'NO_ID', label: 'ID 미입력' },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFilterMode(f.id as any)}
+                className={`h-[26px] px-2.5 rounded-lg font-medium border transition-all shrink-0 cursor-pointer ${
+                  filterMode === f.id
+                    ? 'bg-[#8b5cf6]/20 text-[#c4b5fd] border-[#8b5cf6]/50 shadow-sm'
+                    : 'bg-[#12121e] text-[#808098] border-[#1e1e2c] hover:text-white'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Streamers List / Table */}
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1 my-2">
-          {isSyncingWithServer && profileList.length === 0 ? (
-            <div className="p-12 text-center text-[#7a7a90] bg-[#0a0a10] rounded-[16px] border border-[#1e1e2a] flex flex-col items-center justify-center">
-              <RefreshCw size={26} className="animate-spin text-[#8b5cf6] mb-3" />
-              <p className="text-[13px] font-bold text-white mb-1">서버 DB에서 최신 스트리머 목록을 동기화하는 중입니다...</p>
-              <p className="text-[11px] text-[#7a7a90]">잠시만 기다려 주세요.</p>
-            </div>
-          ) : filteredProfiles.length === 0 ? (
-            <div className="p-10 text-center text-[#7a7a90] bg-[#0a0a10] rounded-[16px] border border-[#1e1e2a]">
-              <AlertCircle size={28} className="mx-auto mb-2 text-[#5a5a70]" />
-              <p className="text-[13px] font-bold text-white mb-1">조건에 맞는 스트리머가 없습니다.</p>
-              <p className="text-[11px]">검색어를 비우거나 다른 필터를 선택해 보세요.</p>
+        {/* ================================================================= */}
+        {/* 5. STREAMER LIST (CARDS / ROWS WITH REAL-TIME AUTO-SAVE)          */}
+        {/* ================================================================= */}
+        <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-2.5 divide-y divide-[#181826]">
+          {filteredProfiles.length === 0 ? (
+            <div className="py-16 text-center text-[#606078] text-[13px] flex flex-col items-center gap-2">
+              <Search size={28} className="opacity-40" />
+              <span>검색 조건과 일치하는 스트리머가 없습니다.</span>
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="mt-2 text-[12px] text-[#a78bfa] underline cursor-pointer"
+                >
+                  검색어 초기화
+                </button>
+              )}
             </div>
           ) : (
-            filteredProfiles.map((p) => {
-              const cleanId = (p.soop_id || '').toLowerCase().trim();
-              const isLive = Boolean(cleanId && liveUserIds.has(cleanId));
-              const isWooriming = p.name === '우리밍_' || p.name === '우리밍';
+            filteredProfiles.map((streamer, index) => {
+              const streamerKey = streamer.name.toLowerCase().trim();
+              const isBenchmark = streamer.name === '우리밍_' || streamer.name === '우리밍';
+              const isLive = Boolean(streamer.soop_id && liveUserIds.has(streamer.soop_id.toLowerCase().trim()));
+              const currentInputVal = editingIds[streamerKey] !== undefined ? editingIds[streamerKey] : streamer.soop_id || '';
+              const stat = matchStatsMap.get(streamerKey) || { total: 0, wins: 0, losses: 0, winRate: 0 };
+              const hasMatches = stat.total > 0;
+              const isIndicatorActive = savedIndicatorName === streamer.name;
 
               return (
                 <div
-                  key={p.name}
-                  className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-[16px] border transition ${
-                    isWooriming
-                      ? 'bg-[#8b5cf6]/10 border-[#8b5cf6]/40'
-                      : p.is_hidden
-                      ? 'bg-[#121218]/60 border-[#262636] opacity-75'
-                      : isLive
-                      ? 'bg-[#ef4444]/5 border-[#ef4444]/30'
-                      : 'bg-[#0f0f18] border-[#1e1e2a] hover:border-[#2a2a3e]'
-                  }`}
+                  key={streamer.name}
+                  className={`pt-3 first:pt-0 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 p-3 rounded-2xl transition-all ${
+                    streamer.is_hidden
+                      ? 'bg-[#12121a]/50 opacity-70 hover:opacity-100 border border-[#20202e]'
+                      : 'bg-[#13131e]/90 hover:bg-[#161624] border border-[#1e1e2c]'
+                  } ${isIndicatorActive ? 'ring-1 ring-[#10b981]/50' : ''}`}
                 >
-                  {/* Left: Avatar, Name, Live & Hidden status */}
-                  <div className="flex items-center gap-3 min-w-[210px]">
-                    <div className="relative">
-                      <StreamerAvatar name={p.name} size={36} shape="circle" />
-                      {isLive && !p.is_hidden && (
+                  {/* Left: Streamer Profile Info & Stats */}
+                  <div className="flex items-center gap-3 min-w-[200px]">
+                    <span className="text-[11px] font-mono font-bold text-[#505068] w-[20px] text-right shrink-0">
+                      {index + 1}
+                    </span>
+
+                    <div className="relative shrink-0">
+                      <StreamerAvatar name={streamer.name} size={38} shape="circle" />
+                      {isLive && (
                         <span
-                          className="absolute -bottom-1 -right-1 w-3 h-3 bg-[#ef4444] border-2 border-[#12121a] rounded-full animate-ping"
-                          title="현재 방송 중!"
+                          className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-[#ec4899] rounded-full border-2 border-[#13131e] animate-pulse"
+                          title="현재 방송 중"
                         />
                       )}
                     </div>
-                    <div className="min-w-0">
+
+                    <div className="flex flex-col">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={`text-[13px] font-black truncate ${p.is_hidden ? 'text-[#a0a0b0]' : 'text-white'}`}>
-                          {p.name}
+                        <span className="font-bold text-[13px] text-white">
+                          {streamer.name}
                         </span>
-                        {isWooriming && (
-                          <span className="text-[9.5px] bg-[#8b5cf6] text-white font-extrabold px-1.5 py-0.2 rounded-full">
-                            👑 기준
+
+                        {isBenchmark && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#8b5cf6]/20 text-[#a78bfa] border border-[#8b5cf6]/40">
+                            기준 원딜
                           </span>
                         )}
-                        {p.is_hidden ? (
-                          <span className="text-[9px] bg-[#ef4444]/15 border border-[#ef4444]/30 text-[#fca5a5] font-bold px-1.5 py-0.2 rounded-full flex items-center gap-0.5">
-                            <EyeOff size={10} />
+
+                        {isLive && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#ec4899]/20 text-[#f472b6] border border-[#ec4899]/40 flex items-center gap-0.5 animate-pulse">
+                            <Radio size={8} /> LIVE
+                          </span>
+                        )}
+
+                        {streamer.is_hidden && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#f59e0b]/20 text-[#fbbf24] border border-[#f59e0b]/40">
                             숨김
                           </span>
-                        ) : isLive ? (
-                          <span className="text-[9.5px] bg-[#ef4444]/20 border border-[#ef4444]/40 text-[#f87171] font-bold px-1.5 py-0.2 rounded-full flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444] animate-pulse" />
-                            LIVE
+                        )}
+                      </div>
+
+                      {/* Match Record Badge (CK일지 전적 표시) */}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {hasMatches ? (
+                          <span className="text-[10px] text-[#9090aa] font-mono flex items-center gap-1">
+                            <Swords size={10} className="text-[#8b5cf6]" />
+                            <strong className="text-[#c4b5fd] font-bold">{stat.total}전</strong> {stat.wins}승 {stat.losses}패
+                            <span className={`font-bold ml-0.5 ${stat.winRate >= 60 ? 'text-[#34d399]' : stat.winRate >= 50 ? 'text-[#60a5fa]' : 'text-[#f87171]'}`}>
+                              ({stat.winRate}%)
+                            </span>
                           </span>
                         ) : (
-                          <span className="text-[9.5px] bg-[#1e1e2a] text-[#7a7a90] px-1.5 py-0.2 rounded-full">
-                            OFFLINE
+                          <span className="text-[10px] text-[#606078] font-mono bg-[#181824] px-1.5 py-0.2 rounded border border-[#222234]">
+                            전적 0건 (미출전)
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-[#7a7a90] truncate">
-                        {p.soop_id ? `@${p.soop_id}` : 'SOOP ID 미등록'}
-                      </div>
                     </div>
                   </div>
 
-                  {/* Center: Position selector + SOOP ID input */}
-                  <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
-                    {/* Position Pills */}
-                    <div className="flex items-center gap-1 shrink-0">
-                      {LINE_KEYS.map((k) => {
-                        const isCurrent = p.main_position === k;
-                        const cl = LINE_COLOR_CLASSES[k];
-                        return (
-                          <button
-                            key={k}
-                            type="button"
-                            disabled={!isAdmin}
-                            onClick={() => handleFieldChange(p.name, 'main_position', k)}
-                            className={`h-[26px] px-2 rounded-lg text-[10px] font-bold transition border ${
-                              isCurrent
-                                ? `${cl.bg} ${cl.text} ${cl.border} shadow-sm font-black`
-                                : 'bg-[#161622] text-[#6a6a80] hover:text-[#9a9ab0] border-transparent'
-                            } ${!isAdmin ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
-                          >
-                            {LINE_LABELS[k]}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* SOOP ID input */}
-                    <div className="relative flex-1 min-w-[150px]">
-                      <input
-                        type="text"
-                        readOnly={!isAdmin}
-                        value={p.soop_id ?? ''}
-                        onChange={(e) => handleFieldChange(p.name, 'soop_id', e.target.value)}
-                        onBlur={() => {
-                          if (isAdmin) handleSaveSingle(p.name);
-                        }}
-                        placeholder="SOOP ID (user_id)"
-                        className={`w-full h-[32px] bg-[#08080c] border border-[#222232] rounded-xl px-3 text-[11px] text-white focus:outline-none focus:border-[#8b5cf6] placeholder-[#4a4a60] ${
-                          !isAdmin ? 'cursor-not-allowed opacity-75' : ''
+                  {/* Center: Position selector + SOOP ID Input (Auto-Save onBlur/Enter) */}
+                  <div className="flex-1 w-full md:w-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    {/* Position dropdown */}
+                    <div className="relative shrink-0">
+                      <select
+                        value={streamer.main_position || 'mid'}
+                        onChange={(e) => handlePositionChange(streamer.name, e.target.value as LineKey)}
+                        disabled={!isAdmin}
+                        className={`h-[34px] pl-2.5 pr-7 rounded-xl text-[11px] font-bold border appearance-none outline-none cursor-pointer transition-all ${
+                          LINE_COLOR_CLASSES[streamer.main_position || 'mid'].bg
+                        } ${LINE_COLOR_CLASSES[streamer.main_position || 'mid'].text} ${
+                          LINE_COLOR_CLASSES[streamer.main_position || 'mid'].border
                         }`}
+                      >
+                        {LINE_KEYS.map((k) => (
+                          <option key={k} value={k} className="bg-[#12121a] text-white">
+                            {LINE_LABELS[k]} ({k.toUpperCase()})
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown
+                        size={12}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60"
                       />
                     </div>
+
+                    {/* SOOP ID input with real-time onBlur/Enter Auto-Save */}
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={currentInputVal}
+                        onChange={(e) => handleIdChange(streamer.name, e.target.value)}
+                        onBlur={() => handleIdCommit(streamer.name)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        disabled={!isAdmin}
+                        placeholder="SOOP ID (user_id 입력 후 Enter 또는 포커스 아웃)"
+                        className={`w-full h-[34px] bg-[#0a0a12] border rounded-xl px-3 text-[12px] font-mono text-white placeholder-[#505068] outline-none transition-all ${
+                          isIndicatorActive
+                            ? 'border-[#10b981] bg-[#10b981]/5 ring-1 ring-[#10b981]'
+                            : 'border-[#222234] focus:border-[#8b5cf6]'
+                        }`}
+                      />
+                      {currentInputVal && (
+                        <a
+                          href={`https://bj.afreecatv.com/${encodeURIComponent(currentInputVal)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#707088] hover:text-[#a78bfa] transition-colors"
+                          title="SOOP 방송국 새 창 열기"
+                        >
+                          <ExternalLink size={13} />
+                        </a>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Right Actions: Hide/Show Toggle, Station Link, Save, Delete */}
-                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap sm:flex-nowrap justify-end">
-                    {/* Hide / Show Toggle Button */}
+                  {/* Right: [숨기기 토글] vs [삭제 분기] (Requirement 4) */}
+                  <div className="flex items-center gap-1.5 self-end md:self-center shrink-0">
+                    {/* [숨기기 / 노출 토글]: 모든 스트리머 가능 */}
                     <button
                       type="button"
+                      onClick={() => handleToggleHidden(streamer.name)}
                       disabled={!isAdmin}
-                      onClick={() => handleToggleHidden(p.name)}
-                      title={
-                        !isAdmin
-                          ? '관리자만 숨김/노출을 변경할 수 있습니다'
-                          : p.is_hidden
-                          ? '현재 숨김 상태입니다 (클릭하여 CK멤버 탭에 노출)'
-                          : '현재 노출 상태입니다 (클릭하여 CK멤버 탭에서 숨김)'
-                      }
-                      className={`h-[32px] px-2.5 rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 border ${
-                        !isAdmin ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
-                      } ${
-                        p.is_hidden
-                          ? 'bg-[#ef4444]/15 border-[#ef4444]/30 text-[#fca5a5] hover:bg-[#ef4444]/25'
-                          : 'bg-[#1e1e28] hover:bg-[#262638] text-[#a0a0b8] hover:text-white border-[#2a2a3e]'
+                      className={`h-[34px] px-3 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                        streamer.is_hidden
+                          ? 'bg-[#f59e0b]/15 hover:bg-[#f59e0b]/25 text-[#fbbf24] border-[#f59e0b]/40 shadow-sm'
+                          : 'bg-[#181826] hover:bg-[#202034] text-[#a0a0b8] hover:text-white border-[#26263a]'
                       }`}
+                      title={
+                        streamer.is_hidden
+                          ? '현재 숨김 상태입니다. 클릭 시 메인 라이브 및 멤버 목록에 다시 노출됩니다.'
+                          : '현재 노출 상태입니다. 클릭 시 메인 라이브 및 찾기 목록에서 숨김 처리됩니다.'
+                      }
                     >
-                      {p.is_hidden ? (
+                      {streamer.is_hidden ? (
                         <>
-                          <EyeOff size={13} className="text-[#f87171]" />
-                          <span>숨김됨</span>
+                          <EyeOff size={13} className="text-[#fbbf24]" />
+                          <span>숨김 (노출X)</span>
                         </>
                       ) : (
                         <>
                           <Eye size={13} className="text-[#34d399]" />
-                          <span>노출</span>
+                          <span>정상 노출</span>
                         </>
                       )}
                     </button>
 
-                    {/* Station Link */}
-                    {p.soop_id ? (
-                      <a
-                        href={`https://play.sooplive.co.kr/${p.soop_id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="SOOP 방송국 바로가기 (새 창)"
-                        className="h-[32px] px-2 bg-[#161622] hover:bg-[#222234] border border-[#26263a] text-[#c4b5fd] rounded-xl text-[11px] font-medium flex items-center gap-1 transition cursor-pointer"
+                    {/* [삭제 vs 보호 분기] (Requirement 4) */}
+                    {hasMatches ? (
+                      /* CK일지 전적 있는 스트리머: 데이터 보호 위해 삭제 불가 (툴팁 안내) */
+                      <div
+                        className="h-[34px] px-2.5 rounded-xl bg-[#1a1418] border border-[#301e24] text-[#805058] flex items-center gap-1 text-[11px] font-medium cursor-not-allowed select-none"
+                        title={`전적(${stat.total}전)이 기록된 스트리머는 데이터 보존을 위해 삭제할 수 없습니다. 대신 [숨기기]를 사용하세요.`}
                       >
-                        <ExternalLink size={12} />
-                        <span className="hidden sm:inline">방송국</span>
-                      </a>
-                    ) : null}
-
-                    {/* Single Save - Admin only */}
-                    {isAdmin && (
+                        <Lock size={12} className="text-[#a05058]" />
+                        <span className="hidden sm:inline">삭제 불가</span>
+                      </div>
+                    ) : (
+                      /* 전적 0건인 스트리머: 완전 삭제 가능 */
                       <button
                         type="button"
-                        onClick={() => handleSaveSingle(p.name)}
-                        title="이 스트리머 설정 저장"
-                        className="h-[32px] px-2.5 bg-[#1e1e2a] hover:bg-[#8b5cf6] text-[#c4b5fd] hover:text-white rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <Save size={13} />
-                        <span className="hidden sm:inline">저장</span>
-                      </button>
-                    )}
-
-                    {/* Delete Streamer Button - Admin only */}
-                    {isAdmin && !isWooriming && (
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTargetName(p.name)}
-                        title="스트리머 목록 및 DB에서 완전히 삭제"
-                        className="h-[32px] w-[32px] bg-[#1e1e2a] hover:bg-[#ef4444]/20 hover:text-[#f87171] text-[#7a7a90] border border-[#2a2a3a] hover:border-[#ef4444]/40 rounded-xl flex items-center justify-center transition cursor-pointer"
+                        onClick={() => handleRequestDelete(streamer.name)}
+                        disabled={!isAdmin || isBenchmark}
+                        className="h-[34px] px-2.5 rounded-xl bg-[#181216] hover:bg-[#ef4444]/20 text-[#a05058] hover:text-[#f87171] border border-[#2a1a20] hover:border-[#ef4444]/40 flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40"
+                        title="전적이 없는 스트리머입니다. 클릭 시 DB에서 완전히 삭제됩니다."
                       >
                         <Trash2 size={13} />
+                        <span className="hidden sm:inline">삭제</span>
                       </button>
                     )}
                   </div>
@@ -917,80 +1010,66 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
           )}
         </div>
 
-        {/* Modal Footer */}
-        <div className="pt-4 border-t border-[#1e1e2a] flex items-center justify-between gap-3">
-          <div className="text-[11px] text-[#7a7a90] truncate">
-            {isAdmin
-              ? '* SOOP ID를 빈값으로 비우거나 수정하면 해당 값이 저장되며, 숨김 처리 시 CK멤버 라이브 목록에서 제외됩니다.'
-              : '* 일반 사용자(게스트) 모드입니다. 스트리머 정보 등록 및 수정은 관리자 로그인 후 이용 가능합니다.'}
+        {/* ================================================================= */}
+        {/* 6. MODAL FOOTER (NO [전체 저장] BUTTON! JUST [닫기] WITH AUTO-SYNC) */}
+        {/* ================================================================= */}
+        <div className="px-5 sm:px-6 py-3.5 bg-[#12121c] border-t border-[#1e1e2c] flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[11px] text-[#8a8aa0]">
+            <span className="w-2 h-2 rounded-full bg-[#10b981] animate-pulse" />
+            <span>
+              모든 변경 사항은 <strong>DB 서버에 실시간 Auto-Save</strong>되며, 모달 닫기 시 메인 화면이 최신 상태로 재동기화됩니다.
+            </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+
+          <div className="flex items-center gap-2 self-end sm:self-center">
             <button
               type="button"
-              onClick={onClose}
-              className="h-[36px] px-4 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-white rounded-xl text-[12px] font-bold transition cursor-pointer"
+              onClick={handleModalClose}
+              className="h-[38px] px-6 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-bold rounded-xl text-[13px] shadow-[0_4px_16px_rgba(139,92,246,0.3)] transition-all cursor-pointer flex items-center gap-1.5"
             >
-              닫기
+              <CheckCircle2 size={15} />
+              <span>완료 및 닫기</span>
             </button>
-            {isAdmin && (
-              <button
-                type="button"
-                disabled={isSaving}
-                onClick={async () => {
-                  await handleSaveAll();
-                  onClose();
-                }}
-                className="h-[36px] px-5 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:from-[#7c3aed] hover:to-[#4f46e5] text-white rounded-xl text-[12px] font-black shadow-lg transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-              >
-                {isSaving ? <RefreshCw size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                <span>{isSaving ? '저장 중...' : '전체 저장 완료'}</span>
-              </button>
-            )}
           </div>
         </div>
-      </div>
 
-      {/* Delete Confirmation Modal */}
-      {deleteTargetName && (
-        <div
-          className="fixed inset-0 z-[11000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-[fadeIn_0.1s]"
-          onClick={() => setDeleteTargetName(null)}
-        >
-          <div
-            className="bg-[#161622] border border-[#ef4444]/40 rounded-[22px] p-5 max-w-[400px] w-full shadow-2xl text-center space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-12 h-12 rounded-full bg-[#ef4444]/15 border border-[#ef4444]/30 text-[#ef4444] flex items-center justify-center mx-auto">
-              <Trash2 size={22} />
-            </div>
-            <div>
-              <h4 className="text-[16px] font-black text-white">스트리머 영구 삭제</h4>
-              <p className="text-[13px] text-[#c0c0d0] mt-2 leading-relaxed">
-                '<strong className="text-white font-bold">{deleteTargetName}</strong>' 스트리머를 DB 및 관리 목록에서 완전히 삭제하시겠습니까?
+        {/* ================================================================= */}
+        {/* 7. DELETE CONFIRMATION DIALOG (For 0-match streamers only)        */}
+        {/* ================================================================= */}
+        {deleteTargetName && (
+          <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-[fadeIn_0.15s]">
+            <div className="relative w-full max-w-[360px] bg-[#12121a] border border-[#2a2a3a] rounded-2xl p-5 shadow-2xl">
+              <div className="flex items-center gap-2 text-[#f87171] mb-2 font-bold text-[14px]">
+                <AlertCircle size={18} />
+                <span>스트리머 삭제 확인</span>
+              </div>
+              <p className="text-[12px] text-[#c0c0d0] leading-relaxed mb-4">
+                <strong>'{deleteTargetName}'</strong> 스트리머는 CK일지 전적이 없습니다.
+                <br />
+                서버 DB 및 목록에서 영구적으로 삭제하시겠습니까?
               </p>
-              <p className="text-[11px] text-[#ef4444] mt-1.5">
-                * 삭제 시 관리 목록과 실시간 라이브 연동에서 즉시 제거됩니다.
-              </p>
-            </div>
-            <div className="flex items-center justify-center gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeleteTargetName(null)}
-                className="h-[36px] px-4 bg-[#262638] hover:bg-[#32324a] text-white rounded-xl text-[12px] font-bold transition"
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                onClick={() => handleConfirmDelete(deleteTargetName)}
-                className="h-[36px] px-5 bg-[#ef4444] hover:bg-[#dc2626] text-white rounded-xl text-[12px] font-bold transition shadow-lg shadow-[#ef4444]/30"
-              >
-                삭제 확인
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTargetName(null)}
+                  disabled={isProcessing}
+                  className="flex-1 h-[36px] bg-[#1a1a28] hover:bg-[#26263a] text-[#a0a0b8] rounded-xl text-[12px] font-medium"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={isProcessing}
+                  className="flex-1 h-[36px] bg-[#ef4444] hover:bg-[#dc2626] text-white font-bold rounded-xl text-[12px] shadow-lg shadow-[#ef4444]/20 cursor-pointer"
+                >
+                  {isProcessing ? '삭제 중...' : '영구 삭제'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
