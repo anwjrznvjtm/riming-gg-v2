@@ -69,6 +69,43 @@ export async function updateMatchOnWorker(match: Match): Promise<{ success: bool
   }
 }
 
+export function findSeriesMatchIds(targetId: string, allMatches?: Match[]): string[] {
+  if (!allMatches || allMatches.length === 0) return [targetId];
+
+  const target = allMatches.find((m) => String(m.id) === String(targetId));
+  if (!target) return [targetId];
+
+  const set = new Set<string>();
+  set.add(String(target.id));
+
+  const rootParentId = target.parent_match_id ? String(target.parent_match_id) : '';
+  const isSeries = target.match_format === '3판2선승' || target.match_format === '5판3선승';
+
+  for (const m of allMatches) {
+    const mId = String(m.id);
+    const mParent = m.parent_match_id ? String(m.parent_match_id) : '';
+
+    // If target is child and m is parent
+    if (rootParentId && mId === rootParentId) {
+      set.add(mId);
+    }
+    // If m is child of target
+    else if (mParent && mParent === String(target.id)) {
+      set.add(mId);
+    }
+    // If m shares the same parent as target
+    else if (rootParentId && mParent && mParent === rootParentId) {
+      set.add(mId);
+    }
+    // Or if they belong to the same series (date + ck_name)
+    else if (isSeries && m.date === target.date && (m.ck_name || '').trim() === (target.ck_name || '').trim()) {
+      set.add(mId);
+    }
+  }
+
+  return Array.from(set);
+}
+
 export async function deleteMatchOnWorker(id: string): Promise<{ success: boolean; id: string; error?: string }> {
   try {
     const targetUrl = `${WORKER_BASE_URL}?id=${encodeURIComponent(id)}`;
@@ -82,10 +119,73 @@ export async function deleteMatchOnWorker(id: string): Promise<{ success: boolea
   }
 }
 
+/**
+ * Cascade Delete: Deletes target match along with all related BO3/BO5 sets and parent_match_id relations
+ */
+export async function deleteMatchCascade(
+  id: string,
+  allMatches?: Match[]
+): Promise<{ success: boolean; id: string; deletedIds?: string[]; error?: string }> {
+  const idsToDelete = findSeriesMatchIds(id, allMatches);
+
+  // Attempt backend Cascade Delete API first (/api/matches/:id)
+  try {
+    const localRes = await fetchWithTimeout(`/api/matches/${encodeURIComponent(id)}`, { method: 'DELETE' }, 8000);
+    if (localRes.ok) {
+      const data = await localRes.json().catch(() => ({}));
+      if (data?.success) {
+        return { success: true, id, deletedIds: data?.deletedIds || idsToDelete };
+      }
+    }
+  } catch (err) {
+    console.warn('[MatchApi] Local /api/matches/:id DELETE warning, falling back to direct Worker cascade:', err);
+  }
+
+  // Fallback: Delete all related series match IDs concurrently on Cloudflare Worker
+  try {
+    const results = await Promise.all(idsToDelete.map((mid) => deleteMatchOnWorker(mid)));
+    const allSuccessful = results.some((r) => r.success);
+    if (allSuccessful) {
+      return { success: true, id, deletedIds: idsToDelete };
+    }
+    return { success: false, id, error: results[0]?.error || '삭제 실패' };
+  } catch (err: any) {
+    return { success: false, id, error: err?.message || '네트워크 오류' };
+  }
+}
+
+/**
+ * Cleanup orphan / corrupted match records (e.g., broken 10-25 matches)
+ */
+export async function cleanupOrphanMatches(
+  existingMatches?: Match[]
+): Promise<{ success: boolean; deletedCount: number; deletedIds: string[] }> {
+  const targetMatches = existingMatches || (await fetchAllMatchesFromWorker()).matches;
+  const orphanIds: string[] = [];
+
+  for (const m of targetMatches) {
+    // 10월 25일 ghost matches or corrupted matches with missing teams
+    const isOct25 = (m.date || '').includes('10-25') || (m.date || '').includes('2026-10-25');
+    const isCorrupted = !m.team_a || !m.team_b || (!m.team_a.top && !m.team_b.top);
+    if (isOct25 || isCorrupted) {
+      orphanIds.push(String(m.id));
+    }
+  }
+
+  if (orphanIds.length > 0) {
+    await Promise.all(orphanIds.map((oid) => deleteMatchOnWorker(oid)));
+    try {
+      await fetch('/api/matches/cleanup-orphans', { method: 'POST' }).catch(() => {});
+    } catch {}
+  }
+
+  return { success: true, deletedCount: orphanIds.length, deletedIds: orphanIds };
+}
+
 // === App.tsx 호환용 별칭 (빌드 에러 해결) ===
 export const fetchAllMatchesFromApi = fetchAllMatchesFromWorker;
 export const createMatchOnApi = createMatchOnWorker;
 export const updateMatchOnApi = async (match: Match, _all?: Match[]) => updateMatchOnWorker(match);
-export const deleteMatchOnApi = async (id: string, _remaining?: Match[]) => deleteMatchOnWorker(id);
+export const deleteMatchOnApi = async (id: string, allMatches?: Match[]) => deleteMatchCascade(id, allMatches);
 export const batchUpdateMatchesOnApi = updateMatchOnWorker;
 export const batchUpdateMatchesOnWorker = updateMatchOnWorker;

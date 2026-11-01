@@ -17,6 +17,7 @@ import {
   createMatchOnApi,
   updateMatchOnApi,
   deleteMatchOnApi,
+  findSeriesMatchIds,
 } from './lib/matchApi';
 import { syncStreamersFromBackend } from './lib/streamerApi';
 import { Header } from './components/Header';
@@ -209,9 +210,35 @@ export default function App() {
     return Array.from(set).filter(Boolean).sort();
   }, [matches]);
 
-  // FIXED: Match mutations - auto-recalculate cumulative series scores to prevent number corruption
+  // FIXED: Match mutations - auto-recalculate cumulative series scores & bind parent/funding
   const handleAddMatch = async (newMatch: Match) => {
-    const normalized = normalizeMatch(newMatch);
+    let matchToAdd = { ...newMatch };
+
+    // Auto-link parent_match_id and inherit series funding if set > 1
+    if ((Number(matchToAdd.set_number) || 1) > 1 && !matchToAdd.parent_match_id) {
+      const siblingMatch = matches.find(
+        (m) =>
+          m.date === matchToAdd.date &&
+          (m.ck_name || '').trim() === (matchToAdd.ck_name || '').trim() &&
+          m.id !== matchToAdd.id
+      );
+      if (siblingMatch) {
+        matchToAdd.parent_match_id = siblingMatch.parent_match_id || siblingMatch.id;
+        if (matchToAdd.funding === undefined && siblingMatch.funding !== undefined) {
+          matchToAdd.funding = siblingMatch.funding;
+          matchToAdd.star_balloons = siblingMatch.star_balloons;
+          matchToAdd.funding_per_person = siblingMatch.funding_per_person;
+          matchToAdd.funding_base_amount = siblingMatch.funding_base_amount;
+          matchToAdd.funding_ratio = siblingMatch.funding_ratio;
+          matchToAdd.funding_target_team = siblingMatch.funding_target_team;
+          matchToAdd.funding_split_count = siblingMatch.funding_split_count;
+          matchToAdd.has_partner_subsidy = siblingMatch.has_partner_subsidy;
+          matchToAdd.partner_subsidy = siblingMatch.partner_subsidy;
+        }
+      }
+    }
+
+    const normalized = normalizeMatch(matchToAdd);
     const updatedList = recalculateAllSeriesScores([normalized, ...matches]);
     setMatches(updatedList);
     const syncedMatch = updatedList.find((m) => String(m.id) === String(normalized.id)) || normalized;
@@ -229,9 +256,49 @@ export default function App() {
   };
 
   const handleUpdateMatch = async (updatedMatch: Match) => {
-    const normalized = normalizeMatch(updatedMatch);
-    const rawUpdatedList = matches.map((m) => (String(m.id) === String(normalized.id) ? normalized : m));
-    // FIXED: Synchronize cumulative scores for the entire series so sets don't get twisted
+    let matchToUpdate = { ...updatedMatch };
+
+    // Ensure parent_match_id is maintained
+    if ((Number(matchToUpdate.set_number) || 1) > 1 && !matchToUpdate.parent_match_id) {
+      const siblingMatch = matches.find(
+        (m) =>
+          m.date === matchToUpdate.date &&
+          (m.ck_name || '').trim() === (matchToUpdate.ck_name || '').trim() &&
+          m.id !== matchToUpdate.id
+      );
+      if (siblingMatch) {
+        matchToUpdate.parent_match_id = siblingMatch.parent_match_id || siblingMatch.id;
+      }
+    }
+
+    const normalized = normalizeMatch(matchToUpdate);
+
+    // Propagate funding updates to sibling sets in the same series
+    const seriesIds = new Set(findSeriesMatchIds(normalized.id, matches).map(String));
+    const rawUpdatedList = matches.map((m) => {
+      const mId = String(m.id);
+      if (mId === String(normalized.id)) {
+        return normalized;
+      }
+      if (seriesIds.has(mId)) {
+        // Inherit funding & series attributes to keep series consistent
+        return normalizeMatch({
+          ...m,
+          parent_match_id: normalized.parent_match_id || normalized.id,
+          funding: normalized.funding,
+          star_balloons: normalized.star_balloons,
+          funding_per_person: normalized.funding_per_person,
+          funding_base_amount: normalized.funding_base_amount,
+          funding_ratio: normalized.funding_ratio,
+          funding_target_team: normalized.funding_target_team,
+          funding_split_count: normalized.funding_split_count,
+          has_partner_subsidy: normalized.has_partner_subsidy,
+          partner_subsidy: normalized.partner_subsidy,
+        });
+      }
+      return m;
+    });
+
     const updatedList = recalculateAllSeriesScores(rawUpdatedList);
     setMatches(updatedList);
     const syncedMatch = updatedList.find((m) => String(m.id) === String(normalized.id)) || normalized;
@@ -250,13 +317,19 @@ export default function App() {
   };
 
   const handleDeleteMatch = async (id: string) => {
-    const remaining = matches.filter((m) => String(m.id) !== String(id));
+    const idsToDelete = findSeriesMatchIds(id, matches);
+    const deleteIdSet = new Set(idsToDelete.map(String));
+    const remaining = matches.filter((m) => !deleteIdSet.has(String(m.id)));
     const syncedList = recalculateAllSeriesScores(remaining);
     setMatches(syncedList);
     try {
-      const res = await deleteMatchOnApi(id, syncedList);
+      const res = await deleteMatchOnApi(id, matches);
       if (res.success) {
-        showToast('경기 삭제 완료 (Worker 클라우드 반영 ☁)');
+        showToast(
+          idsToDelete.length > 1
+            ? `경기 및 시리즈 세트(${idsToDelete.length}개) 영구 삭제 완료 ☁`
+            : '경기 삭제 완료 (Worker 클라우드 반영 ☁)'
+        );
       } else {
         showToast('경기 삭제 완료 (로컬 캐시 보관됨)');
       }

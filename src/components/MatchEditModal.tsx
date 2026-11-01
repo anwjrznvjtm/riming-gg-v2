@@ -562,8 +562,22 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
 
     const hasSubsidy = Boolean(currentData.has_partner_subsidy ?? currentData.partner_subsidy);
 
+    let parentMatchId = currentData.parent_match_id;
+    if ((Number(currentData.set_number) || 1) > 1 && !parentMatchId) {
+      const sibling = allMatches.find(
+        (m) =>
+          m.date === currentData.date &&
+          (m.ck_name || '').trim() === cleanCkName &&
+          m.id !== currentData.id
+      );
+      if (sibling) {
+        parentMatchId = sibling.parent_match_id || sibling.id;
+      }
+    }
+
     return {
       ...currentData,
+      parent_match_id: parentMatchId,
       ck_name: cleanCkName,
       funding: totalBalloons,
       star_balloons: totalBalloons,
@@ -703,10 +717,12 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
 
     const nextId = `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     editingIdRef.current = nextId;
+    const resolvedParentId = matchToSave.parent_match_id || matchToSave.id;
 
     // Retain streamer nicknames, team roster, champions, and bans; reset KDA, screenshots, and stats
     setFormData((prev) => ({
       id: nextId,
+      parent_match_id: resolvedParentId,
       date: prev.date,
       ck_name: matchToSave.ck_name,
       match_format: nextMatchFormat,

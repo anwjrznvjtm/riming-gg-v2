@@ -52,6 +52,7 @@ export interface MatchExtractedData {
 
 export interface Match {
   id: string;
+  parent_match_id?: string; // BO3/BO5 세트 그룹화를 위한 부모(1세트) 매치 ID
   date: string; // YYYY-MM-DD
   ck_name: string;
   funding?: number; // 총 별풍선 펀딩 개수 (숲TV)

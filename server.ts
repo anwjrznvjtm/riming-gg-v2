@@ -438,6 +438,161 @@ async function startServer() {
     }
   });
 
+  // Matches Cloudflare Worker proxy & Cascade Delete endpoints
+  const WORKER_BASE_URL = 'https://riming-gg.janghyck2.workers.dev';
+
+  async function fetchWorkerMatches(): Promise<any[]> {
+    try {
+      const res = await fetch(WORKER_BASE_URL, { headers: { Accept: 'application/json' } });
+      if (!res.ok) return [];
+      const data: any = await res.json();
+      return Array.isArray(data) ? data : data?.matches || data?.data || [];
+    } catch (err) {
+      console.warn('[Server] Failed to fetch matches from Worker:', err);
+      return [];
+    }
+  }
+
+  app.get('/api/matches', async (req, res) => {
+    try {
+      const matches = await fetchWorkerMatches();
+      return res.json({ success: true, count: matches.length, matches });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch matches' });
+    }
+  });
+
+  app.post('/api/matches', async (req, res) => {
+    try {
+      const payload = req.body;
+      const workerRes = await fetch(WORKER_BASE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await workerRes.json().catch(() => ({}));
+      return res.status(workerRes.status).json(data);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to save match to Worker' });
+    }
+  });
+
+  app.put(['/api/matches', '/api/matches/:id'], async (req, res) => {
+    try {
+      const payload = req.body;
+      const workerRes = await fetch(WORKER_BASE_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await workerRes.json().catch(() => ({}));
+      return res.status(workerRes.status).json(data);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to update match on Worker' });
+    }
+  });
+
+  // Cascade Delete for matches and connected BO3/BO5 sets
+  app.delete(['/api/matches/:id', '/api/matches'], async (req, res) => {
+    try {
+      const targetId = (req.params?.id || req.query?.id || req.body?.id || '') as string;
+      if (!targetId) {
+        return res.status(400).json({ success: false, error: 'Match id is required for deletion' });
+      }
+
+      const allMatches = await fetchWorkerMatches();
+      const target = allMatches.find((m: any) => String(m.id) === String(targetId));
+
+      const set = new Set<string>();
+      set.add(String(targetId));
+
+      if (target) {
+        const rootParentId = target.parent_match_id ? String(target.parent_match_id) : '';
+        const isSeries = target.match_format === '3판2선승' || target.match_format === '5판3선승';
+
+        for (const m of allMatches) {
+          const mId = String(m.id);
+          const mParent = m.parent_match_id ? String(m.parent_match_id) : '';
+
+          if (rootParentId && mId === rootParentId) {
+            set.add(mId);
+          } else if (mParent && mParent === String(target.id)) {
+            set.add(mId);
+          } else if (rootParentId && mParent && mParent === rootParentId) {
+            set.add(mId);
+          } else if (
+            isSeries &&
+            m.date === target.date &&
+            (m.ck_name || '').trim() === (target.ck_name || '').trim()
+          ) {
+            set.add(mId);
+          }
+        }
+      }
+
+      const idsToDelete = Array.from(set);
+      console.log(`[Server] Cascade deleting match series: target=${targetId}, count=${idsToDelete.length}`, idsToDelete);
+
+      // Concurrently delete all series set IDs from Cloudflare Worker
+      const deletePromises = idsToDelete.map(async (mid) => {
+        try {
+          const dRes = await fetch(`${WORKER_BASE_URL}?id=${encodeURIComponent(mid)}`, {
+            method: 'DELETE',
+          });
+          return { id: mid, ok: dRes.ok };
+        } catch {
+          return { id: mid, ok: false };
+        }
+      });
+
+      const results = await Promise.all(deletePromises);
+      const anySuccess = results.some((r) => r.ok);
+
+      return res.json({
+        success: anySuccess || idsToDelete.length === 0,
+        id: targetId,
+        deletedIds: idsToDelete,
+        results,
+      });
+    } catch (err: any) {
+      console.error('[Server] Match delete error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Cascade delete failed' });
+    }
+  });
+
+  // Cleanup orphan / corrupted match records (e.g., ghost 10-25 matches)
+  app.post('/api/matches/cleanup-orphans', async (req, res) => {
+    try {
+      const allMatches = await fetchWorkerMatches();
+      const orphanIds: string[] = [];
+
+      for (const m of allMatches) {
+        const isOct25 = (m.date || '').includes('10-25') || (m.date || '').includes('2026-10-25');
+        const isCorrupted = !m.team_a || !m.team_b || (!m.team_a.top && !m.team_b.top);
+        if (isOct25 || isCorrupted) {
+          orphanIds.push(String(m.id));
+        }
+      }
+
+      if (orphanIds.length > 0) {
+        console.log(`[Server] Cleaning up ${orphanIds.length} orphan matches:`, orphanIds);
+        await Promise.all(
+          orphanIds.map((oid) =>
+            fetch(`${WORKER_BASE_URL}?id=${encodeURIComponent(oid)}`, { method: 'DELETE' }).catch(() => {})
+          )
+        );
+      }
+
+      return res.json({
+        success: true,
+        deletedCount: orphanIds.length,
+        deletedIds: orphanIds,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Cleanup orphans failed' });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

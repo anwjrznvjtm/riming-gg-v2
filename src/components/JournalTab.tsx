@@ -16,6 +16,7 @@ import { parseKdaString, normalizeChampionName, SOOP_POPULAR_STREAMERS } from '.
 import { verifyAdminPasscode } from '../data/initialMatches';
 import { calculateMatchSeriesScores, calculateScoreForSetInSeries, sortMatchesDescending } from '../lib/seriesScores';
 import { getSeriesRepresentativeFunding } from '../lib/fundingStats';
+import { findSeriesMatchIds } from '../lib/matchApi';
 import { ScreenshotUploadSection } from './ScreenshotUploadSection';
 import { FundingRatioSelector } from './FundingRatioSelector';
 import {
@@ -813,8 +814,22 @@ export const JournalTab: React.FC<JournalTabProps> = ({
 
     const hasSubsidy = Boolean(formData.has_partner_subsidy ?? formData.partner_subsidy);
 
+    let parentMatchId = formData.parent_match_id;
+    if ((Number(formData.set_number) || 1) > 1 && !parentMatchId) {
+      const sibling = matches.find(
+        (m) =>
+          m.date === formData.date &&
+          (m.ck_name || '').trim() === cleanCkName &&
+          m.id !== formData.id
+      );
+      if (sibling) {
+        parentMatchId = sibling.parent_match_id || sibling.id;
+      }
+    }
+
     const matchToSave: Match = {
       ...formData,
+      parent_match_id: parentMatchId,
       ck_name: cleanCkName,
       funding: totalBalloons,
       star_balloons: totalBalloons,
@@ -891,9 +906,44 @@ export const JournalTab: React.FC<JournalTabProps> = ({
       sanitizedTeamBDetail = { ...sanitizedTeamBDetail, players: updatedPlayers };
     }
 
+    const splitCount = formData.funding_split_count || 5;
+    let totalBalloons = formData.funding !== undefined ? formData.funding : formData.star_balloons;
+    let perPersonBalloons = formData.funding_per_person;
+
+    if (perPersonBalloons !== undefined && totalBalloons === undefined) {
+      totalBalloons = perPersonBalloons * splitCount;
+    } else if (totalBalloons !== undefined && perPersonBalloons === undefined) {
+      perPersonBalloons = Math.round(totalBalloons / splitCount);
+    }
+
+    const hasSubsidy = Boolean(formData.has_partner_subsidy ?? formData.partner_subsidy);
+
+    let parentMatchId = formData.parent_match_id;
+    if ((Number(formData.set_number) || 1) > 1 && !parentMatchId) {
+      const sibling = matches.find(
+        (m) =>
+          m.date === formData.date &&
+          (m.ck_name || '').trim() === cleanCkName &&
+          m.id !== formData.id
+      );
+      if (sibling) {
+        parentMatchId = sibling.parent_match_id || sibling.id;
+      }
+    }
+
     const matchToSave: Match = {
       ...formData,
+      parent_match_id: parentMatchId,
       ck_name: cleanCkName,
+      funding: totalBalloons,
+      star_balloons: totalBalloons,
+      funding_per_person: perPersonBalloons,
+      funding_base_amount: formData.funding_base_amount,
+      funding_ratio: formData.funding_ratio || '100:0',
+      funding_target_team: formData.funding_target_team || 'auto',
+      funding_split_count: splitCount,
+      has_partner_subsidy: hasSubsidy,
+      partner_subsidy: hasSubsidy,
       team_a_detail: sanitizedTeamADetail,
       team_b_detail: sanitizedTeamBDetail,
     };
@@ -926,24 +976,28 @@ export const JournalTab: React.FC<JournalTabProps> = ({
           ? '5판3선승'
           : formData.match_format;
 
+      const nextId = `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const resolvedParentId = matchToSave.parent_match_id || matchToSave.id;
+
       setFormData((curr) => ({
         ...curr,
-        id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        id: nextId,
+        parent_match_id: resolvedParentId,
         date: formData.date,
         ck_name: cleanCkName,
         match_format: nextMatchFormat,
         set_number: nextSetNum,
         score: calcResult.score,
         winning_team: 'Red',
-        funding: curr.funding !== undefined ? curr.funding : formData.funding,
-        star_balloons: curr.funding !== undefined ? curr.funding : formData.funding,
-        funding_per_person: curr.funding_per_person !== undefined ? curr.funding_per_person : formData.funding_per_person,
-        funding_base_amount: curr.funding_base_amount !== undefined ? curr.funding_base_amount : formData.funding_base_amount,
-        funding_ratio: curr.funding_ratio || formData.funding_ratio || '100:0',
-        funding_target_team: curr.funding_target_team || formData.funding_target_team || 'auto',
-        funding_split_count: curr.funding_split_count || formData.funding_split_count || 5,
-        has_partner_subsidy: Boolean(curr.has_partner_subsidy ?? curr.partner_subsidy ?? formData.has_partner_subsidy),
-        partner_subsidy: Boolean(curr.has_partner_subsidy ?? curr.partner_subsidy ?? formData.has_partner_subsidy),
+        funding: curr.funding !== undefined ? curr.funding : matchToSave.funding,
+        star_balloons: curr.funding !== undefined ? curr.funding : matchToSave.funding,
+        funding_per_person: curr.funding_per_person !== undefined ? curr.funding_per_person : matchToSave.funding_per_person,
+        funding_base_amount: curr.funding_base_amount !== undefined ? curr.funding_base_amount : matchToSave.funding_base_amount,
+        funding_ratio: curr.funding_ratio || matchToSave.funding_ratio || '100:0',
+        funding_target_team: curr.funding_target_team || matchToSave.funding_target_team || 'auto',
+        funding_split_count: curr.funding_split_count || matchToSave.funding_split_count || 5,
+        has_partner_subsidy: Boolean(curr.has_partner_subsidy ?? curr.partner_subsidy ?? matchToSave.has_partner_subsidy),
+        partner_subsidy: Boolean(curr.has_partner_subsidy ?? curr.partner_subsidy ?? matchToSave.has_partner_subsidy),
         // Retain 10 streamers, champions, and bans
         team_a: { ...formData.team_a },
         team_b: { ...formData.team_b },
@@ -2486,34 +2540,57 @@ export const JournalTab: React.FC<JournalTabProps> = ({
               </button>
             </div>
 
-            {isAdmin ? (
-              <p className="text-[12px] text-[#8a8aa0] mb-4 leading-relaxed">
-                관리자 모드가 활성화되어 있습니다. 선택한 경기를 삭제하시겠습니까?
-              </p>
-            ) : (
-              <>
-                <p className="text-[12px] text-[#8a8aa0] mb-4">
-                  경기를 삭제하려면 관리자 패스코드를 입력해주세요.
-                </p>
-                <input
-                  type="password"
-                  value={deletePasscode}
-                  onChange={(e) => {
-                    setDeletePasscode(e.target.value);
-                    setDeleteError('');
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleConfirmDelete();
-                  }}
-                  placeholder="패스코드"
-                  className="w-full h-[38px] bg-[#08080c] border border-[#1e1e2a] rounded-full px-4 text-[12px] text-white focus:outline-none focus:border-[#ef4444]/50 mb-2"
-                  autoFocus
-                />
-                {deleteError && (
-                  <div className="text-[11px] text-[#ff6b6b] mb-3">{deleteError}</div>
-                )}
-              </>
-            )}
+            {(() => {
+              const seriesIds = deleteTargetId ? findSeriesMatchIds(deleteTargetId, matches) : [];
+              const isMultiSet = seriesIds.length > 1;
+              return (
+                <>
+                  {isAdmin ? (
+                    <p className="text-[12px] text-[#8a8aa0] mb-4 leading-relaxed">
+                      {isMultiSet ? (
+                        <>
+                          선택한 경기 및 동일 시리즈에 연결된{' '}
+                          <span className="text-[#f87171] font-bold">{seriesIds.length}개 세트</span>가
+                          DB에서 함께 완전히 삭제(Cascade Delete)됩니다. 계속하시겠습니까?
+                        </>
+                      ) : (
+                        '관리자 모드가 활성화되어 있습니다. 선택한 경기를 삭제하시겠습니까?'
+                      )}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-[12px] text-[#8a8aa0] mb-4 leading-relaxed">
+                        {isMultiSet ? (
+                          <>
+                            동일 시리즈에 속한 <span className="text-[#f87171] font-bold">{seriesIds.length}개 세트</span>가
+                            함께 삭제됩니다. 삭제하려면 관리자 패스코드를 입력해주세요.
+                          </>
+                        ) : (
+                          '경기를 삭제하려면 관리자 패스코드를 입력해주세요.'
+                        )}
+                      </p>
+                      <input
+                        type="password"
+                        value={deletePasscode}
+                        onChange={(e) => {
+                          setDeletePasscode(e.target.value);
+                          setDeleteError('');
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleConfirmDelete();
+                        }}
+                        placeholder="패스코드"
+                        className="w-full h-[38px] bg-[#08080c] border border-[#1e1e2a] rounded-full px-4 text-[12px] text-white focus:outline-none focus:border-[#ef4444]/50 mb-2"
+                        autoFocus
+                      />
+                      {deleteError && (
+                        <div className="text-[11px] text-[#ff6b6b] mb-3">{deleteError}</div>
+                      )}
+                    </>
+                  )}
+                </>
+              );
+            })()}
 
             <div className="flex gap-2 mt-4">
               <button

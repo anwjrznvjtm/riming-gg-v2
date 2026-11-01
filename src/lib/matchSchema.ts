@@ -14,6 +14,7 @@ export const SUPABASE_TABLE_NAME = 'ck_matches';
  */
 export interface DbMatchRow {
   id: string;
+  parent_match_id?: string;
   date: string; // 'YYYY-MM-DD'
   ck_name: string;
   match_format: string; // '단판' | '3판2선승' | '5판3선승'
@@ -31,6 +32,9 @@ export interface DbMatchRow {
   funding?: number;
   star_balloons?: number;
   funding_per_person?: number;
+  funding_base_amount?: number;
+  funding_ratio?: string;
+  funding_target_team?: string;
   funding_split_count?: number;
   has_partner_subsidy?: boolean;
   partner_subsidy?: boolean;
@@ -220,10 +224,33 @@ export function normalizeMatch(raw: any): Match {
     funding = funding_per_person * funding_split_count;
   }
 
+  const parent_match_id =
+    typeof raw?.parent_match_id === 'string' && raw.parent_match_id.trim()
+      ? raw.parent_match_id.trim()
+      : typeof raw?.parent_id === 'string' && raw.parent_id.trim()
+      ? raw.parent_id.trim()
+      : undefined;
+
+  const funding_base_amount =
+    typeof raw?.funding_base_amount === 'number' && !isNaN(raw.funding_base_amount)
+      ? raw.funding_base_amount
+      : undefined;
+
+  const funding_ratio =
+    typeof raw?.funding_ratio === 'string' && raw.funding_ratio.trim()
+      ? raw.funding_ratio.trim()
+      : '100:0';
+
+  const funding_target_team =
+    typeof raw?.funding_target_team === 'string' && raw.funding_target_team.trim()
+      ? raw.funding_target_team.trim()
+      : 'auto';
+
   const has_partner_subsidy = Boolean(raw?.has_partner_subsidy ?? raw?.partner_subsidy);
 
   return {
     id,
+    parent_match_id,
     date,
     ck_name,
     match_format,
@@ -233,6 +260,9 @@ export function normalizeMatch(raw: any): Match {
     funding,
     star_balloons: funding,
     funding_per_person,
+    funding_base_amount,
+    funding_ratio,
+    funding_target_team,
     funding_split_count,
     has_partner_subsidy,
     partner_subsidy: has_partner_subsidy,
@@ -296,6 +326,7 @@ export function matchToDbRow(match: Match): DbMatchRow {
   const now = new Date().toISOString();
   return {
     id: match.id,
+    parent_match_id: match.parent_match_id,
     date: match.date,
     ck_name: match.ck_name,
     match_format: match.match_format,
@@ -305,6 +336,9 @@ export function matchToDbRow(match: Match): DbMatchRow {
     funding: match.funding,
     star_balloons: match.star_balloons,
     funding_per_person: match.funding_per_person,
+    funding_base_amount: match.funding_base_amount,
+    funding_ratio: match.funding_ratio,
+    funding_target_team: match.funding_target_team,
     funding_split_count: match.funding_split_count,
     has_partner_subsidy: match.has_partner_subsidy,
     partner_subsidy: match.partner_subsidy,
