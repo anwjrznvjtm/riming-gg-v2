@@ -365,43 +365,86 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/streamers', (req, res) => {
+  app.put('/api/streamers', (req, res) => {
     try {
       cachedLiveResponse = null;
-      const name = (req.query.name || req.body?.name || '') as string;
-      if (!name) return res.status(400).json({ success: false, error: 'Streamer name is required' });
-      const targetKey = name.toLowerCase().trim();
+      const { streamers, streamer } = req.body || {};
       const current = readStreamersFromFile();
-      const updated = current.filter((s: any) => (s?.name || '').toLowerCase().trim() !== targetKey);
+      const map = new Map<string, any>();
+      for (const item of current) {
+        if (item?.name) map.set(item.name.toLowerCase().trim(), item);
+      }
+
+      const incoming = Array.isArray(streamers) ? streamers : streamer ? [streamer] : [];
+      const nowIso = new Date().toISOString();
+
+      for (const item of incoming) {
+        if (!item?.name || typeof item.name !== 'string' || !item.name.trim()) continue;
+        const key = item.name.toLowerCase().trim();
+        const existing = map.get(key) || {};
+        map.set(key, {
+          ...existing,
+          ...item,
+          name: item.name.trim(),
+          soop_id: typeof item.soop_id === 'string' ? item.soop_id.trim() : (existing.soop_id || '').trim(),
+          main_position: item.main_position || existing.main_position || 'mid',
+          is_hidden: item.is_hidden !== undefined ? Boolean(item.is_hidden) : Boolean(existing.is_hidden),
+          updated_at: item.updated_at || nowIso,
+          memo: item.memo || existing.memo,
+        });
+      }
+
+      const updated = Array.from(map.values()).sort((a: any, b: any) => {
+        if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+        if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+        return a.name.localeCompare(b.name);
+      });
+
       const success = writeStreamersToFile(updated);
       if (!success) {
-        return res.status(500).json({ success: false, error: 'Failed to write streamers to disk on delete' });
+        return res.status(500).json({ success: false, error: 'Failed to write streamers to disk on PUT' });
       }
-      console.log(`[Server] Streamer deleted: name=${name}, remaining=${updated.length}`);
+      console.log(`[Server] Streamers updated via PUT: count=${updated.length}`);
       return res.json({ success: true, count: updated.length, streamers: updated });
     } catch (err: any) {
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to delete streamer' });
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to update streamers' });
     }
   });
 
-  app.post('/api/streamers/delete', (req, res) => {
+  // Batch or single delete helper
+  function handleDeleteStreamers(req: any, res: any) {
     try {
       cachedLiveResponse = null;
-      const name = (req.body?.name || req.query.name || '') as string;
-      if (!name) return res.status(400).json({ success: false, error: 'Streamer name is required' });
-      const targetKey = name.toLowerCase().trim();
+      const rawNames = req.body?.names || (req.query?.names ? (Array.isArray(req.query.names) ? req.query.names : [req.query.names]) : null);
+      const singleName = (req.body?.name || req.query?.name || '') as string;
+      const targetNames: string[] = Array.isArray(rawNames)
+        ? rawNames.map((n: any) => String(n).toLowerCase().trim()).filter(Boolean)
+        : singleName
+        ? [singleName.toLowerCase().trim()]
+        : [];
+
+      if (targetNames.length === 0) {
+        return res.status(400).json({ success: false, error: 'At least one streamer name is required for deletion' });
+      }
+
+      const deleteSet = new Set(targetNames);
       const current = readStreamersFromFile();
-      const updated = current.filter((s: any) => (s?.name || '').toLowerCase().trim() !== targetKey);
+      const updated = current.filter((s: any) => !deleteSet.has((s?.name || '').toLowerCase().trim()));
+
       const success = writeStreamersToFile(updated);
       if (!success) {
         return res.status(500).json({ success: false, error: 'Failed to write streamers to disk on delete' });
       }
-      console.log(`[Server] Streamer deleted via POST: name=${name}, remaining=${updated.length}`);
-      return res.json({ success: true, count: updated.length, streamers: updated });
+
+      console.log(`[Server] Streamer(s) deleted: count=${targetNames.length}, remaining=${updated.length}`);
+      return res.json({ success: true, count: updated.length, deletedCount: targetNames.length, streamers: updated });
     } catch (err: any) {
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to delete streamer' });
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to delete streamer(s)' });
     }
-  });
+  }
+
+  app.delete('/api/streamers', handleDeleteStreamers);
+  app.post('/api/streamers/delete', handleDeleteStreamers);
 
   app.post('/api/analyze-screenshot', async (req, res) => {
     try {

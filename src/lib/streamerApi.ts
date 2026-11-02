@@ -407,6 +407,45 @@ export async function deleteStreamerProfileAsync(name: string): Promise<Streamer
 }
 
 /**
+ * Batch delete multiple streamer profiles permanently from server DB
+ */
+export async function deleteStreamersBatchAsync(names: string[]): Promise<StreamerProfile[]> {
+  const cleanNames = names.map((n) => (n || '').trim()).filter(Boolean);
+  if (cleanNames.length === 0) return getStoredStreamerProfiles();
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const res = await fetch('/api/streamers/delete', {
+      signal: controller.signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names: cleanNames }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.streamers)) {
+        const serverList = sortStreamerProfiles(data.streamers);
+        _cachedStreamerProfiles = serverList;
+        await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+        return serverList;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[StreamerApi] deleteStreamersBatchAsync error:', err);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  const deleteSet = new Set(cleanNames.map((n) => n.toLowerCase()));
+  const current = getStoredStreamerProfiles();
+  const updated = current.filter((p) => !deleteSet.has(p.name.toLowerCase().trim()));
+  _cachedStreamerProfiles = updated;
+  return updated;
+}
+
+/**
  * Automatically inspect all matches and infer/upsert streamers into the profile database
  */
 export function autoCollectStreamersFromMatches(

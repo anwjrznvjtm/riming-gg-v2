@@ -130,8 +130,8 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(AUTO_REFRESH_SECONDS);
 
-  // Initial state is null (inactive): only activates when user clicks a line button
-  const [selectedLineFilter, setSelectedLineFilter] = useState<'ALL' | LineKey | null>(null);
+  // Default to 'ALL' so live members are immediately displayed across all positions
+  const [selectedLineFilter, setSelectedLineFilter] = useState<'ALL' | LineKey>('ALL');
 
   const [isManageModalOpen, setIsManageModalOpen] = useState<boolean>(false);
   const [isFinderModalOpen, setIsFinderModalOpen] = useState<boolean>(false);
@@ -253,9 +253,9 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
   const seconds = secondsRemaining % 60;
   const timeFormatted = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-  // Handle line filter click with toggle deactivation
+  // Handle line filter click
   const handleLineFilterClick = (target: 'ALL' | LineKey) => {
-    setSelectedLineFilter((prev) => (prev === target ? null : target));
+    setSelectedLineFilter(target);
   };
 
   const renderLiveCard = (member: LiveStreamerMember, isHero = false) => {
@@ -269,6 +269,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
         ? `https:${live.broad_thumb}`
         : live.broad_thumb
       : null;
+    const positionCfg = LINE_CONFIG[profile.main_position || 'mid'];
 
     return (
       <a
@@ -277,14 +278,14 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
         target="_blank"
         rel="noopener noreferrer"
         title={`${profile.name} SOOP 라이브 방송 바로가기 (새 창)`}
-        className={`group relative rounded-[20px] overflow-hidden border transition-all duration-300 flex flex-col bg-[#12121a] hover:bg-[#161624] cursor-pointer shadow-lg hover:shadow-[0_10px_30px_rgba(0,0,0,0.6)] ${
+        className={`group relative rounded-[20px] overflow-hidden border transition-all duration-300 flex flex-col bg-[#11121d] hover:bg-[#161726] cursor-pointer shadow-lg hover:shadow-[0_12px_32px_rgba(0,0,0,0.65)] ${
           isHero || isW
             ? 'border-[#a855f7] ring-2 ring-[#a855f7]/30 hover:ring-[#a855f7]/60'
-            : 'border-[#1e1e2a] hover:border-[#8b5cf6]/50'
+            : 'border-[#202234] hover:border-[#8b5cf6]/60'
         }`}
       >
         {/* Thumbnail Preview with Live Badge & Viewers */}
-        <div className="relative aspect-video w-full bg-[#0a0a10] overflow-hidden">
+        <div className="relative aspect-video w-full bg-[#0a0a12] overflow-hidden">
           {thumbUrl ? (
             <img
               src={thumbUrl}
@@ -296,21 +297,24 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#12121e] to-[#1e1e2e]">
-              <Tv className="text-[#3a3a50]" size={42} />
+              <Tv className="text-[#3a3a50]" size={40} />
             </div>
           )}
 
+          {/* Bottom vignette gradient for contrast */}
+          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+
           {/* Top Overlays: LIVE Badge & Viewer Count */}
           <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
-            <span className="flex items-center gap-1.5 bg-[#ef4444] text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-md">
-              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+            <span className="flex items-center gap-1.5 bg-[#ef4444] text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-lg">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               LIVE
             </span>
           </div>
 
-          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 bg-black/75 backdrop-blur-md text-white text-[10.5px] font-bold px-2 py-0.5 rounded-full z-10">
-            <Users size={12} className="text-[#a0a0b8]" />
-            <span>{formatViewerCount(live.total_view_cnt)}</span>
+          <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 bg-black/75 backdrop-blur-md text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-white/10 z-10">
+            <Users size={12} className="text-[#c4b5fd]" />
+            <span>{formatViewerCount(live.total_view_cnt)}명</span>
           </div>
 
           {/* Hover Play Icon Overlay */}
@@ -322,35 +326,31 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
         </div>
 
         {/* Card Content */}
-        <div className="p-3.5 flex flex-col flex-1 justify-between gap-2.5">
+        <div className="p-4 flex flex-col flex-1 justify-between gap-3">
           {/* Broadcaster Profile Row */}
           <div className="flex items-center gap-2.5">
             <div className="relative shrink-0">
-              <StreamerAvatar name={profile.name} size={38} shape="circle" />
-              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-[#ef4444] border-2 border-[#12121a] rounded-full" />
+              <StreamerAvatar name={profile.name} size={40} shape="circle" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#ef4444] border-2 border-[#11121d] rounded-full" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[13.5px] font-black text-white truncate group-hover:text-[#c4b5fd] transition-colors">
+                <span className="text-[14px] font-black text-white truncate group-hover:text-[#c4b5fd] transition-colors">
                   {profile.name}
                 </span>
                 {isW && (
-                  <span className="text-[9.5px] bg-[#8b5cf6] text-white font-extrabold px-1.5 py-0.2 rounded-full flex items-center gap-0.5">
+                  <span className="text-[10px] bg-[#8b5cf6] text-white font-extrabold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
                     <Crown size={10} className="fill-white" />
                     우리밍_
                   </span>
                 )}
                 <span
-                  className={`text-[9.5px] font-bold px-1.5 py-0.2 rounded-full border ${
-                    LINE_CONFIG[profile.main_position || 'mid'].badgeBg
-                  } ${LINE_CONFIG[profile.main_position || 'mid'].badgeText} ${
-                    LINE_CONFIG[profile.main_position || 'mid'].badgeBorder
-                  }`}
+                  className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${positionCfg.badgeBg} ${positionCfg.badgeText} ${positionCfg.badgeBorder}`}
                 >
                   {LINE_LABELS[profile.main_position || 'mid']}
                 </span>
               </div>
-              <div className="text-[10.5px] text-[#8a8aa0] truncate">
+              <div className="text-[11px] text-[#8e8ea4] truncate mt-0.5">
                 {live.user_nick || `@${cleanId}`}
               </div>
             </div>
@@ -358,20 +358,20 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
 
           {/* Broadcast Title */}
           <p
-            className="text-[12.5px] text-[#e0e0ec] font-medium line-clamp-2 leading-snug group-hover:text-white transition-colors"
+            className="text-[13px] text-[#e2e2ee] font-semibold line-clamp-2 leading-snug group-hover:text-white transition-colors"
             title={live.broad_title}
           >
             {live.broad_title || 'SOOP 라이브 방송 중'}
           </p>
 
           {/* Card Footer: Uptime & Click Prompt */}
-          <div className="pt-2 border-t border-[#1e1e2a] flex items-center justify-between text-[10.5px] text-[#7a7a90]">
+          <div className="pt-2.5 border-t border-[#1e2030] flex items-center justify-between text-[11px] text-[#808098]">
             <span className="flex items-center gap-1">
-              <Clock size={11} />
+              <Clock size={11} className="text-[#a78bfa]" />
               {formatRelativeTime(live.broad_start) || '라이브 진행 중'}
             </span>
             <span className="text-[#a78bfa] font-bold flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-              방송국 시청 <ExternalLink size={11} />
+              방송국 이동 <ExternalLink size={11} />
             </span>
           </div>
         </div>
@@ -382,9 +382,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
   const linesToRender: LineKey[] =
     selectedLineFilter === 'ALL'
       ? LINE_KEYS
-      : selectedLineFilter
-      ? [selectedLineFilter]
-      : [];
+      : [selectedLineFilter];
 
   return (
     <div className="w-full space-y-6 animate-[fadeIn_0.2s]">
@@ -557,54 +555,33 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
       </div>
 
       {/* ======================================================== */}
-      {/* 2. Main Body: Initial Guide vs Activated Line Screen      */}
+      {/* 2. Main Body: Line-by-Line Live Broadcasts Screen        */}
       {/* ======================================================== */}
-      {selectedLineFilter === null ? (
-        /* 초기 비활성화 상태: 안내 문구 노출 (카드 자동 노출 방지) */
-        <div className="bg-[#0e0e16] border border-[#1e1e2c] rounded-[24px] p-10 sm:p-14 text-center shadow-xl space-y-4 animate-[fadeIn_0.15s]">
-          <div className="w-16 h-16 rounded-2xl bg-[#8b5cf6]/10 border border-[#8b5cf6]/30 flex items-center justify-center mx-auto text-[#a78bfa]">
-            <Tv size={32} />
-          </div>
-          <div className="space-y-1.5 max-w-lg mx-auto">
-            <h3 className="text-[17px] sm:text-[19px] font-black text-white">
-              상단 포지션 버튼(전체, TOP, JGL, MID, ADC, SUP)을 클릭하여 라이브 방송을 확인하세요
-            </h3>
-            <p className="text-[12.5px] sm:text-[13px] text-[#8a8aa0] leading-relaxed">
-              원하는 라인을 선택하면 현재 SOOP에서 실시간 라이브 방송 중인 멤버 카드 목록이 활성화됩니다.
-            </p>
-          </div>
-        </div>
-      ) : (
-        /* 라인 버튼 선택 시 활성화: 해당 포지션(또는 전체) 라이브 카드 목록 출력 */
-        <div className="space-y-6 animate-[fadeIn_0.2s]">
-          {/* Active Status & Deselect Bar */}
-          <div className="flex items-center justify-between bg-[#101018] border border-[#1e1e2c] px-4 py-2.5 rounded-2xl text-[12px]">
+      <div className="space-y-6 animate-[fadeIn_0.2s]">
+        {/* Active Filter Bar when a single line is chosen */}
+        {selectedLineFilter !== 'ALL' && (
+          <div className="flex items-center justify-between bg-[#10111a] border border-[#202234] px-4 py-2.5 rounded-2xl text-[12px] animate-[fadeIn_0.15s]">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-[#10b981]" />
-              <span className="text-[#a0a0b8]">현재 활성화된 포지션:</span>
+              <span className="text-[#a0a0b8]">현재 선택된 포지션:</span>
               <strong className="text-white font-black">
-                {selectedLineFilter === 'ALL'
-                  ? '전체 포지션'
-                  : `${LINE_CONFIG[selectedLineFilter].kr}(${LINE_CONFIG[selectedLineFilter].name})`}
+                {`${LINE_CONFIG[selectedLineFilter].kr} (${LINE_CONFIG[selectedLineFilter].name})`}
               </strong>
               <span className="text-[#ef4444] font-bold">
-                (
-                {selectedLineFilter === 'ALL'
-                  ? totalLiveCount
-                  : lineGroups[selectedLineFilter].length}
-                명 LIVE)
+                ({lineGroups[selectedLineFilter].length}명 LIVE)
               </span>
             </div>
 
             <button
               type="button"
-              onClick={() => setSelectedLineFilter(null)}
-              className="h-[28px] px-3 bg-[#181824] hover:bg-[#222234] text-[#a0a0b8] hover:text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer border border-[#2a2a3e]"
+              onClick={() => setSelectedLineFilter('ALL')}
+              className="h-[28px] px-3 bg-[#181928] hover:bg-[#222438] text-[#c4b5fd] hover:text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer border border-[#2a2c42]"
             >
-              <span>화면 닫기</span>
+              <span>전체 포지션 보기</span>
               <X size={13} />
             </button>
           </div>
+        )}
 
           {/* Line Sections */}
           <div className="space-y-7">
@@ -741,7 +718,6 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
             })}
           </div>
         </div>
-      )}
 
       {/* ======================================================== */}
       {/* 3. Global Empty State (If 0 Live in entire system)        */}

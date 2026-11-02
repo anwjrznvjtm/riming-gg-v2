@@ -4,6 +4,7 @@ import {
   syncStreamersFromBackend,
   saveStreamerProfilesBatchAsync,
   deleteStreamerProfileAsync,
+  deleteStreamersBatchAsync,
   tidyStreamersFromMatches,
 } from '../lib/streamerApi';
 import { StreamerAvatar, SOOP_STREAMER_IDS } from './StreamerAvatar';
@@ -22,15 +23,10 @@ import {
   Radio,
   Lock,
   Swords,
-  ShieldCheck,
-  RefreshCw,
-  Layers,
   ChevronDown,
   CheckSquare,
   Square,
   MinusSquare,
-  ShieldAlert,
-  Users,
 } from 'lucide-react';
 
 interface StreamerManageModalProps {
@@ -101,7 +97,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     mapProfilesToDict(allProfiles)
   );
 
-  // Checkbox selection state (Set of streamer names)
+  // Checkbox selection state (Only stores names of streamers with 0 matches)
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
   const [isBatchConfirmOpen, setIsBatchConfirmOpen] = useState(false);
 
@@ -267,12 +263,11 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
     const currentEntered = (editingIds[key] ?? target.soop_id ?? '').trim();
     if (currentEntered === (target.soop_id || '').trim()) {
-      return; // No change, do not trigger request
+      return; // No change
     }
 
     if (!isAdmin) {
       onToastRef.current('스트리머 수정은 관리자만 가능합니다.');
-      // Revert editing input to current target soop_id
       setEditingIds((prev) => ({ ...prev, [key]: target.soop_id || '' }));
       return;
     }
@@ -283,7 +278,6 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       updated_at: new Date().toISOString(),
     };
 
-    // Optimistically update localMap
     setLocalMap((prev) => ({
       ...prev,
       [key]: updatedProfile,
@@ -380,7 +374,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     setDeleteTargetName(name);
   };
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmSingleDelete = async () => {
     if (!deleteTargetName || !isAdmin) return;
 
     setIsProcessing(true);
@@ -411,7 +405,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   };
 
   // --------------------------------------------------------------------------
-  // 6. [CK일지 전적 기반 명단 정돈] (Requirement 2)
+  // 6. [CK일지 전적 기반 명단 정돈]
   // --------------------------------------------------------------------------
   const handleTidyStreamersFromCK = async () => {
     if (!isAdmin) {
@@ -446,7 +440,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   };
 
   // --------------------------------------------------------------------------
-  // 7. [수동 추가] 신규 스트리머 등록 & Auto-Save (Requirement 3)
+  // 7. [수동 추가] 신규 스트리머 등록 & Auto-Save
   // --------------------------------------------------------------------------
   const handleAddNewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -503,21 +497,8 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   };
 
   // --------------------------------------------------------------------------
-  // 8. CHECKBOX SELECTION & BATCH ACTION LOGIC (체크박스 및 전체 선택 / 일괄 삭제)
+  // 8. CHECKBOX SELECTION LOGIC: Only 0-match (Deletable) Streamers can be selected!
   // --------------------------------------------------------------------------
-  const handleToggleSelectOne = (name: string) => {
-    setSelectedNames((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-      } else {
-        next.add(name);
-      }
-      return next;
-    });
-  };
-
-  // Filtered List calculation
   const allStreamerProfiles: StreamerProfile[] = useMemo(() => {
     return (Object.values(localMap) as StreamerProfile[]).sort((a, b) => {
       if (a.name === '우리밍_' || a.name === '우리밍') return -1;
@@ -528,10 +509,10 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
   const filteredProfiles = useMemo(() => {
     return allStreamerProfiles.filter((p) => {
-      // 1. Line filter
+      // Line filter
       if (selectedLine !== 'ALL' && p.main_position !== selectedLine) return false;
 
-      // 2. Status filter
+      // Status filter
       const isLive = Boolean(p.soop_id && liveUserIds.has(p.soop_id.toLowerCase().trim()));
       const stat = matchStatsMap.get(p.name.toLowerCase().trim()) || { total: 0, wins: 0, losses: 0, winRate: 0 };
       const hasMatches = stat.total > 0;
@@ -543,7 +524,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       if (filterMode === 'NO_MATCHES' && hasMatches) return false;
       if (filterMode === 'NO_ID' && p.soop_id?.trim()) return false;
 
-      // 3. Search query filter
+      // Search query filter
       if (search.trim()) {
         const q = search.trim().toLowerCase();
         const chosung = getChosung(p.name).toLowerCase();
@@ -556,32 +537,64 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     });
   }, [allStreamerProfiles, selectedLine, filterMode, search, liveUserIds, matchStatsMap]);
 
-  // Overall selection state for currently filtered list
-  const isAllFilteredSelected = useMemo(() => {
-    if (filteredProfiles.length === 0) return false;
-    return filteredProfiles.every((p) => selectedNames.has(p.name));
-  }, [filteredProfiles, selectedNames]);
+  // Only streamers with 0 CK matches (and not Wooriming) are deletable and selectable!
+  const deletableFilteredProfiles = useMemo(() => {
+    return filteredProfiles.filter((p) => {
+      const isBenchmark = p.name === '우리밍_' || p.name === '우리밍';
+      if (isBenchmark) return false;
+      const stat = matchStatsMap.get(p.name.toLowerCase().trim()) || { total: 0, wins: 0, losses: 0, winRate: 0 };
+      return stat.total === 0;
+    });
+  }, [filteredProfiles, matchStatsMap]);
 
-  const isSomeFilteredSelected = useMemo(() => {
-    if (isAllFilteredSelected) return false;
-    return filteredProfiles.some((p) => selectedNames.has(p.name));
-  }, [filteredProfiles, selectedNames, isAllFilteredSelected]);
+  const isAllDeletableSelected = useMemo(() => {
+    if (deletableFilteredProfiles.length === 0) return false;
+    return deletableFilteredProfiles.every((p) => selectedNames.has(p.name));
+  }, [deletableFilteredProfiles, selectedNames]);
+
+  const isSomeDeletableSelected = useMemo(() => {
+    if (isAllDeletableSelected) return false;
+    return deletableFilteredProfiles.some((p) => selectedNames.has(p.name));
+  }, [deletableFilteredProfiles, selectedNames, isAllDeletableSelected]);
+
+  const handleToggleSelectOne = (name: string) => {
+    const stat = matchStatsMap.get(name.toLowerCase().trim()) || { total: 0, wins: 0, losses: 0, winRate: 0 };
+    if (stat.total > 0 || name === '우리밍_' || name === '우리밍') {
+      onToastRef.current(`'${name}' 스트리머는 CK 전적이 있어 삭제 선택이 불가합니다. (숨김만 가능)`);
+      return;
+    }
+
+    setSelectedNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  };
 
   const handleToggleSelectAll = () => {
-    if (isAllFilteredSelected) {
-      // Deselect all filtered items
+    if (deletableFilteredProfiles.length === 0) {
+      onToastRef.current('현재 필터에 삭제 가능한(전적 0건) 스트리머가 없습니다.');
+      return;
+    }
+
+    if (isAllDeletableSelected) {
+      // Deselect all deletable in current view
       setSelectedNames((prev) => {
         const next = new Set(prev);
-        for (const p of filteredProfiles) {
+        for (const p of deletableFilteredProfiles) {
           next.delete(p.name);
         }
         return next;
       });
     } else {
-      // Select all filtered items
+      // Select only deletable in current view
       setSelectedNames((prev) => {
         const next = new Set(prev);
-        for (const p of filteredProfiles) {
+        for (const p of deletableFilteredProfiles) {
           next.add(p.name);
         }
         return next;
@@ -589,68 +602,24 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     }
   };
 
-  // Analyze selected items for batch delete vs hide
-  const batchClassification = useMemo(() => {
-    const selectedList: string[] = Array.from(selectedNames);
-    const toDelete: string[] = [];
-    const toHide: string[] = [];
-
-    for (const name of selectedList) {
-      const key = (name as string).toLowerCase().trim();
-      const stat = matchStatsMap.get(key) || { total: 0, wins: 0, losses: 0, winRate: 0 };
-      const isBenchmark = name === '우리밍_' || name === '우리밍';
-
-      if (stat.total === 0 && !isBenchmark) {
-        toDelete.push(name);
-      } else {
-        toHide.push(name);
-      }
-    }
-
-    return { toDelete, toHide, totalSelected: selectedList.length };
-  }, [selectedNames, matchStatsMap]);
-
-  // Execute batch delete & hide with safe DB synchronization
-  const handleExecuteBatchDeleteAndHide = async () => {
+  // --------------------------------------------------------------------------
+  // 9. SIMPLIFIED BATCH DELETE EXECUTION (Requirement 2 & 3: Persistent Delete)
+  // --------------------------------------------------------------------------
+  const handleExecuteBatchDelete = async () => {
     if (selectedNames.size === 0) return;
     if (!isAdmin) {
-      onToastRef.current('일괄 작업은 관리자만 실행할 수 있습니다.');
+      onToastRef.current('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
     }
 
     setIsProcessing(true);
-    setAutoSaveStatus('일괄 처리 중...');
+    setAutoSaveStatus('영구 삭제 중...');
+
+    const namesToDelete: string[] = Array.from(selectedNames);
 
     try {
-      const currentList = Object.values(localMap) as StreamerProfile[];
-      const deleteSet = new Set(batchClassification.toDelete);
-      const hideSet = new Set(batchClassification.toHide);
-      const nowIso = new Date().toISOString();
-
-      // 1. Build new clean array:
-      // - Exclude items in deleteSet (permanently deleted from DB)
-      // - Switch is_hidden = true for items in hideSet (preserved history, hidden from live)
-      const updatedList: StreamerProfile[] = [];
-
-      for (const p of currentList) {
-        if (deleteSet.has(p.name)) {
-          continue; // Deleted
-        }
-        if (hideSet.has(p.name)) {
-          updatedList.push({
-            ...p,
-            is_hidden: true,
-            updated_at: nowIso,
-          });
-        } else {
-          updatedList.push(p);
-        }
-      }
-
-      // 2. Persist directly to backend DB with atomic replace
-      const serverList = await saveStreamerProfilesBatchAsync(updatedList, { replace: true });
-      await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
-
+      // Persistent Batch Delete via backend API (DELETE /api/streamers)
+      const serverList = await deleteStreamersBatchAsync(namesToDelete);
       if (Array.isArray(serverList)) {
         const dict = mapProfilesToDict(serverList);
         setLocalMap(dict);
@@ -662,29 +631,16 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         }
       }
 
-      const delCount = batchClassification.toDelete.length;
-      const hideCount = batchClassification.toHide.length;
-
+      const count = namesToDelete.length;
       setSelectedNames(new Set());
       setIsBatchConfirmOpen(false);
-      setAutoSaveStatus('일괄 처리 완료 ✓');
+      setAutoSaveStatus('삭제 완료 ✓');
 
-      let toastNotice = '';
-      if (delCount > 0 && hideCount > 0) {
-        toastNotice = `일괄 처리 완료! 전적 없는 ${delCount}명 영구 삭제, 전적 있는 ${hideCount}명 [숨김] 전환 완료 ☁`;
-      } else if (delCount > 0) {
-        toastNotice = `일괄 삭제 완료! 전적 없는 ${delCount}명이 서버 DB에서 영구 삭제되었습니다. ☁`;
-      } else if (hideCount > 0) {
-        toastNotice = `일괄 숨김 완료! 전적 보존을 위해 ${hideCount}명이 [숨김] 상태로 안전하게 전환되었습니다.`;
-      } else {
-        toastNotice = '선택된 항목이 처리되었습니다.';
-      }
-
-      onToastRef.current(toastNotice);
+      onToastRef.current(`선택한 ${count}명의 스트리머(전적 0건)가 서버 DB에서 영구 삭제되었습니다.`);
     } catch (err) {
-      console.warn('[StreamerManageModal] Batch action failed:', err);
-      setAutoSaveStatus('처리 실패');
-      onToastRef.current('일괄 처리 중 오류가 발생했습니다.');
+      console.warn('[StreamerManageModal] Batch delete error:', err);
+      setAutoSaveStatus('삭제 실패');
+      onToastRef.current('일괄 삭제 중 오류가 발생했습니다.');
     } finally {
       setIsProcessing(false);
     }
@@ -797,17 +753,17 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         </div>
 
         {/* ================================================================= */}
-        {/* 2.5 BATCH ACTION BAR (WHEN ITEMS ARE SELECTED VIA CHECKBOXES)     */}
+        {/* 2.5 BATCH ACTION BAR (전적 0건 스트리머 선택 시 일괄 삭제 바 노출)  */}
         {/* ================================================================= */}
         {selectedNames.size > 0 && (
-          <div className="px-5 sm:px-6 py-2.5 bg-gradient-to-r from-[#2a1324] via-[#20152e] to-[#16162a] border-b border-[#ef4444]/40 flex flex-wrap items-center justify-between gap-3 animate-[fadeIn_0.15s]">
-            <div className="flex items-center gap-2.5">
+          <div className="px-5 sm:px-6 py-2.5 bg-gradient-to-r from-[#2c131a] via-[#201524] to-[#161626] border-b border-[#ef4444]/40 flex flex-wrap items-center justify-between gap-3 animate-[fadeIn_0.15s]">
+            <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444] animate-ping" />
               <div className="text-[12px]">
                 <strong className="text-white font-bold">{selectedNames.size}명</strong>
-                <span className="text-[#d0d0e0]"> 선택됨 </span>
-                <span className="text-[11px] text-[#a0a0b8] font-mono">
-                  (전적 없음: <strong className="text-[#f87171]">{batchClassification.toDelete.length}명 삭제 대상</strong> / 전적 있음: <strong className="text-[#fbbf24]">{batchClassification.toHide.length}명 숨김 전환</strong>)
+                <span className="text-[#e2e2ec]"> 선택됨 </span>
+                <span className="text-[11px] text-[#f87171] font-mono bg-[#ef4444]/15 px-2 py-0.5 rounded-md ml-1 border border-[#ef4444]/30">
+                  전적 0건 (영구 삭제 대상)
                 </span>
               </div>
             </div>
@@ -816,7 +772,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedNames(new Set())}
-                className="h-[32px] px-3 bg-[#1e1e30] hover:bg-[#282842] text-[#a0a0b8] hover:text-white rounded-xl text-[11px] font-medium border border-[#32324a]"
+                className="h-[32px] px-3 bg-[#1e1e2e] hover:bg-[#28283e] text-[#a0a0b8] hover:text-white rounded-xl text-[11px] font-medium border border-[#303046]"
               >
                 선택 해제
               </button>
@@ -828,7 +784,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 className="h-[32px] px-4 bg-gradient-to-r from-[#ef4444] to-[#dc2626] hover:from-[#dc2626] hover:to-[#b91c1c] text-white font-bold rounded-xl text-[12px] shadow-[0_2px_12px_rgba(239,68,68,0.35)] flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
               >
                 <Trash2 size={13} />
-                <span>선택한 스트리머 일괄 삭제 / 숨김 ({selectedNames.size}명)</span>
+                <span>선택한 스트리머 일괄 삭제 ({selectedNames.size}명)</span>
               </button>
             </div>
           </div>
@@ -909,7 +865,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         )}
 
         {/* ================================================================= */}
-        {/* 4. SEARCH & FILTER CONTROLS (WITH SELECT ALL BUTTON)              */}
+        {/* 4. SEARCH & FILTER CONTROLS (WITH 0-MATCH SELECT ALL BUTTON)      */}
         {/* ================================================================= */}
         <div className="px-5 sm:px-6 py-3 bg-[#10101a] border-b border-[#1b1b28] space-y-2.5">
           <div className="flex flex-col sm:flex-row items-center gap-2.5">
@@ -967,7 +923,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
             </div>
           </div>
 
-          {/* Sub-bar: Status Filter Chips + [전체 선택] 체크박스 버튼 */}
+          {/* Sub-bar: Status Filter Chips + [전체 선택 (전적 0건만)] 체크박스 버튼 */}
           <div className="flex items-center justify-between gap-2 overflow-x-auto pb-0.5 text-[11px]">
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="text-[10px] text-[#606078] font-bold mr-1 shrink-0">상태:</span>
@@ -995,33 +951,34 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
               ))}
             </div>
 
-            {/* [전체 선택] 체크박스 버튼 */}
+            {/* [전체 선택]: 오직 CK 경기 전적이 없는(0건) 삭제 가능 스트리머만 선택 대상 */}
             <button
               type="button"
               onClick={handleToggleSelectAll}
-              disabled={filteredProfiles.length === 0}
+              disabled={deletableFilteredProfiles.length === 0}
               className={`h-[26px] px-2.5 rounded-lg font-bold border transition-all shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-40 ${
-                isAllFilteredSelected
-                  ? 'bg-[#8b5cf6] text-white border-[#8b5cf6] shadow-sm'
-                  : isSomeFilteredSelected
-                  ? 'bg-[#8b5cf6]/20 text-[#c4b5fd] border-[#8b5cf6]/40'
+                isAllDeletableSelected
+                  ? 'bg-[#ef4444] text-white border-[#ef4444] shadow-sm'
+                  : isSomeDeletableSelected
+                  ? 'bg-[#ef4444]/20 text-[#fca5a5] border-[#ef4444]/40'
                   : 'bg-[#141422] text-[#9090aa] border-[#222236] hover:text-white hover:border-[#383852]'
               }`}
+              title="CK 경기 전적이 없는(0건) 스트리머만 삭제 대상으로 선택됩니다"
             >
-              {isAllFilteredSelected ? (
+              {isAllDeletableSelected ? (
                 <CheckSquare size={13} className="text-white" />
-              ) : isSomeFilteredSelected ? (
-                <MinusSquare size={13} className="text-[#a78bfa]" />
+              ) : isSomeDeletableSelected ? (
+                <MinusSquare size={13} className="text-[#f87171]" />
               ) : (
                 <Square size={13} className="text-[#707088]" />
               )}
-              <span>전체 선택 ({filteredProfiles.length}명)</span>
+              <span>전체 선택 (삭제 가능 {deletableFilteredProfiles.length}명)</span>
             </button>
           </div>
         </div>
 
         {/* ================================================================= */}
-        {/* 5. STREAMER LIST (CARDS / ROWS WITH CHECKBOXES & AUTO-SAVE)       */}
+        {/* 5. STREAMER LIST (CARDS / ROWS WITH DISCRIMINATED CHECKBOXES)     */}
         {/* ================================================================= */}
         <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-2.5 divide-y divide-[#181826]">
           {filteredProfiles.length === 0 ? (
@@ -1048,33 +1005,43 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
               const hasMatches = stat.total > 0;
               const isIndicatorActive = savedIndicatorName === streamer.name;
               const isChecked = selectedNames.has(streamer.name);
+              const isDeletable = !hasMatches && !isBenchmark;
 
               return (
                 <div
                   key={streamer.name}
                   className={`pt-3 first:pt-0 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 p-3 rounded-2xl transition-all ${
                     isChecked
-                      ? 'bg-[#1b1528] border-2 border-[#8b5cf6]/70 shadow-[0_0_15px_rgba(139,92,246,0.18)]'
+                      ? 'bg-[#221218] border-2 border-[#ef4444]/70 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
                       : streamer.is_hidden
                       ? 'bg-[#12121a]/50 opacity-70 hover:opacity-100 border border-[#20202e]'
                       : 'bg-[#13131e]/90 hover:bg-[#161624] border border-[#1e1e2c]'
                   } ${isIndicatorActive ? 'ring-1 ring-[#10b981]/50' : ''}`}
                 >
-                  {/* Left: Checkbox + Number + Avatar + Name + Stats */}
+                  {/* Left: Checkbox (Enabled ONLY if 0-match) + Number + Avatar + Name + Stats */}
                   <div className="flex items-center gap-3 min-w-[220px]">
-                    {/* Checkbox */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleSelectOne(streamer.name)}
-                      className="p-1 rounded-lg hover:bg-white/5 text-[#a0a0b8] hover:text-white transition-all cursor-pointer shrink-0"
-                      title={isChecked ? '선택 해제' : '선택'}
-                    >
-                      {isChecked ? (
-                        <CheckSquare size={17} className="text-[#8b5cf6]" />
-                      ) : (
-                        <Square size={17} className="text-[#555570]" />
-                      )}
-                    </button>
+                    {/* Checkbox: 전적 0건만 체크 가능, 전적 보유 스트리머는 자물쇠 아이콘으로 비활성화 */}
+                    {isDeletable ? (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSelectOne(streamer.name)}
+                        className="p-1 rounded-lg hover:bg-white/5 text-[#a0a0b8] hover:text-white transition-all cursor-pointer shrink-0"
+                        title={isChecked ? '선택 해제' : '삭제 대상 선택'}
+                      >
+                        {isChecked ? (
+                          <CheckSquare size={17} className="text-[#ef4444]" />
+                        ) : (
+                          <Square size={17} className="text-[#555570]" />
+                        )}
+                      </button>
+                    ) : (
+                      <div
+                        className="p-1 text-[#454558] shrink-0 cursor-not-allowed select-none"
+                        title="CK 경기 전적이 있는 스트리머는 전적 보존을 위해 삭제할 수 없습니다 (숨김만 가능)"
+                      >
+                        <Lock size={15} />
+                      </div>
+                    )}
 
                     <span className="text-[11px] font-mono font-bold text-[#505068] w-[18px] text-right shrink-0">
                       {index + 1}
@@ -1126,8 +1093,8 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                             </span>
                           </span>
                         ) : (
-                          <span className="text-[10px] text-[#606078] font-mono bg-[#181824] px-1.5 py-0.2 rounded border border-[#222234]">
-                            전적 0건 (미출전)
+                          <span className="text-[10px] text-[#f87171]/90 font-mono bg-[#2a1418] px-1.5 py-0.2 rounded border border-[#ef4444]/25">
+                            전적 0건 (삭제 가능)
                           </span>
                         )}
                       </div>
@@ -1304,7 +1271,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={handleConfirmDelete}
+                  onClick={handleConfirmSingleDelete}
                   disabled={isProcessing}
                   className="flex-1 h-[36px] bg-[#ef4444] hover:bg-[#dc2626] text-white font-bold rounded-xl text-[12px] shadow-lg shadow-[#ef4444]/20 cursor-pointer"
                 >
@@ -1316,85 +1283,38 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         )}
 
         {/* ================================================================= */}
-        {/* 8. BATCH DELETE & HIDE CONFIRMATION DIALOG (선택 일괄 삭제 확인)  */}
+        {/* 8. SIMPLIFIED BATCH DELETE CONFIRMATION DIALOG (Requirement 2)    */}
         {/* ================================================================= */}
         {isBatchConfirmOpen && (
           <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-[fadeIn_0.15s]">
-            <div className="relative w-full max-w-[480px] bg-[#13131e] border border-[#ef4444]/50 rounded-[22px] p-6 shadow-2xl flex flex-col gap-4 text-[#e6e6ef]">
-              <div className="flex items-center gap-2 text-[#f87171] font-extrabold text-[16px]">
-                <ShieldAlert size={22} className="text-[#ef4444]" />
-                <span>선택 스트리머 일괄 삭제 & 숨김 처리</span>
+            <div className="relative w-full max-w-[420px] bg-[#13131e] border border-[#ef4444]/50 rounded-[22px] p-6 shadow-2xl flex flex-col gap-4 text-[#e6e6ef]">
+              <div className="flex items-center gap-2.5 text-[#f87171] font-extrabold text-[16px]">
+                <Trash2 size={20} className="text-[#ef4444]" />
+                <span>스트리머 일괄 영구 삭제</span>
               </div>
 
-              <p className="text-[12px] text-[#c0c0d8] leading-relaxed">
-                선택하신 총 <strong className="text-white font-bold">{batchClassification.totalSelected}명</strong>의 스트리머에 대해 데이터 안전 보존 규칙에 따라 분기 처리가 적용됩니다:
-              </p>
-
-              {/* Group 1: 0-match delete list */}
-              <div className="p-3.5 bg-[#1f131a] border border-[#ef4444]/30 rounded-xl space-y-2">
-                <div className="flex items-center justify-between text-[12px] font-bold text-[#f87171]">
-                  <span className="flex items-center gap-1.5">
-                    <Trash2 size={14} />
-                    <span>서버 DB 영구 삭제 ({batchClassification.toDelete.length}명)</span>
-                  </span>
-                  <span className="text-[10px] bg-[#ef4444]/20 px-2 py-0.5 rounded font-mono">
-                    CK 전적 0건
-                  </span>
-                </div>
-                {batchClassification.toDelete.length === 0 ? (
-                  <p className="text-[11px] text-[#806070]">삭제 대상 스트리머가 없습니다.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1 max-h-[100px] overflow-y-auto pt-1">
-                    {batchClassification.toDelete.map((name) => (
-                      <span
-                        key={name}
-                        className="text-[11px] bg-[#2a1622] text-[#fca5a5] border border-[#ef4444]/40 px-2 py-0.5 rounded-lg"
-                      >
-                        {name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <p className="text-[10px] text-[#a06875]">
-                  * 서버 DB(server/streamers.json)에서 즉시 영구 삭제되며, 되돌릴 수 없습니다.
+              <div className="space-y-2">
+                <p className="text-[13px] text-[#e2e2ec] font-semibold leading-relaxed">
+                  선택한 <strong className="text-[#f87171] font-black">{selectedNames.size}명</strong>의 스트리머(전적 0건)를 서버 DB에서 영구 삭제하시겠습니까?
+                </p>
+                <p className="text-[11px] text-[#9090aa] leading-relaxed">
+                  * 삭제된 스트리머는 백엔드 서버 파일(<code className="text-[#c4b5fd]">server/streamers.json</code>) 및 DB에서 완전히 제거되며, 복구할 수 없습니다.
                 </p>
               </div>
 
-              {/* Group 2: >0-match hide list */}
-              <div className="p-3.5 bg-[#1c1822] border border-[#f59e0b]/30 rounded-xl space-y-2">
-                <div className="flex items-center justify-between text-[12px] font-bold text-[#fbbf24]">
-                  <span className="flex items-center gap-1.5">
-                    <EyeOff size={14} />
-                    <span>[숨김] 상태로 안전 전환 ({batchClassification.toHide.length}명)</span>
+              {/* Names preview tags */}
+              <div className="p-3 bg-[#1a1218] border border-[#ef4444]/30 rounded-xl max-h-[110px] overflow-y-auto flex flex-wrap gap-1.5">
+                {Array.from(selectedNames).map((name) => (
+                  <span
+                    key={name}
+                    className="text-[11px] bg-[#2a141a] text-[#fca5a5] border border-[#ef4444]/40 px-2 py-0.5 rounded-lg"
+                  >
+                    {name}
                   </span>
-                  <span className="text-[10px] bg-[#f59e0b]/20 px-2 py-0.5 rounded font-mono">
-                    CK 전적 보존
-                  </span>
-                </div>
-                {batchClassification.toHide.length === 0 ? (
-                  <p className="text-[11px] text-[#706880]">숨김 전환 대상 스트리머가 없습니다.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1 max-h-[100px] overflow-y-auto pt-1">
-                    {batchClassification.toHide.map((name) => {
-                      const totalGames = matchStatsMap.get(name.toLowerCase().trim())?.total || 0;
-                      return (
-                        <span
-                          key={name}
-                          className="text-[11px] bg-[#282030] text-[#fde68a] border border-[#f59e0b]/40 px-2 py-0.5 rounded-lg flex items-center gap-1"
-                        >
-                          <span>{name}</span>
-                          <span className="text-[9px] text-[#f59e0b] font-mono">({totalGames}전)</span>
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-                <p className="text-[10px] text-[#a09070]">
-                  * 기존 경기 일지 전적 데이터 보존을 위해 삭제되지 않고 <strong>[숨김]</strong> 처리됩니다. (메인 라이브 목록 및 멤버 찾기에서 제외)
-                </p>
+                ))}
               </div>
 
-              <div className="flex items-center gap-2.5 pt-2">
+              <div className="flex items-center gap-2.5 pt-1">
                 <button
                   type="button"
                   onClick={() => setIsBatchConfirmOpen(false)}
@@ -1405,16 +1325,16 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={handleExecuteBatchDeleteAndHide}
-                  disabled={isProcessing || batchClassification.totalSelected === 0}
+                  onClick={handleExecuteBatchDelete}
+                  disabled={isProcessing || selectedNames.size === 0}
                   className="flex-1 h-[38px] bg-gradient-to-r from-[#ef4444] to-[#dc2626] hover:from-[#dc2626] hover:to-[#b91c1c] text-white font-bold rounded-xl text-[12px] shadow-lg shadow-[#ef4444]/25 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isProcessing ? (
-                    <span>실행 중...</span>
+                    <span>삭제 처리 중...</span>
                   ) : (
                     <>
                       <Trash2 size={14} />
-                      <span>확인 및 일괄 실행</span>
+                      <span>영구 삭제 실행</span>
                     </>
                   )}
                 </button>
