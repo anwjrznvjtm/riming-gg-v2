@@ -415,7 +415,8 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     setIsProcessing(true);
     setAutoSaveStatus('명단 정돈 중...');
     try {
-      const currentList = Object.values(localMap) as StreamerProfile[];
+      const serverList = await syncStreamersFromBackend(true);
+      const currentList = serverList && serverList.length > 0 ? serverList : (Object.values(localMap) as StreamerProfile[]);
       const { updatedList, addedCount, ghostCount } = await tidyStreamersFromMatches(
         matches,
         currentList

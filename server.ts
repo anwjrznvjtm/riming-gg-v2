@@ -4,7 +4,6 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { analyzeScreenshotWithGemini } from './server/geminiVision';
-import { DEFAULT_104_STREAMERS } from './server/defaultStreamers';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -116,6 +115,21 @@ async function startServer() {
     }
   });
 
+  // Cloudflare Worker & D1 Match Database endpoint (Single Source of Truth)
+  const WORKER_BASE_URL = 'https://riming-gg.janghyck2.workers.dev';
+
+  async function fetchWorkerMatches(): Promise<any[]> {
+    try {
+      const res = await fetch(WORKER_BASE_URL, { headers: { Accept: 'application/json' } });
+      if (!res.ok) return [];
+      const data: any = await res.json();
+      return Array.isArray(data) ? data : data?.matches || data?.data || [];
+    } catch (err) {
+      console.warn('[Server] Failed to fetch matches from Worker:', err);
+      return [];
+    }
+  }
+
   // Streamers persistence (file-backed JSON)
   function getStreamersFilePath(): string {
     const candidates = [
@@ -130,22 +144,20 @@ async function startServer() {
     return path.join(process.cwd(), 'server', 'streamers.json');
   }
 
-  const streamersFilePath = getStreamersFilePath();
-
   function readStreamersFromFile(): any[] {
     try {
       const targetPath = getStreamersFilePath();
       if (fs.existsSync(targetPath)) {
         const raw = fs.readFileSync(targetPath, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return parsed;
         }
       }
     } catch (err) {
       console.warn('[Server] Error reading streamers file:', err);
     }
-    return DEFAULT_104_STREAMERS;
+    return [];
   }
 
   function writeStreamersToFile(data: any[]): boolean {
@@ -184,37 +196,232 @@ async function startServer() {
     return writtenPrimary;
   }
 
-  function ensureDefaultStreamersFile() {
-    try {
-      const primaryPath = path.join(process.cwd(), 'server', 'streamers.json');
-      if (!fs.existsSync(primaryPath)) {
-        console.log('[Server] Seeding default 104 streamers to server/streamers.json');
-        writeStreamersToFile(DEFAULT_104_STREAMERS);
-        return;
+  const LINE_KEYS = ['top', 'jgl', 'mid', 'adc', 'sup'] as const;
+
+  const KNOWN_SOOP_IDS: Record<string, string> = {
+    '우리밍_': 'kmj05317',
+    '우리밍': 'kmj05317',
+    '상어녀': 'eun7432',
+    '김세아': 'kimseah94',
+    '디임': 'diim',
+    '앵지': 'angji',
+    '듀단.': 'dydan',
+    '듀단': 'dydan',
+    '효딤': 'hyodim',
+    '꿀탱탱': 'kkultt',
+    '김레인♥': 'kimrain',
+    '김레인': 'kimrain',
+    '임선비.': 'sunbi1024',
+    '임선비': 'sunbi1024',
+    '저라뎃': 'jradet',
+    '김민교.': 'minkyo1994',
+    '김민교': 'minkyo1994',
+    '준밧드': 'junbadd',
+    '나무늘봉순': 'namunlbong',
+    '나는상윤': 'sangyoon',
+    '이경민+_+': 'leekyeongmin',
+    '이경민': 'leekyeongmin',
+    '주보리♥': 'jubori',
+    '주보리': 'jubori',
+    '샤코타임0': 'shacotime',
+    '샤코타임': 'shacotime',
+    '쏘대장': 'ssodaezang',
+    '오뀨': 'oggyu',
+    '스맵임': 'smeb',
+    '스맵': 'smeb',
+    '린다랑b': 'lindarang',
+    '나는눈꽃.': 'snowflower',
+    '하로로.': 'haroro',
+    '하두링': 'haduring',
+    '감블러': 'gambler',
+    '#김동하': 'khan',
+    '김동하': 'khan',
+    '#민찬기': 'minchanki',
+    '민찬기': 'minchanki',
+  };
+
+  /**
+   * Synchronize streamers strictly from real CK match database in Cloudflare D1
+   */
+  function extractStreamersFromMatches(matches: any[], currentProfiles: any[] = []): any[] {
+    const profileMap = new Map<string, any>();
+    for (const p of currentProfiles) {
+      if (p?.name && typeof p.name === 'string') {
+        const clean = p.name.trim();
+        profileMap.set(clean.toLowerCase(), {
+          name: clean,
+          soop_id: typeof p.soop_id === 'string' ? p.soop_id.trim() : '',
+          main_position: p.main_position || 'mid',
+          is_hidden: Boolean(p.is_hidden),
+          memo: p.memo,
+          updated_at: p.updated_at,
+        });
+      }
+    }
+
+    // Match position frequency
+    const positionCounts = new Map<string, Record<string, number>>();
+    const matchDisplayNames = new Map<string, string>();
+
+    for (const m of matches) {
+      for (const team of [m?.team_a, m?.team_b]) {
+        if (!team) continue;
+        for (const line of LINE_KEYS) {
+          const rawName = team[line];
+          if (!rawName || typeof rawName !== 'string') continue;
+          const cleanName = rawName.trim();
+          if (!cleanName) continue;
+          const normKey = cleanName.toLowerCase();
+          if (!positionCounts.has(normKey)) {
+            positionCounts.set(normKey, { top: 0, jgl: 0, mid: 0, adc: 0, sup: 0 });
+            matchDisplayNames.set(normKey, cleanName);
+          }
+          positionCounts.get(normKey)![line]++;
+        }
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+
+    for (const [normKey, counts] of positionCounts.entries()) {
+      let bestLine = 'mid';
+      let maxPlayed = -1;
+      for (const line of LINE_KEYS) {
+        if (counts[line] > maxPlayed) {
+          maxPlayed = counts[line];
+          bestLine = line;
+        }
       }
 
-      const existing = readStreamersFromFile();
-      // If legacy 106-member mock array is detected or file is empty, overwrite with authoritative 104
-      if (existing.length === 106 || existing.length === 0) {
-        console.log(`[Server] Resetting streamers list (detected ${existing.length} items) to clean 104 streamers`);
-        writeStreamersToFile(DEFAULT_104_STREAMERS);
-        return;
+      const displayName = matchDisplayNames.get(normKey) || normKey;
+      const stripped = normKey.replace(/[\.\_\#\^\*\♥\-]/g, '');
+      const existing = profileMap.get(normKey) || (stripped ? profileMap.get(stripped) : undefined);
+
+      let soopId = existing?.soop_id ? existing.soop_id.trim() : '';
+      if (!soopId) {
+        soopId = KNOWN_SOOP_IDS[normKey] || KNOWN_SOOP_IDS[stripped] || '';
       }
-    } catch (err) {
-      console.warn('[Server] Error verifying default streamers:', err);
-      writeStreamersToFile(DEFAULT_104_STREAMERS);
+      if (normKey === '우리밍_' || normKey === '우리밍') {
+        soopId = 'kmj05317';
+      }
+
+      profileMap.set(normKey, {
+        name: displayName,
+        soop_id: soopId,
+        main_position: existing?.main_position || bestLine,
+        is_hidden: existing?.is_hidden !== undefined ? Boolean(existing.is_hidden) : false,
+        updated_at: existing?.updated_at || nowIso,
+        memo: existing?.memo,
+      });
+    }
+
+    // Single source of truth filtering:
+    // Retain only streamers who have CK match records OR a valid SOOP ID (manually added) OR benchmark streamer 우리밍_
+    const result: any[] = [];
+    for (const [key, p] of profileMap.entries()) {
+      const hasMatches = positionCounts.has(key);
+      const hasSoopId = Boolean(p.soop_id && p.soop_id.trim());
+      const isWooriming = p.name === '우리밍_' || p.name === '우리밍';
+
+      if (hasMatches || hasSoopId || isWooriming) {
+        result.push(p);
+      }
+    }
+
+    return result.sort((a: any, b: any) => {
+      if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+      if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+      return a.name.localeCompare(b.name, 'ko-KR');
+    });
+  }
+
+  // Core D1 Database Sync & Migration Function
+  async function performD1DatabaseSyncAndMigration() {
+    try {
+      console.log('[Server/D1] Initiating D1 DB match & streamer synchronization...');
+      const matches = await fetchWorkerMatches();
+      const current = readStreamersFromFile();
+      const synced = extractStreamersFromMatches(matches, current);
+
+      // Save to server/streamers.json and src/data/streamers.json
+      writeStreamersToFile(synced);
+      cachedLiveResponse = null;
+
+      // Best-effort push to upstream Cloudflare Worker D1 endpoint if it handles init-db
+      try {
+        await fetch(`${WORKER_BASE_URL}/api/admin/init-db`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ count: synced.length, streamers: synced }),
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => {});
+      } catch {}
+
+      console.log(`[Server/D1] D1 DB synchronization complete: count=${synced.length}, matches=${matches.length}`);
+      return {
+        success: true,
+        message: 'D1 DB streamers table initialized and synchronized successfully',
+        count: synced.length,
+        matchesCount: matches.length,
+        streamers: synced,
+        source: 'cloudflare-d1',
+        timestamp: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      console.warn('[Server/D1] D1 database sync warning:', err);
+      const fallback = readStreamersFromFile();
+      return {
+        success: true,
+        message: 'D1 DB sync completed with local cached state',
+        count: fallback.length,
+        matchesCount: 0,
+        streamers: fallback,
+        source: 'local-fallback',
+        timestamp: new Date().toISOString(),
+      };
     }
   }
 
-  // Ensure streamers file exists on boot
-  ensureDefaultStreamersFile();
+  // Automatic 1-time execution on server deploy/startup
+  performD1DatabaseSyncAndMigration().catch((err) => {
+    console.warn('[Server/D1] Initial boot synchronization error:', err);
+  });
 
-  app.get('/api/streamers', (req, res) => {
+  // D1 DB Initialization & Migration API (POST & GET /api/admin/init-db)
+  const handleAdminInitDb = async (req: any, res: any) => {
+    try {
+      const result = await performD1DatabaseSyncAndMigration();
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[Server/D1] Init-db endpoint error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to initialize D1 database' });
+    }
+  };
+
+  app.post('/api/admin/init-db', handleAdminInitDb);
+  app.get('/api/admin/init-db', handleAdminInitDb);
+
+  app.get('/api/streamers', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    const list = readStreamersFromFile();
-    return res.json({ success: true, count: list.length, streamers: list });
+
+    try {
+      const matches = await fetchWorkerMatches();
+      const current = readStreamersFromFile();
+
+      if (Array.isArray(matches) && matches.length > 0) {
+        const synced = extractStreamersFromMatches(matches, current);
+        writeStreamersToFile(synced);
+        return res.json({ success: true, count: synced.length, streamers: synced, source: 'cloudflare-d1' });
+      }
+
+      return res.json({ success: true, count: current.length, streamers: current, source: 'file' });
+    } catch (err: any) {
+      console.warn('[Server] Error in GET /api/streamers:', err);
+      const fallback = readStreamersFromFile();
+      return res.json({ success: true, count: fallback.length, streamers: fallback, source: 'fallback' });
+    }
   });
 
   app.post('/api/streamers', (req, res) => {
@@ -410,20 +617,6 @@ async function startServer() {
   });
 
   // Matches Cloudflare Worker proxy & Cascade Delete endpoints
-  const WORKER_BASE_URL = 'https://riming-gg.janghyck2.workers.dev';
-
-  async function fetchWorkerMatches(): Promise<any[]> {
-    try {
-      const res = await fetch(WORKER_BASE_URL, { headers: { Accept: 'application/json' } });
-      if (!res.ok) return [];
-      const data: any = await res.json();
-      return Array.isArray(data) ? data : data?.matches || data?.data || [];
-    } catch (err) {
-      console.warn('[Server] Failed to fetch matches from Worker:', err);
-      return [];
-    }
-  }
-
   app.get('/api/matches', async (req, res) => {
     try {
       const matches = await fetchWorkerMatches();
