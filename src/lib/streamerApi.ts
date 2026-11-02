@@ -116,6 +116,10 @@ export function autoExtractStreamersFromMatches(matches: Match[]): StreamerProfi
  * Single Source of Truth: Cloudflare D1 CK Match DB & server/streamers.json
  */
 export async function fetchStreamersFromServer(forceRefresh = false): Promise<StreamerProfile[]> {
+  if (forceRefresh) {
+    _cachedStreamerProfiles = null;
+    _activeFetchPromise = null;
+  }
   if (!forceRefresh && _cachedStreamerProfiles && _cachedStreamerProfiles.length > 0) {
     return _cachedStreamerProfiles;
   }
@@ -132,8 +136,9 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
         signal: controller.signal,
         cache: 'no-store',
         headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
           Pragma: 'no-cache',
+          Expires: '0',
         },
       });
 
@@ -294,6 +299,9 @@ export async function saveStreamerProfilesBatchAsync(
         const serverList = sortStreamerProfiles(data.streamers);
         _cachedStreamerProfiles = serverList;
         await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+        }
         return serverList;
       }
     }
@@ -331,6 +339,10 @@ export function deleteStreamerProfile(name: string): StreamerProfile[] {
 
   fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
 
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('streamers-updated', { detail: updatedList }));
+  }
+
   return updatedList;
 }
 
@@ -355,6 +367,9 @@ export async function deleteStreamerProfileAsync(name: string): Promise<Streamer
         const serverList = sortStreamerProfiles(data.streamers);
         _cachedStreamerProfiles = serverList;
         await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+        }
         return serverList;
       }
     }
@@ -394,6 +409,9 @@ export async function deleteStreamersBatchAsync(names: string[]): Promise<Stream
         const serverList = sortStreamerProfiles(data.streamers);
         _cachedStreamerProfiles = serverList;
         await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+        }
         return serverList;
       }
     }

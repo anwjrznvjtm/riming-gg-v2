@@ -213,7 +213,12 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     if (onSaveCompleteRef.current) {
       try {
         await onSaveCompleteRef.current(currentList);
-      } catch {}
+      } catch (e) {
+        console.warn('[StreamerManageModal] onSaveComplete on close error:', e);
+      }
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('streamers-updated', { detail: currentList }));
     }
     onClose();
   }, [localMap, onClose]);
@@ -230,6 +235,14 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
           const dict = mapProfilesToDict(serverList);
           setLocalMap(dict);
           onProfilesUpdatedRef.current(serverList);
+          if (onSaveCompleteRef.current) {
+            try {
+              await onSaveCompleteRef.current(serverList);
+            } catch {}
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+          }
         }
         setAutoSaveStatus('자동 저장됨 ✓');
         setSavedIndicatorName(profile.name);
@@ -386,6 +399,14 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         const dict = mapProfilesToDict(serverList);
         setLocalMap(dict);
         onProfilesUpdatedRef.current(serverList);
+        if (onSaveCompleteRef.current) {
+          try {
+            await onSaveCompleteRef.current(serverList);
+          } catch {}
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+        }
       }
       setSelectedNames((prev) => {
         const next = new Set(prev);
@@ -425,6 +446,14 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       const dict = mapProfilesToDict(updatedList);
       setLocalMap(dict);
       onProfilesUpdatedRef.current(updatedList);
+      if (onSaveCompleteRef.current) {
+        try {
+          await onSaveCompleteRef.current(updatedList);
+        } catch {}
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('streamers-updated', { detail: updatedList }));
+      }
       setAutoSaveStatus('정돈 완료 ✓');
 
       onToastRef.current(
@@ -480,6 +509,18 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         const dict = mapProfilesToDict(serverList);
         setLocalMap(dict);
         onProfilesUpdatedRef.current(serverList);
+
+        // Immediate Re-fetch of main page counts & SOOP LIVE list on 200 OK
+        if (onSaveCompleteRef.current) {
+          try {
+            await onSaveCompleteRef.current(serverList);
+          } catch (e) {
+            console.warn('[StreamerManageModal] onSaveComplete on add error:', e);
+          }
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+        }
       }
 
       setNewName('');

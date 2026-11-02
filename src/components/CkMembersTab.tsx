@@ -167,12 +167,29 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     setProfiles(updated);
   }, []);
 
+  // Dedicated fetchStreamers function to guarantee latest DB profiles & count
+  const fetchStreamers = useCallback(async (forceRefresh = true) => {
+    try {
+      const serverList = await syncStreamersFromBackend(forceRefresh);
+      if (Array.isArray(serverList) && serverList.length > 0) {
+        setProfiles(serverList);
+      }
+      return serverList;
+    } catch (err) {
+      console.warn('[CkMembersTab] fetchStreamers error:', err);
+      return [];
+    }
+  }, []);
+
   const handleSaveComplete = useCallback(
-    async (updated: StreamerProfile[]) => {
-      setProfiles(updated);
+    async (updated?: StreamerProfile[]) => {
+      if (updated && Array.isArray(updated) && updated.length > 0) {
+        setProfiles(updated);
+      }
+      await fetchStreamers(true);
       await handleFetchLive(false, true);
     },
-    [handleFetchLive]
+    [fetchStreamers, handleFetchLive]
   );
 
   // Initial load: sync latest streamers directly from authoritative server DB (GET /api/streamers -> server/streamers.json)
@@ -180,7 +197,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     let isMounted = true;
     const loadAuthoritativeData = async () => {
       try {
-        const serverList = await syncStreamersFromBackend(true);
+        const serverList = await fetchStreamers(true);
         if (isMounted && Array.isArray(serverList)) {
           setProfiles(serverList);
         }
@@ -196,7 +213,43 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [handleFetchLive]);
+  }, [fetchStreamers, handleFetchLive]);
+
+  // Real-time synchronization when modal or background operations update DB streamers
+  useEffect(() => {
+    const handleStreamersUpdatedEvent = async (e: Event) => {
+      const customEvent = e as CustomEvent<StreamerProfile[]>;
+      if (customEvent.detail && Array.isArray(customEvent.detail) && customEvent.detail.length > 0) {
+        setProfiles(customEvent.detail);
+      } else {
+        await fetchStreamers(true);
+      }
+      await handleFetchLive(false, true);
+    };
+
+    window.addEventListener('streamers-updated', handleStreamersUpdatedEvent);
+    return () => {
+      window.removeEventListener('streamers-updated', handleStreamersUpdatedEvent);
+    };
+  }, [fetchStreamers, handleFetchLive]);
+
+  // Mobile browser cache-bypass & tab-switch re-sync (visibilitychange, focus, bfcache pageshow)
+  useEffect(() => {
+    const handleMobileWake = () => {
+      if (document.visibilityState === 'visible') {
+        fetchStreamers(true);
+        handleFetchLive(false, true);
+      }
+    };
+    window.addEventListener('visibilitychange', handleMobileWake);
+    window.addEventListener('focus', handleMobileWake);
+    window.addEventListener('pageshow', handleMobileWake);
+    return () => {
+      window.removeEventListener('visibilitychange', handleMobileWake);
+      window.removeEventListener('focus', handleMobileWake);
+      window.removeEventListener('pageshow', handleMobileWake);
+    };
+  }, [fetchStreamers, handleFetchLive]);
 
   // 3-minute auto refresh timer
   useEffect(() => {
@@ -775,12 +828,10 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
       {isManageModalOpen && (
         <StreamerManageModal
           isOpen={isManageModalOpen}
-          onClose={() => {
+          onClose={async () => {
             setIsManageModalOpen(false);
-            syncStreamersFromBackend(true).then((fresh) => {
-              if (fresh && fresh.length > 0) setProfiles(fresh);
-              handleFetchLive(false, true);
-            });
+            await fetchStreamers(true);
+            await handleFetchLive(false, true);
           }}
           matches={matches}
           allProfiles={profiles}
