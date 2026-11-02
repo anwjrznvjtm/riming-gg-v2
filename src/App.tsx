@@ -51,7 +51,14 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return recalculateAllSeriesScores(parsed.map((m) => normalizeMatch(m)));
+          const validMatches = parsed.filter((m: any) => {
+            if (!m || typeof m !== 'object') return false;
+            if (m.type === 'streamer' || (typeof m.id === 'string' && m.id.startsWith('s_'))) return false;
+            const hasTeamA = Boolean(m.team_a && (m.team_a.top || m.team_a.jgl || m.team_a.mid || m.team_a.adc || m.team_a.sup));
+            const hasTeamB = Boolean(m.team_b && (m.team_b.top || m.team_b.jgl || m.team_b.mid || m.team_b.adc || m.team_b.sup));
+            return hasTeamA && hasTeamB;
+          });
+          return recalculateAllSeriesScores(validMatches.map((m) => normalizeMatch(m)));
         }
       }
     } catch (e) {

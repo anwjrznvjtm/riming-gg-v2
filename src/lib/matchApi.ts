@@ -30,7 +30,16 @@ export async function fetchAllMatchesFromWorker(): Promise<{ matches: Match[]; s
     const data = await res.json();
     const rawList = Array.isArray(data) ? data : data?.matches || data?.data || [];
     if (Array.isArray(rawList)) {
-      const normalized = rawList.map((m: any) => normalizeMatch(m));
+      // Defensive filter: Only keep legitimate matches with valid rosters, never streamer records
+      const realMatchesOnly = rawList.filter((m: any) => {
+        if (!m || typeof m !== 'object') return false;
+        if (m.type === 'streamer') return false;
+        if (typeof m.id === 'string' && m.id.startsWith('s_')) return false;
+        const hasTeamA = Boolean(m.team_a && (m.team_a.top || m.team_a.jgl || m.team_a.mid || m.team_a.adc || m.team_a.sup));
+        const hasTeamB = Boolean(m.team_b && (m.team_b.top || m.team_b.jgl || m.team_b.mid || m.team_b.adc || m.team_b.sup));
+        return hasTeamA && hasTeamB;
+      });
+      const normalized = realMatchesOnly.map((m: any) => normalizeMatch(m));
       try {
         localStorage.setItem(STORAGE_KEY_MATCHES, JSON.stringify(normalized));
         localStorage.setItem(STORAGE_KEY_LEGACY, JSON.stringify(normalized));

@@ -202,27 +202,10 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     }
   }, [isOpen, fetchAuthoritativeProfiles]);
 
-  // Close handler: Trigger parent Re-fetch so main page reflects latest DB streamers & live list immediately
-  const handleModalClose = useCallback(async () => {
-    const currentList = (Object.values(localMap) as StreamerProfile[]).sort((a, b) => {
-      if (a.name === '우리밍_' || a.name === '우리밍') return -1;
-      if (b.name === '우리밍_' || b.name === '우리밍') return 1;
-      return a.name.localeCompare(b.name, 'ko-KR');
-    });
-
-    onProfilesUpdatedRef.current(currentList);
-    if (onSaveCompleteRef.current) {
-      try {
-        await onSaveCompleteRef.current(currentList);
-      } catch (e) {
-        console.warn('[StreamerManageModal] onSaveComplete on close error:', e);
-      }
-    }
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('streamers-updated', { detail: currentList }));
-    }
+  // Close handler: Pure modal close without triggering any match creation or seeding
+  const handleModalClose = useCallback(() => {
     onClose();
-  }, [localMap, onClose]);
+  }, [onClose]);
 
   // --------------------------------------------------------------------------
   // 1. AUTO-SAVE HELPER: Persists a profile directly to DB API (POST /api/streamers)
