@@ -175,15 +175,28 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     [handleFetchLive]
   );
 
-  // Initial load: sync latest streamers directly from authoritative server DB (server/streamers.json)
+  // Initial load: sync latest streamers directly from authoritative server DB (GET /api/streamers -> server/streamers.json)
   useEffect(() => {
-    syncStreamersFromBackend(true).then((serverList) => {
-      if (serverList && serverList.length > 0) {
-        setProfiles(serverList);
+    let isMounted = true;
+    const loadAuthoritativeData = async () => {
+      try {
+        const serverList = await syncStreamersFromBackend(true);
+        if (isMounted && Array.isArray(serverList)) {
+          setProfiles(serverList);
+        }
+      } catch (err) {
+        console.warn('[CkMembersTab] Failed to load server streamers:', err);
+      } finally {
+        if (isMounted) {
+          await handleFetchLive(false, false);
+        }
       }
-      handleFetchLive(false, false);
-    });
-  }, []);
+    };
+    loadAuthoritativeData();
+    return () => {
+      isMounted = false;
+    };
+  }, [handleFetchLive]);
 
   // 3-minute auto refresh timer
   useEffect(() => {

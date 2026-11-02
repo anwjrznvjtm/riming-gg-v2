@@ -7,7 +7,7 @@ import {
   deleteStreamersBatchAsync,
   tidyStreamersFromMatches,
 } from '../lib/streamerApi';
-import { StreamerAvatar, SOOP_STREAMER_IDS } from './StreamerAvatar';
+import { StreamerAvatar } from './StreamerAvatar';
 import { getChosung } from '../lib/championSearch';
 import {
   X,
@@ -60,11 +60,10 @@ function mapProfilesToDict(profiles: StreamerProfile[]): Record<string, Streamer
     const cleanName = p.name.trim();
     const key = cleanName.toLowerCase();
     const serverId = typeof p.soop_id === 'string' ? p.soop_id.trim() : '';
-    const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
 
     result[key] = {
       name: cleanName,
-      soop_id: serverId || fallbackId,
+      soop_id: serverId,
       main_position: p.main_position || 'mid',
       is_hidden: Boolean(p.is_hidden),
       memo: p.memo,
@@ -461,8 +460,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       return;
     }
 
-    const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
-    const cleanId = newSoopId.trim() || fallbackId;
+    const cleanId = newSoopId.trim();
 
     const newProfile: StreamerProfile = {
       name: cleanName,
@@ -763,7 +761,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 <strong className="text-white font-bold">{selectedNames.size}명</strong>
                 <span className="text-[#e2e2ec]"> 선택됨 </span>
                 <span className="text-[11px] text-[#f87171] font-mono bg-[#ef4444]/15 px-2 py-0.5 rounded-md ml-1 border border-[#ef4444]/30">
-                  전적 0건 (영구 삭제 대상)
+                  전적 0건 (삭제 가능)
                 </span>
               </div>
             </div>
@@ -933,7 +931,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 { id: 'VISIBLE', label: '👁 정상 노출' },
                 { id: 'HIDDEN', label: '🔒 숨김' },
                 { id: 'HAS_MATCHES', label: '⚔ 전적 있음' },
-                { id: 'NO_MATCHES', label: '신규 (전적 0)' },
+                { id: 'NO_MATCHES', label: '전적 0건 (삭제 가능)' },
                 { id: 'NO_ID', label: 'ID 미입력' },
               ].map((f) => (
                 <button

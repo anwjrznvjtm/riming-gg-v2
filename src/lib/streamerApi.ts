@@ -1,125 +1,10 @@
 import { LineKey, Match, StreamerProfile, SoopLiveBroadcast, LiveStreamerMember, LINE_KEYS } from '../types';
-import { SOOP_STREAMER_IDS } from '../components/StreamerAvatar';
 
 export const SOOP_CLIENT_ID = '6746e3e1945b4cd93b1fba5fd28afc34';
 
 // In-memory runtime cache for server-synchronized streamers (Single Source of Truth: server/streamers.json)
 let _cachedStreamerProfiles: StreamerProfile[] | null = null;
 let _activeFetchPromise: Promise<StreamerProfile[]> | null = null;
-
-// Default initial positions for well-known streamers
-const KNOWN_MAIN_POSITIONS: Record<string, LineKey> = {
-  '우리밍_': 'adc',
-  '우리밍': 'adc',
-  '김민교': 'mid',
-  '이상호': 'sup',
-  '김봉준': 'sup',
-  '임선비': 'mid',
-  '다단': 'top',
-  '오아': 'adc',
-  '토마토': 'sup',
-  '박사장': 'mid',
-  '남봉': 'jgl',
-  '유소나': 'sup',
-  '수피': 'adc',
-  '강만식': 'mid',
-  '저라뎃': 'jgl',
-  '준밧드': 'jgl',
-  '뜨뜨뜨뜨': 'adc',
-  '단아냥': 'sup',
-  '임아니': 'sup',
-  '앵지': 'mid',
-  '서리': 'adc',
-  '하티': 'mid',
-  '연두': 'sup',
-  '유혜디': 'jgl',
-  '다누리': 'mid',
-  '김레인': 'top',
-  '꿀탱탱': 'top',
-  '나라카일': 'mid',
-  '린다랑': 'top',
-  '데스티니': 'sup',
-  '스맵': 'top',
-  '쿠로': 'mid',
-  '피글렛': 'adc',
-  '상윤': 'adc',
-  '나는상윤': 'adc',
-  '눈꽃': 'sup',
-  '강소연': 'top',
-  '푸린': 'top',
-  '인섹': 'jgl',
-  '러너': 'adc',
-  '꽃빈': 'sup',
-  '백크': 'mid',
-  '제동빠': 'jgl',
-  '스피릿': 'jgl',
-  '이경민': 'mid',
-  '애교용': 'sup',
-  '효딤': 'mid',
-  '디임': 'sup',
-  '박삐삐': 'sup',
-  '트할': 'top',
-  '마린': 'top',
-  '안녕수야': 'mid',
-  '듀단': 'mid',
-  '박잔디': 'top',
-  '보혜': 'mid',
-  '늑채': 'sup',
-  '모꿀몬': 'mid',
-  '나무늘봉순': 'mid',
-  '박나닝': 'sup',
-  '이유란': 'sup',
-  '갱제': 'adc',
-  '나는푸르': 'sup',
-  '미스마': 'sup',
-  '김윤환': 'top',
-  '조경훈': 'top',
-  '쿼드': 'mid',
-  '에디': 'top',
-  '무진': 'jgl',
-  '호진': 'jgl',
-  '김찬호': 'adc',
-  '랄로': 'adc',
-  '파카': 'mid',
-  '괴물쥐': 'adc',
-  '도파': 'mid',
-  '씨맥': 'top',
-  '클템': 'jgl',
-  '포니': 'jgl',
-  '캡틴잭': 'adc',
-  '운타라': 'top',
-  '칸': 'top',
-  '프레이': 'adc',
-  '고릴라': 'sup',
-  '뱅': 'adc',
-  '울프': 'sup',
-  '매드라이프': 'sup',
-  '샤이': 'top',
-  '앰비션': 'mid',
-  '큐베': 'top',
-  '크라운': 'mid',
-  '코어장전': 'sup',
-  '룰러': 'adc',
-  '베릴': 'sup',
-  '데프트': 'adc',
-  '표식': 'jgl',
-  '폰': 'mid',
-  '기인': 'top',
-  '캐니언': 'jgl',
-  '쇼메이커': 'mid',
-  '쵸비': 'mid',
-  '페이커': 'mid',
-  '제우스': 'top',
-  '오너': 'jgl',
-  '구마유시': 'adc',
-  '케리아': 'sup',
-  '도현': 'mid',
-  '오메킴': 'top',
-  '두치와뿌꾸': 'mid',
-  '최강이연지': 'sup',
-  '상어녀': 'jgl',
-  '김세아': 'mid',
-};
 
 /**
  * Helper to sort streamer list with 우리밍_ first, then Korean alphabetical
@@ -132,47 +17,21 @@ export function sortStreamerProfiles(list: StreamerProfile[]): StreamerProfile[]
   });
 }
 
-// Build fallback initial profiles list from SOOP_STREAMER_IDS
-export function getDefaultStreamerProfiles(): StreamerProfile[] {
-  const result: StreamerProfile[] = [];
-  const visited = new Set<string>();
-
-  // Ensure 우리밍_ is first
-  result.push({
-    name: '우리밍_',
-    soop_id: 'kmj05317',
-    main_position: 'adc',
-    memo: '기준 스트리머 (원딜)',
-  });
-  visited.add('우리밍_');
-  visited.add('우리밍');
-
-  for (const [name, soop_id] of Object.entries(SOOP_STREAMER_IDS)) {
-    if (visited.has(name)) continue;
-    visited.add(name);
-    const main_position = KNOWN_MAIN_POSITIONS[name] || 'mid';
-    result.push({
-      name,
-      soop_id,
-      main_position,
-    });
-  }
-
-  return sortStreamerProfiles(result);
-}
-
 /**
  * Pure server fetch directly from backend DB API (GET /api/streamers)
- * Single Source of Truth: server/streamers.json
+ * Single Source of Truth: server/streamers.json (104 streamers)
  */
 export async function fetchStreamersFromServer(forceRefresh = false): Promise<StreamerProfile[]> {
+  if (!forceRefresh && _cachedStreamerProfiles && _cachedStreamerProfiles.length > 0) {
+    return _cachedStreamerProfiles;
+  }
   if (!forceRefresh && _activeFetchPromise) {
     return _activeFetchPromise;
   }
 
   const fetchPromise = (async () => {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     try {
       const res = await fetch(`/api/streamers?_t=${Date.now()}`, {
@@ -189,19 +48,14 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
         if (data?.success && Array.isArray(data.streamers)) {
           const list: StreamerProfile[] = data.streamers
             .filter((s: any) => s && typeof s.name === 'string' && s.name.trim())
-            .map((s: any) => {
-              const cleanName = s.name.trim();
-              const serverId = typeof s.soop_id === 'string' ? s.soop_id.trim() : '';
-              const fallbackId = (SOOP_STREAMER_IDS[cleanName] || '').trim();
-              return {
-                name: cleanName,
-                soop_id: serverId || fallbackId,
-                main_position: s.main_position || KNOWN_MAIN_POSITIONS[cleanName] || 'mid',
-                is_hidden: Boolean(s.is_hidden),
-                updated_at: s.updated_at,
-                memo: s.memo,
-              };
-            });
+            .map((s: any) => ({
+              name: s.name.trim(),
+              soop_id: typeof s.soop_id === 'string' ? s.soop_id.trim() : '',
+              main_position: s.main_position || 'mid',
+              is_hidden: Boolean(s.is_hidden),
+              updated_at: s.updated_at,
+              memo: s.memo,
+            }));
 
           const sorted = sortStreamerProfiles(list);
           _cachedStreamerProfiles = sorted;
@@ -210,7 +64,7 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        console.warn('[StreamerApi] GET /api/streamers timed out after 6000ms');
+        console.warn('[StreamerApi] GET /api/streamers timed out after 8000ms');
       } else {
         console.warn('[StreamerApi] GET /api/streamers fetch warning:', err);
       }
@@ -221,11 +75,7 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
       }
     }
 
-    // Fallback if network or server temporarily down
-    if (!_cachedStreamerProfiles || _cachedStreamerProfiles.length === 0) {
-      _cachedStreamerProfiles = getDefaultStreamerProfiles();
-    }
-    return _cachedStreamerProfiles;
+    return _cachedStreamerProfiles || [];
   })();
 
   _activeFetchPromise = fetchPromise;
@@ -241,15 +91,14 @@ export async function syncStreamersFromBackend(forceRefresh = false): Promise<St
 
 /**
  * Synchronous getter: returns in-memory cached profiles directly from server sync.
- * Never touches localStorage!
+ * Returns empty array if server DB response has not loaded yet (Never uses mock data).
  */
 export function getStoredStreamerProfiles(): StreamerProfile[] {
   if (_cachedStreamerProfiles && _cachedStreamerProfiles.length > 0) {
     return _cachedStreamerProfiles;
   }
-  // If not yet loaded into memory, trigger background fetch and return default
   fetchStreamersFromServer().catch(() => {});
-  return getDefaultStreamerProfiles();
+  return _cachedStreamerProfiles || [];
 }
 
 /**
@@ -508,24 +357,15 @@ export function autoCollectStreamersFromMatches(
 
     const existing = profileMap.get(normKey);
     if (!existing) {
-      const knownSoopId = SOOP_STREAMER_IDS[displayName] || SOOP_STREAMER_IDS[displayName.replace(/_$/, '')] || '';
       const newEntry: StreamerProfile = {
         name: displayName,
-        soop_id: knownSoopId,
+        soop_id: '',
         main_position: bestLine,
         is_hidden: false,
         updated_at: nowIso,
       };
       profileMap.set(normKey, newEntry);
       newlyAdded.push(newEntry);
-    } else if (!existing.soop_id) {
-      const knownSoopId = SOOP_STREAMER_IDS[displayName] || SOOP_STREAMER_IDS[displayName.replace(/_$/, '')] || '';
-      if (knownSoopId) {
-        profileMap.set(normKey, {
-          ...existing,
-          soop_id: knownSoopId,
-        });
-      }
     }
   }
 
@@ -606,21 +446,19 @@ export async function tidyStreamersFromMatches(
     const existing = profileMap.get(normKey);
 
     if (!existing) {
-      const knownSoopId = SOOP_STREAMER_IDS[displayName] || SOOP_STREAMER_IDS[displayName.replace(/_$/, '')] || '';
       profileMap.set(normKey, {
         name: displayName,
-        soop_id: knownSoopId,
+        soop_id: '',
         main_position: bestLine,
         is_hidden: false,
         updated_at: nowIso,
       });
       addedCount++;
     } else {
-      const knownSoopId = (existing.soop_id || '').trim() || SOOP_STREAMER_IDS[displayName] || '';
       profileMap.set(normKey, {
         ...existing,
         name: existing.name || displayName,
-        soop_id: knownSoopId,
+        soop_id: (existing.soop_id || '').trim(),
         main_position: existing.main_position || bestLine,
       });
     }

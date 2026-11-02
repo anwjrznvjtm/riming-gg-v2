@@ -111,11 +111,11 @@ export default function App() {
 
   useEffect(() => {
     syncFromApi(false);
-    syncStreamersFromBackend().catch(() => {});
+    syncStreamersFromBackend(true).catch(() => {});
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         syncFromApi(true);
-        syncStreamersFromBackend().catch(() => {});
+        syncStreamersFromBackend(true).catch(() => {});
       }
     }, 20000);
     const handleVisibilityChange = () => {
