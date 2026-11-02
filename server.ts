@@ -124,19 +124,53 @@ async function startServer() {
     }
   });
 
-  // Cloudflare Worker & D1 Match Database endpoint (Single Source of Truth)
+  // Cloudflare Worker & D1 Database endpoint (Single Source of Truth)
   const WORKER_BASE_URL = 'https://riming-gg.janghyck2.workers.dev';
 
-  async function fetchWorkerMatches(): Promise<any[]> {
+  function getD1StreamerId(name: string): string {
+    const norm = (name || '').trim().toLowerCase();
+    return 's_' + Buffer.from(norm).toString('hex');
+  }
+
+  async function fetchWorkerRawData(): Promise<any[]> {
     try {
-      const res = await fetch(WORKER_BASE_URL, { headers: { Accept: 'application/json' } });
+      const res = await fetch(`${WORKER_BASE_URL}?_t=${Date.now()}`, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
       if (!res.ok) return [];
       const data: any = await res.json();
       return Array.isArray(data) ? data : data?.matches || data?.data || [];
     } catch (err) {
-      console.warn('[Server] Failed to fetch matches from Worker:', err);
+      console.warn('[Server/D1] Failed to fetch raw data from Worker:', err);
       return [];
     }
+  }
+
+  async function fetchWorkerMatches(): Promise<any[]> {
+    const raw = await fetchWorkerRawData();
+    return raw.filter((item: any) => item.type !== 'streamer' && (item.team_a || item.date || item.ck_name));
+  }
+
+  async function fetchWorkerStreamers(): Promise<any[]> {
+    const raw = await fetchWorkerRawData();
+    const streamers = raw
+      .filter((item: any) => item.type === 'streamer' && item.name && typeof item.name === 'string')
+      .map((item: any) => ({
+        id: item.id || getD1StreamerId(item.name),
+        name: item.name.trim(),
+        soop_id: typeof item.soop_id === 'string' ? item.soop_id.trim() : '',
+        main_position: item.main_position || 'mid',
+        is_hidden: Boolean(item.is_hidden),
+        memo: item.memo || '',
+        updated_at: item.updated_at || new Date().toISOString(),
+      }));
+
+    return streamers.sort((a: any, b: any) => {
+      if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+      if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+      return a.name.localeCompare(b.name, 'ko-KR');
+    });
   }
 
   // Streamers persistence (file-backed JSON)
@@ -344,35 +378,121 @@ async function startServer() {
     });
   }
 
-  // Core D1 Database Sync & Migration Function
+  // Core D1 Database Sync & Migration Function (Direct Cloudflare D1 SQL operations)
   async function performD1DatabaseSyncAndMigration() {
     try {
-      console.log('[Server/D1] Initiating D1 DB match & streamer synchronization...');
-      const matches = await fetchWorkerMatches();
-      const current = readStreamersFromFile();
-      const synced = extractStreamersFromMatches(matches, current);
+      console.log('[Server/D1] Initiating direct Cloudflare D1 streamer synchronization...');
+      const raw = await fetchWorkerRawData();
+      const matches = raw.filter((item: any) => item.type !== 'streamer' && (item.team_a || item.date || item.ck_name));
+      const currentD1Streamers = raw.filter((item: any) => item.type === 'streamer' && item.name);
 
-      // Save to server/streamers.json and src/data/streamers.json
-      writeStreamersToFile(synced);
+      // Extract match participants and position frequencies
+      const lineKeys = ['top', 'jgl', 'mid', 'adc', 'sup'] as const;
+      const positionCounts = new Map<string, Record<string, number>>();
+      const matchDisplayNames = new Map<string, string>();
+
+      for (const m of matches) {
+        for (const team of [m?.team_a, m?.team_b]) {
+          if (!team) continue;
+          for (const line of lineKeys) {
+            const rawName = team[line];
+            if (!rawName || typeof rawName !== 'string') continue;
+            const clean = rawName.trim();
+            if (!clean) continue;
+            const norm = clean.toLowerCase();
+            if (!positionCounts.has(norm)) {
+              positionCounts.set(norm, { top: 0, jgl: 0, mid: 0, adc: 0, sup: 0 });
+              matchDisplayNames.set(norm, clean);
+            }
+            positionCounts.get(norm)![line]++;
+          }
+        }
+      }
+
+      // Check which match streamers need to be inserted or updated in Cloudflare D1
+      const d1StreamerMap = new Map<string, any>();
+      for (const s of currentD1Streamers) {
+        if (s?.name) d1StreamerMap.set(s.name.toLowerCase().trim(), s);
+      }
+
+      const syncPromises: Promise<any>[] = [];
+      const nowIso = new Date().toISOString();
+
+      for (const [normKey, counts] of positionCounts.entries()) {
+        let bestLine = 'mid';
+        let maxPlayed = -1;
+        for (const line of lineKeys) {
+          if (counts[line] > maxPlayed) {
+            maxPlayed = counts[line];
+            bestLine = line;
+          }
+        }
+
+        const displayName = matchDisplayNames.get(normKey) || normKey;
+        const existing = d1StreamerMap.get(normKey);
+        const stripped = normKey.replace(/[\.\_\#\^\*\♥\-]/g, '');
+        let soopId = existing?.soop_id ? existing.soop_id.trim() : '';
+        if (!soopId) {
+          soopId = KNOWN_SOOP_IDS[normKey] || KNOWN_SOOP_IDS[stripped] || '';
+        }
+        if (normKey === '우리밍_' || normKey === '우리밍') {
+          soopId = 'kmj05317';
+        }
+
+        if (!existing) {
+          // Insert new streamer record directly to Cloudflare D1
+          const d1Id = getD1StreamerId(displayName);
+          const payload = {
+            id: d1Id,
+            type: 'streamer',
+            name: displayName,
+            soop_id: soopId,
+            main_position: bestLine,
+            is_hidden: 0,
+            updated_at: nowIso,
+          };
+          syncPromises.push(
+            fetch(WORKER_BASE_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            }).catch(() => {})
+          );
+        } else if (!existing.soop_id && soopId) {
+          // Update missing SOOP ID in D1
+          const payload = {
+            ...existing,
+            type: 'streamer',
+            soop_id: soopId,
+            main_position: existing.main_position || bestLine,
+            updated_at: nowIso,
+          };
+          syncPromises.push(
+            fetch(WORKER_BASE_URL, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            }).catch(() => {})
+          );
+        }
+      }
+
+      if (syncPromises.length > 0) {
+        await Promise.all(syncPromises);
+      }
+
+      // Re-fetch authoritative streamers directly from Cloudflare D1
+      const freshD1Streamers = await fetchWorkerStreamers();
+      writeStreamersToFile(freshD1Streamers);
       cachedLiveResponse = null;
 
-      // Best-effort push to upstream Cloudflare Worker D1 endpoint if it handles init-db
-      try {
-        await fetch(`${WORKER_BASE_URL}/api/admin/init-db`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ count: synced.length, streamers: synced }),
-          signal: AbortSignal.timeout(3000),
-        }).catch(() => {});
-      } catch {}
-
-      console.log(`[Server/D1] D1 DB synchronization complete: count=${synced.length}, matches=${matches.length}`);
+      console.log(`[Server/D1] D1 DB synchronization complete: streamers=${freshD1Streamers.length}, matches=${matches.length}`);
       return {
         success: true,
-        message: 'D1 DB streamers table initialized and synchronized successfully',
-        count: synced.length,
+        message: 'Cloudflare D1 streamers synchronized successfully',
+        count: freshD1Streamers.length,
         matchesCount: matches.length,
-        streamers: synced,
+        streamers: freshD1Streamers,
         source: 'cloudflare-d1',
         timestamp: new Date().toISOString(),
       };
@@ -410,155 +530,180 @@ async function startServer() {
   app.post('/api/admin/init-db', handleAdminInitDb);
   app.get('/api/admin/init-db', handleAdminInitDb);
 
+  // GET /api/streamers: Reads 100% directly from Cloudflare D1 (Single Source of Truth)
   app.get('/api/streamers', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
     try {
-      const matches = await fetchWorkerMatches();
-      const current = readStreamersFromFile();
+      let streamers = await fetchWorkerStreamers();
 
-      if (Array.isArray(matches) && matches.length > 0) {
-        const synced = extractStreamersFromMatches(matches, current);
-        writeStreamersToFile(synced);
-        return res.json({ success: true, count: synced.length, streamers: synced, source: 'cloudflare-d1' });
+      // If D1 doesn't have streamers yet or refresh is requested, sync from matches to D1
+      if (streamers.length === 0 || req.query.refresh === 'true') {
+        const syncResult = await performD1DatabaseSyncAndMigration();
+        if (syncResult.streamers && syncResult.streamers.length > 0) {
+          streamers = syncResult.streamers;
+        }
       }
 
-      return res.json({ success: true, count: current.length, streamers: current, source: 'file' });
+      writeStreamersToFile(streamers);
+      return res.json({ success: true, count: streamers.length, streamers, source: 'cloudflare-d1' });
     } catch (err: any) {
-      console.warn('[Server] Error in GET /api/streamers:', err);
+      console.warn('[Server/D1] Error in GET /api/streamers:', err);
       const fallback = readStreamersFromFile();
       return res.json({ success: true, count: fallback.length, streamers: fallback, source: 'fallback' });
     }
   });
 
-  app.post('/api/streamers', (req, res) => {
+  // POST /api/streamers: Direct Cloudflare D1 SQL INSERT/UPSERT
+  app.post('/api/streamers', async (req, res) => {
     try {
       cachedLiveResponse = null;
-
       const { streamers, streamer, replace } = req.body || {};
-
-      // If full replace is requested (e.g. from handleSaveAll)
-      if (replace && Array.isArray(streamers)) {
-        const cleanList = streamers
-          .filter((s: any) => s && typeof s.name === 'string' && s.name.trim())
-          .map((s: any) => ({
-            name: s.name.trim(),
-            soop_id: typeof s.soop_id === 'string' ? s.soop_id.trim() : '',
-            main_position: s.main_position || 'mid',
-            is_hidden: Boolean(s.is_hidden),
-            memo: s.memo,
-            updated_at: s.updated_at || new Date().toISOString(),
-          }))
-          .sort((a: any, b: any) => {
-            if (a.name === '우리밍_' || a.name === '우리밍') return -1;
-            if (b.name === '우리밍_' || b.name === '우리밍') return 1;
-            return a.name.localeCompare(b.name);
-          });
-
-        const success = writeStreamersToFile(cleanList);
-        if (!success) {
-          return res.status(500).json({ success: false, error: 'Failed to write streamers to disk' });
-        }
-        console.log(`[Server] Streamers replaced and saved: count=${cleanList.length}`);
-        return res.json({ success: true, count: cleanList.length, streamers: cleanList });
-      }
-
-      // Safe Incremental Append / Update mode (for individual save, add new streamer, etc.)
-      const current = readStreamersFromFile();
-      const map = new Map<string, any>();
-      for (const item of current) {
-        if (item?.name) map.set(item.name.toLowerCase().trim(), item);
-      }
-
       const incoming = Array.isArray(streamers) ? streamers : streamer ? [streamer] : [];
-      const nowIso = new Date().toISOString();
 
-      for (const item of incoming) {
-        if (!item?.name || typeof item.name !== 'string' || !item.name.trim()) continue;
-        const key = item.name.toLowerCase().trim();
-        const existing = map.get(key) || {};
-        map.set(key, {
-          ...existing,
-          ...item,
-          name: item.name.trim(),
-          soop_id: typeof item.soop_id === 'string' ? item.soop_id.trim() : (existing.soop_id || '').trim(),
-          main_position: item.main_position || existing.main_position || 'mid',
-          is_hidden: item.is_hidden !== undefined ? Boolean(item.is_hidden) : Boolean(existing.is_hidden),
-          updated_at: item.updated_at || nowIso,
-          memo: item.memo || existing.memo,
-        });
+      if (incoming.length === 0) {
+        return res.status(400).json({ success: false, error: 'No streamer data provided' });
       }
 
-      const updated = Array.from(map.values()).sort((a: any, b: any) => {
-        if (a.name === '우리밍_' || a.name === '우리밍') return -1;
-        if (b.name === '우리밍_' || b.name === '우리밍') return 1;
-        return a.name.localeCompare(b.name);
+      const nowIso = new Date().toISOString();
+      const currentD1 = await fetchWorkerStreamers();
+      const currentMap = new Map<string, any>();
+      for (const s of currentD1) {
+        if (s?.name) currentMap.set(s.name.toLowerCase().trim(), s);
+      }
+
+      // If full replace is requested (e.g. from tidy or bulk replace)
+      if (replace && Array.isArray(streamers)) {
+        const incomingNames = new Set(streamers.map((s: any) => (s?.name || '').toLowerCase().trim()));
+        const deletePromises: Promise<any>[] = [];
+        for (const s of currentD1) {
+          if (!incomingNames.has(s.name.toLowerCase().trim()) && s.id) {
+            deletePromises.push(
+              fetch(`${WORKER_BASE_URL}?id=${encodeURIComponent(s.id)}`, { method: 'DELETE' }).catch(() => {})
+            );
+          }
+        }
+        if (deletePromises.length > 0) await Promise.all(deletePromises);
+      }
+
+      // Persist each incoming streamer directly into Cloudflare D1
+      const persistPromises = incoming.map(async (item: any) => {
+        if (!item?.name || typeof item.name !== 'string' || !item.name.trim()) return null;
+        const cleanName = item.name.trim();
+        const existing = currentMap.get(cleanName.toLowerCase());
+        const d1Id = item.id || existing?.id || getD1StreamerId(cleanName);
+
+        const payload = {
+          id: d1Id,
+          type: 'streamer',
+          name: cleanName,
+          soop_id: typeof item.soop_id === 'string' ? item.soop_id.trim() : (existing?.soop_id || '').trim(),
+          main_position: item.main_position || existing?.main_position || 'mid',
+          is_hidden: item.is_hidden !== undefined ? (item.is_hidden ? 1 : 0) : (existing?.is_hidden ? 1 : 0),
+          memo: item.memo !== undefined ? item.memo : (existing?.memo || ''),
+          updated_at: item.updated_at || nowIso,
+        };
+
+        const method = existing ? 'PUT' : 'POST';
+        const d1Res = await fetch(WORKER_BASE_URL, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!d1Res.ok) {
+          await fetch(WORKER_BASE_URL, {
+            method: method === 'POST' ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }).catch(() => {});
+        }
+        return payload;
       });
 
-      const success = writeStreamersToFile(updated);
-      if (!success) {
-        return res.status(500).json({ success: false, error: 'Failed to write streamers to disk' });
-      }
-      console.log(`[Server] Streamers appended/updated: count=${updated.length}, incomingCount=${incoming.length}`);
-      return res.json({ success: true, count: updated.length, streamers: updated });
+      await Promise.all(persistPromises);
+
+      // Re-fetch authoritative list directly from Cloudflare D1
+      const updatedStreamers = await fetchWorkerStreamers();
+      writeStreamersToFile(updatedStreamers);
+      console.log(`[Server/D1] Streamer(s) saved directly to Cloudflare D1: count=${updatedStreamers.length}`);
+
+      return res.json({ success: true, count: updatedStreamers.length, streamers: updatedStreamers, source: 'cloudflare-d1' });
     } catch (err: any) {
-      console.error('[Server] POST /api/streamers error:', err);
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to update streamers' });
+      console.error('[Server/D1] POST /api/streamers error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to save streamer to D1' });
     }
   });
 
-  app.put('/api/streamers', (req, res) => {
+  // PUT /api/streamers & PUT /api/streamers/:id: Direct Cloudflare D1 SQL UPDATE
+  const handlePutStreamers = async (req: any, res: any) => {
     try {
       cachedLiveResponse = null;
       const { streamers, streamer } = req.body || {};
-      const current = readStreamersFromFile();
-      const map = new Map<string, any>();
-      for (const item of current) {
-        if (item?.name) map.set(item.name.toLowerCase().trim(), item);
+      const singleId = req.params?.id;
+      const incoming = Array.isArray(streamers) ? streamers : streamer ? [streamer] : req.body ? [req.body] : [];
+
+      if (incoming.length === 0 && !singleId) {
+        return res.status(400).json({ success: false, error: 'No streamer data to update' });
       }
 
-      const incoming = Array.isArray(streamers) ? streamers : streamer ? [streamer] : [];
       const nowIso = new Date().toISOString();
-
-      for (const item of incoming) {
-        if (!item?.name || typeof item.name !== 'string' || !item.name.trim()) continue;
-        const key = item.name.toLowerCase().trim();
-        const existing = map.get(key) || {};
-        map.set(key, {
-          ...existing,
-          ...item,
-          name: item.name.trim(),
-          soop_id: typeof item.soop_id === 'string' ? item.soop_id.trim() : (existing.soop_id || '').trim(),
-          main_position: item.main_position || existing.main_position || 'mid',
-          is_hidden: item.is_hidden !== undefined ? Boolean(item.is_hidden) : Boolean(existing.is_hidden),
-          updated_at: item.updated_at || nowIso,
-          memo: item.memo || existing.memo,
-        });
+      const currentD1 = await fetchWorkerStreamers();
+      const currentMap = new Map<string, any>();
+      for (const s of currentD1) {
+        if (s?.id) currentMap.set(s.id, s);
+        if (s?.name) currentMap.set(s.name.toLowerCase().trim(), s);
       }
 
-      const updated = Array.from(map.values()).sort((a: any, b: any) => {
-        if (a.name === '우리밍_' || a.name === '우리밍') return -1;
-        if (b.name === '우리밍_' || b.name === '우리밍') return 1;
-        return a.name.localeCompare(b.name);
+      const updatePromises = incoming.map(async (item: any) => {
+        if (!item?.name && !singleId) return null;
+        const cleanName = (item.name || '').trim();
+        const existing = (singleId ? currentMap.get(singleId) : null) || (cleanName ? currentMap.get(cleanName.toLowerCase()) : null);
+        const d1Id = singleId || item.id || existing?.id || (cleanName ? getD1StreamerId(cleanName) : '');
+        if (!d1Id) return null;
+
+        const payload = {
+          id: d1Id,
+          type: 'streamer',
+          name: cleanName || existing?.name || '',
+          soop_id: typeof item.soop_id === 'string' ? item.soop_id.trim() : (existing?.soop_id || '').trim(),
+          main_position: item.main_position || existing?.main_position || 'mid',
+          is_hidden: item.is_hidden !== undefined ? (item.is_hidden ? 1 : 0) : (existing?.is_hidden ? 1 : 0),
+          memo: item.memo !== undefined ? item.memo : (existing?.memo || ''),
+          updated_at: item.updated_at || nowIso,
+        };
+
+        await fetch(WORKER_BASE_URL, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        return payload;
       });
 
-      const success = writeStreamersToFile(updated);
-      if (!success) {
-        return res.status(500).json({ success: false, error: 'Failed to write streamers to disk on PUT' });
-      }
-      console.log(`[Server] Streamers updated via PUT: count=${updated.length}`);
-      return res.json({ success: true, count: updated.length, streamers: updated });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to update streamers' });
-    }
-  });
+      await Promise.all(updatePromises);
 
-  // Batch or single delete helper
-  function handleDeleteStreamers(req: any, res: any) {
+      const updatedStreamers = await fetchWorkerStreamers();
+      writeStreamersToFile(updatedStreamers);
+      console.log(`[Server/D1] Streamer(s) updated in Cloudflare D1: count=${updatedStreamers.length}`);
+
+      return res.json({ success: true, count: updatedStreamers.length, streamers: updatedStreamers, source: 'cloudflare-d1' });
+    } catch (err: any) {
+      console.error('[Server/D1] PUT /api/streamers error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to update streamer in D1' });
+    }
+  };
+
+  app.put('/api/streamers', handlePutStreamers);
+  app.put('/api/streamers/:id', handlePutStreamers);
+
+  // DELETE /api/streamers & DELETE /api/streamers/:id: Direct Cloudflare D1 SQL DELETE
+  async function handleDeleteStreamers(req: any, res: any) {
     try {
       cachedLiveResponse = null;
+      const singleId = req.params?.id || req.body?.id || req.query?.id;
       const rawNames = req.body?.names || (req.query?.names ? (Array.isArray(req.query.names) ? req.query.names : [req.query.names]) : null);
       const singleName = (req.body?.name || req.query?.name || '') as string;
       const targetNames: string[] = Array.isArray(rawNames)
@@ -567,27 +712,59 @@ async function startServer() {
         ? [singleName.toLowerCase().trim()]
         : [];
 
-      if (targetNames.length === 0) {
-        return res.status(400).json({ success: false, error: 'At least one streamer name is required for deletion' });
+      const currentD1 = await fetchWorkerStreamers();
+      const idsToDelete: string[] = [];
+
+      if (singleId) {
+        idsToDelete.push(String(singleId));
       }
 
-      const deleteSet = new Set(targetNames);
-      const current = readStreamersFromFile();
-      const updated = current.filter((s: any) => !deleteSet.has((s?.name || '').toLowerCase().trim()));
-
-      const success = writeStreamersToFile(updated);
-      if (!success) {
-        return res.status(500).json({ success: false, error: 'Failed to write streamers to disk on delete' });
+      if (targetNames.length > 0) {
+        const nameSet = new Set(targetNames);
+        for (const s of currentD1) {
+          if (nameSet.has(s.name.toLowerCase().trim()) && s.id) {
+            idsToDelete.push(s.id);
+          }
+        }
       }
 
-      console.log(`[Server] Streamer(s) deleted: count=${targetNames.length}, remaining=${updated.length}`);
-      return res.json({ success: true, count: updated.length, deletedCount: targetNames.length, streamers: updated });
+      if (idsToDelete.length === 0) {
+        return res.status(400).json({ success: false, error: 'No matching streamer found to delete' });
+      }
+
+      // Execute SQL DELETE directly on Cloudflare D1
+      const deletePromises = idsToDelete.map(async (d1Id) => {
+        try {
+          const dRes = await fetch(`${WORKER_BASE_URL}?id=${encodeURIComponent(d1Id)}`, {
+            method: 'DELETE',
+          });
+          return { id: d1Id, ok: dRes.ok };
+        } catch {
+          return { id: d1Id, ok: false };
+        }
+      });
+
+      await Promise.all(deletePromises);
+
+      const freshStreamers = await fetchWorkerStreamers();
+      writeStreamersToFile(freshStreamers);
+      console.log(`[Server/D1] Streamer(s) deleted from Cloudflare D1: deleted=${idsToDelete.length}, remaining=${freshStreamers.length}`);
+
+      return res.json({
+        success: true,
+        count: freshStreamers.length,
+        deletedCount: idsToDelete.length,
+        streamers: freshStreamers,
+        source: 'cloudflare-d1',
+      });
     } catch (err: any) {
-      return res.status(500).json({ success: false, error: err?.message || 'Failed to delete streamer(s)' });
+      console.error('[Server/D1] Delete streamer error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to delete streamer from D1' });
     }
   }
 
   app.delete('/api/streamers', handleDeleteStreamers);
+  app.delete('/api/streamers/:id', handleDeleteStreamers);
   app.post('/api/streamers/delete', handleDeleteStreamers);
 
   app.post('/api/analyze-screenshot', async (req, res) => {

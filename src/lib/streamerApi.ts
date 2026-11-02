@@ -163,11 +163,26 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
       }
 
       // If backend API returned empty or failed, fallback to direct Cloudflare D1 Worker
-      const d1Res = await fetch('https://riming-gg.janghyck2.workers.dev', { signal: controller.signal });
+      const d1Res = await fetch('https://riming-gg.janghyck2.workers.dev?_t=' + Date.now(), { signal: controller.signal });
       if (d1Res.ok) {
-        const matches = await d1Res.json();
-        if (Array.isArray(matches) && matches.length > 0) {
-          const list = autoExtractStreamersFromMatches(matches);
+        const raw = await d1Res.json();
+        if (Array.isArray(raw)) {
+          const d1Streamers = raw.filter((x: any) => x.type === 'streamer' && x.name);
+          if (d1Streamers.length > 0) {
+            const list: StreamerProfile[] = d1Streamers.map((s: any) => ({
+              id: s.id,
+              name: s.name.trim(),
+              soop_id: (s.soop_id || '').trim(),
+              main_position: s.main_position || 'mid',
+              is_hidden: Boolean(s.is_hidden),
+              updated_at: s.updated_at,
+              memo: s.memo,
+            }));
+            const sorted = sortStreamerProfiles(list);
+            _cachedStreamerProfiles = sorted;
+            return sorted;
+          }
+          const list = autoExtractStreamersFromMatches(raw);
           _cachedStreamerProfiles = list;
           return list;
         }
@@ -179,11 +194,26 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
         console.warn('[StreamerApi] GET /api/streamers fetch warning:', err);
       }
       try {
-        const d1Res = await fetch('https://riming-gg.janghyck2.workers.dev');
+        const d1Res = await fetch('https://riming-gg.janghyck2.workers.dev?_t=' + Date.now());
         if (d1Res.ok) {
-          const matches = await d1Res.json();
-          if (Array.isArray(matches) && matches.length > 0) {
-            const list = autoExtractStreamersFromMatches(matches);
+          const raw = await d1Res.json();
+          if (Array.isArray(raw)) {
+            const d1Streamers = raw.filter((x: any) => x.type === 'streamer' && x.name);
+            if (d1Streamers.length > 0) {
+              const list: StreamerProfile[] = d1Streamers.map((s: any) => ({
+                id: s.id,
+                name: s.name.trim(),
+                soop_id: (s.soop_id || '').trim(),
+                main_position: s.main_position || 'mid',
+                is_hidden: Boolean(s.is_hidden),
+                updated_at: s.updated_at,
+                memo: s.memo,
+              }));
+              const sorted = sortStreamerProfiles(list);
+              _cachedStreamerProfiles = sorted;
+              return sorted;
+            }
+            const list = autoExtractStreamersFromMatches(raw);
             _cachedStreamerProfiles = list;
             return list;
           }

@@ -124,6 +124,7 @@ export interface SynergyAnalysisResult {
 }
 
 export interface StreamerProfile {
+  id?: string; // Cloudflare D1 record ID
   name: string; // 닉네임 (e.g. "우리밍_", "김민교")
   soop_id: string; // SOOP user_id (e.g. "kmj05317", "minkyo1994")
   main_position: LineKey; // 'top' | 'jgl' | 'mid' | 'adc' | 'sup'

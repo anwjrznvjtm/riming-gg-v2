@@ -62,6 +62,7 @@ function mapProfilesToDict(profiles: StreamerProfile[]): Record<string, Streamer
     const serverId = typeof p.soop_id === 'string' ? p.soop_id.trim() : '';
 
     result[key] = {
+      id: p.id,
       name: cleanName,
       soop_id: serverId,
       main_position: p.main_position || 'mid',
