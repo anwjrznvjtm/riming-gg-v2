@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "start": "tsx server.ts",
-    "build": "vite build",
+    "build": "vite build && node -e \"const fs = require('fs'); fs.mkdirSync('dist/server', { recursive: true }); fs.copyFileSync('server/streamers.json', 'dist/server/streamers.json'); fs.mkdirSync('dist/src/data', { recursive: true }); fs.copyFileSync('server/streamers.json', 'dist/src/data/streamers.json');\"",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
