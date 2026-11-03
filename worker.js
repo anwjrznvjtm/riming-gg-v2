@@ -42,7 +42,7 @@ function safeParseJson(val, fallback = {}) {
 let memoryMatchesCache = [];
 
 /**
- * Ensure D1 ck_matches table exists
+ * Ensure D1 ck_matches & streamers tables exist
  */
 async function ensureTable(db) {
   if (!db || typeof db.exec !== 'function') return;
@@ -68,6 +68,17 @@ async function ensureTable(db) {
         updated_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_ck_matches_date ON ck_matches(date DESC);
+
+      CREATE TABLE IF NOT EXISTS streamers (
+        id TEXT PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        soop_id TEXT DEFAULT '',
+        main_position TEXT NOT NULL DEFAULT 'mid',
+        is_hidden INTEGER NOT NULL DEFAULT 0,
+        memo TEXT DEFAULT '',
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name);
     `);
   } catch (err) {
     console.warn('[Worker] ensureTable warning:', err);
@@ -111,6 +122,124 @@ export default {
     const kv = env?.RIMING_KV || env?.KV;
 
     try {
+      const isStreamersRoute = url.pathname.startsWith('/api/streamers') || url.searchParams.get('type') === 'streamer';
+      if (isStreamersRoute) {
+        if (db) await ensureTable(db);
+        if (request.method === 'GET') {
+          if (db) {
+            const res = await db
+              .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
+              .all();
+            const list = (res?.results || []).map((r) => ({
+              id: r.id,
+              name: r.name,
+              soop_id: r.soop_id || '',
+              main_position: r.main_position || 'mid',
+              is_hidden: Boolean(r.is_hidden),
+              memo: r.memo || '',
+              updated_at: r.updated_at,
+            }));
+            return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
+          }
+          return jsonResponse({ success: true, count: 0, streamers: [], storage: 'fallback' });
+        }
+
+        if (request.method === 'POST' || request.method === 'PUT') {
+          const body = await request.json().catch(() => ({}));
+          const nowIso = new Date().toISOString();
+          const incoming = Array.isArray(body?.streamers)
+            ? body.streamers
+            : body?.streamer
+            ? [body.streamer]
+            : body?.name || body?.soop_id
+            ? [body]
+            : [];
+          if (incoming.length === 0) {
+            return jsonResponse({ error: '수정할 스트리머 데이터가 없습니다.' }, 400);
+          }
+
+          if (db) {
+            const upsertStmt = db.prepare(`
+              INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(name) DO UPDATE SET
+                soop_id = excluded.soop_id,
+                main_position = excluded.main_position,
+                is_hidden = excluded.is_hidden,
+                memo = excluded.memo,
+                updated_at = excluded.updated_at
+            `);
+
+            const stmts = incoming
+              .filter((item) => item?.name && item.name.trim())
+              .map((item) => {
+                const cleanName = item.name.trim();
+                const sId = item.id || `s_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                return upsertStmt.bind(
+                  sId,
+                  cleanName,
+                  (item.soop_id || '').trim(),
+                  item.main_position || 'mid',
+                  item.is_hidden ? 1 : 0,
+                  item.memo || '',
+                  item.updated_at || nowIso
+                );
+              });
+
+            if (stmts.length > 0) {
+              await db.batch(stmts);
+            }
+
+            const res = await db
+              .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
+              .all();
+            const list = (res?.results || []).map((r) => ({
+              id: r.id,
+              name: r.name,
+              soop_id: r.soop_id || '',
+              main_position: r.main_position || 'mid',
+              is_hidden: Boolean(r.is_hidden),
+              memo: r.memo || '',
+              updated_at: r.updated_at,
+            }));
+            return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
+          }
+          return jsonResponse({ success: true, count: incoming.length, streamers: incoming, storage: 'fallback' });
+        }
+
+        if (request.method === 'DELETE') {
+          let targetId = url.searchParams.get('id');
+          let targetName = url.searchParams.get('name');
+          try {
+            const body = await request.json().catch(() => ({}));
+            if (body?.id) targetId = body.id;
+            if (body?.name) targetName = body.name;
+          } catch {}
+
+          if (db) {
+            if (targetName) {
+              await db.prepare('DELETE FROM streamers WHERE name = ?').bind(targetName.trim()).run();
+            } else if (targetId) {
+              await db.prepare('DELETE FROM streamers WHERE id = ?').bind(targetId).run();
+            }
+            const res = await db
+              .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
+              .all();
+            const list = (res?.results || []).map((r) => ({
+              id: r.id,
+              name: r.name,
+              soop_id: r.soop_id || '',
+              main_position: r.main_position || 'mid',
+              is_hidden: Boolean(r.is_hidden),
+              memo: r.memo || '',
+              updated_at: r.updated_at,
+            }));
+            return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
+          }
+          return jsonResponse({ success: true, message: 'Deleted' });
+        }
+      }
+
       // 2. GET: List all matches
       if (request.method === 'GET') {
         if (db) {

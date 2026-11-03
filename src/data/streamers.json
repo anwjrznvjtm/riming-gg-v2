@@ -1,749 +1,729 @@
 [
   {
-    "id": "s_ec9ab0eba6acebb08d5f",
     "name": "우리밍_",
     "soop_id": "kmj05317",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:17:47.282Z"
+    "updated_at": "2026-11-02T09:17:47.282Z",
+    "memo": ""
   },
   {
-    "id": "s_23eab980eb8f99ed9598",
     "name": "#김동하",
-    "soop_id": "khan",
-    "main_position": "mid",
+    "soop_id": "likekk",
+    "main_position": "top",
     "is_hidden": false,
     "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-03T08:15:54.873Z"
   },
   {
-    "id": "s_23ebafbcecb0aceab8b0",
+    "name": "＃김동하",
+    "soop_id": "likekk",
+    "main_position": "mid",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T09:30:04.296Z"
+  },
+  {
     "name": "#민찬기",
     "soop_id": "minchanki",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_cb9aec849ceab1b4ec9ab0",
     "name": "˚서건우",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_317673616c6c",
     "name": "1vsAll",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab090ebb894eb9fac",
     "name": "감블러",
     "soop_id": "gambler",
     "main_position": "adc",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab491ed8fbf",
     "name": "광폿",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab5acec8aa4ebb294ec8aa4",
     "name": "구스범스",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab980eab5aceab1b0eab5aceab1b0",
     "name": "김구거구거",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab980eab5b0",
     "name": "김군",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab980eba088ec9db8e299a5",
     "name": "김레인♥",
     "soop_id": "kimrain",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab980ebafbceab5902e",
     "name": "김민교.",
     "soop_id": "minkyo1994",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab980ec84b8ec9584",
     "name": "김세아",
     "soop_id": "kimseah94",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab980ec95bcebafb8e299a5",
     "name": "김야미♥",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab990ec8899",
     "name": "깐숙",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eab9bdeab9bdec9db42e",
     "name": "깽깽이.",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eabf80ed83b1ed83b1",
     "name": "꿀탱탱",
     "soop_id": "kkultt",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eabf80ed859cec9d80eca3bdec9788eb8ba4",
     "name": "꿀템은죽었다",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb80a8ec8290",
     "name": "뀨삐",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb8298eb8a94eb8888eabd832e",
     "name": "나는눈꽃.",
     "soop_id": "snowflower",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb8298eb8a94ec8381ec9ca4",
     "name": "나는상윤",
     "soop_id": "sangyoon",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb8298ebacb4eb8a98ebb489ec889c",
     "name": "나무늘봉순",
     "soop_id": "namunlbong",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb8298ec97b0ec95842e",
     "name": "나연아.",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb8298ed8388eba6ac2d",
+    "name": "나옹이빵",
+    "soop_id": "",
+    "main_position": "adc",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T08:05:07.123Z",
+    "memo": ""
+  },
+  {
     "name": "나탈리-",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb83a5eabcacebb08d",
     "name": "냥꼬밍",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb87bdec9db4e299a5",
     "name": "뇽이♥",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb8888eab8b82e",
     "name": "눈길.",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.134Z"
+    "updated_at": "2026-11-02T09:07:26.134Z",
+    "memo": ""
   },
   {
-    "id": "s_eb8ba4eb8298eca7b1e299a5",
     "name": "다나짱♥",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb9380eb8ba82e",
     "name": "듀단.",
     "soop_id": "dydan",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb9494ec9e84",
+    "name": "디나이05",
+    "soop_id": "",
+    "main_position": "jgl",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T08:05:07.123Z",
+    "memo": ""
+  },
+  {
     "name": "디임",
     "soop_id": "diim",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eb9e80ecb5b8",
     "name": "란쵸",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eba19cecbd94ebb3bc",
     "name": "로코볼",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eba6b0eb8ba4eb9e9162",
+    "name": "로키05",
+    "soop_id": "",
+    "main_position": "mid",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T08:05:07.123Z",
+    "memo": ""
+  },
+  {
     "name": "린다랑b",
     "soop_id": "lindarang",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eba788ec9ab0eb82ad",
     "name": "마우낭",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ebacb8eb9890eb868d",
     "name": "문또농",
     "soop_id": "",
     "main_position": "adc",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ebafb8ec93b0eba6ac",
     "name": "미쓰리",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ebafb8ed82a42e",
     "name": "미키.",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ebb183eb89b462646e73",
+    "name": "백지라구",
+    "soop_id": "",
+    "main_position": "top",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T08:05:07.123Z",
+    "memo": ""
+  },
+  {
     "name": "뱃뉴BDNS",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ebb391ed978c2e",
     "name": "병헌.",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ebb9b5eca780eb8b88e299a5",
     "name": "빵지니♥",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ebbf8ceba6ac2e",
     "name": "뿌리.",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec8381ec96b4eb8580",
     "name": "상어녀",
     "soop_id": "eun7432",
     "main_position": "adc",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec83a4ecbd94ed8380ec9e8430",
     "name": "샤코타임0",
     "soop_id": "shacotime",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec849ceb8f84ec9dbc",
     "name": "서도일",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec84b1ed9b882d",
     "name": "성훈-",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec8898eca3bc2d",
     "name": "수주-",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec8aa4eba7b5ec9e84",
     "name": "스맵임",
     "soop_id": "smeb",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec8f98eb8c80ec9ea5",
     "name": "쏘대장",
     "soop_id": "ssodaezang",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9584eb9ab12e",
     "name": "아뚱.",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9584eb9ca85f",
     "name": "아뜨_",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.134Z"
+    "updated_at": "2026-11-02T09:07:26.134Z",
+    "memo": ""
   },
   {
-    "id": "s_ec95b5eca780",
+    "name": "아이보리__",
+    "soop_id": "",
+    "main_position": "mid",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T08:05:07.123Z",
+    "memo": ""
+  },
+  {
     "name": "앵지",
     "soop_id": "angji",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec95bcec98b9ebafbceca780",
     "name": "야옹민지",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec978aec9ab0eca784",
     "name": "엊우진",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec97acec98ac",
     "name": "여올",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9881ec9eacec95a0ec95a0",
     "name": "영재애애",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec98a4eb80a8",
     "name": "오뀨",
     "soop_id": "oggyu",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec98a5eba7a8",
     "name": "옥맨",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9ca0ebb3b5ec8ba4",
+    "name": "우치!",
+    "soop_id": "",
+    "main_position": "sup",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T08:05:07.123Z",
+    "memo": ""
+  },
+  {
     "name": "유복실",
     "soop_id": "",
     "main_position": "adc",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9ca4ecbd9423",
     "name": "윤코#",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.134Z"
+    "updated_at": "2026-11-02T09:07:26.134Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9cbceb8389ec9db4",
     "name": "으냉이",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9db4eab2bdebafbc2b5f2b",
     "name": "이경민+_+",
     "soop_id": "leekyeongmin",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9db4ed9598eba684",
     "name": "이하름",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9e84ec84a0ebb9842e",
     "name": "임선비.",
     "soop_id": "sunbi1024",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ec9ea5ed9598eb8b88",
     "name": "장하니",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eca080eb9dbceb8e83",
     "name": "저라뎃",
     "soop_id": "jradet",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eca084eb9eb5eca081eca3bdec9d8c",
     "name": "전략적죽음",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eca188eb8b88",
     "name": "졈니",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eca3bcebb3b4eba6ace299a5",
     "name": "주보리♥",
     "soop_id": "jubori",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_eca480ebb0a7eb939c",
     "name": "준밧드",
     "soop_id": "junbadd",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ecb08cebafb8e299a5",
+    "name": "짐묵",
+    "soop_id": "",
+    "main_position": "top",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T08:05:07.123Z",
+    "memo": ""
+  },
+  {
     "name": "찌미♥",
     "soop_id": "",
     "main_position": "adc",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ecb184eb8b88e29886",
     "name": "채니☆",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ecb59ceab095ec9db4ec97b0eca780",
     "name": "최강이연지",
     "soop_id": "",
     "main_position": "adc",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed82b9eb83a5ec9db4",
     "name": "킹냥이",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed839cec9881e299a5",
     "name": "태영♥",
     "soop_id": "",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed88aceb83a5ecb8a05f",
     "name": "투냥츠_",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed9598eb9190eba781",
     "name": "하두링",
     "soop_id": "haduring",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed9598eba19ceba19c2e",
     "name": "하로로.",
     "soop_id": "haroro",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed9598eba3a83938",
     "name": "하루98",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed959ceb91acec96bc",
     "name": "한둬얼",
     "soop_id": "",
     "main_position": "jgl",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed97a4eb8b88e299a5",
     "name": "헤니♥",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed9aa8eb94a4",
     "name": "효딤",
     "soop_id": "hyodim",
     "main_position": "mid",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed9e88eb8c95",
     "name": "히댕",
     "soop_id": "",
     "main_position": "sup",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   },
   {
-    "id": "s_ed9e88ec97895e5e37",
     "name": "히엉^^7",
     "soop_id": "",
     "main_position": "top",
     "is_hidden": false,
-    "memo": "",
-    "updated_at": "2026-11-02T09:07:26.428Z"
+    "updated_at": "2026-11-02T09:07:26.428Z",
+    "memo": ""
   }
 ]

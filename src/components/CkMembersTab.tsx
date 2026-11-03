@@ -830,7 +830,10 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
           isOpen={isManageModalOpen}
           onClose={async () => {
             setIsManageModalOpen(false);
-            await fetchStreamers(true);
+            const fresh = await fetchStreamers(true);
+            if (fresh && fresh.length > 0) {
+              setProfiles(fresh);
+            }
             await handleFetchLive(false, true);
           }}
           matches={matches}

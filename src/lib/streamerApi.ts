@@ -53,8 +53,9 @@ const KNOWN_SOOP_IDS: Record<string, string> = {
   '하로로.': 'haroro',
   '하두링': 'haduring',
   '감블러': 'gambler',
-  '#김동하': 'khan',
-  '김동하': 'khan',
+  '#김동하': 'likekk',
+  '김동하': 'likekk',
+  '＃김동하': 'likekk',
   '#민찬기': 'minchanki',
   '민찬기': 'minchanki',
 };
@@ -349,48 +350,24 @@ export async function saveStreamerProfilesBatchAsync(
 }
 
 /**
- * Delete a streamer profile permanently from server DB
+ * Async update a single streamer profile (SOOP ID, position, hidden) directly to backend DB via PUT /api/streamers/:id
  */
-export function deleteStreamerProfile(name: string): StreamerProfile[] {
-  const cleanName = (name || '').trim();
+export async function updateStreamerProfileAsync(profile: StreamerProfile): Promise<StreamerProfile[]> {
+  const cleanName = (profile.name || '').trim();
   if (!cleanName) return getStoredStreamerProfiles();
-  const key = cleanName.toLowerCase();
-
-  const current = getStoredStreamerProfiles();
-  const updatedList = current.filter((p) => p.name.toLowerCase().trim() !== key);
-  _cachedStreamerProfiles = updatedList;
-
-  // Dispatch delete directly to DB server API
-  fetch('/api/streamers/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: cleanName }),
-  }).catch(() => {});
-
-  fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
-
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('streamers-updated', { detail: updatedList }));
-  }
-
-  return updatedList;
-}
-
-export async function deleteStreamerProfileAsync(name: string): Promise<StreamerProfile[]> {
-  const cleanName = (name || '').trim();
-  if (!cleanName) return getStoredStreamerProfiles();
-  const key = cleanName.toLowerCase();
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
-    const res = await fetch('/api/streamers/delete', {
+    const streamerId = profile.id || 's_' + encodeURIComponent(cleanName);
+    const res = await fetch(`/api/streamers/${encodeURIComponent(streamerId)}`, {
       signal: controller.signal,
-      method: 'POST',
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: cleanName }),
+      body: JSON.stringify(profile),
     });
+
     if (res.ok) {
       const data = await res.json();
       if (data?.success && Array.isArray(data.streamers)) {
@@ -404,16 +381,107 @@ export async function deleteStreamerProfileAsync(name: string): Promise<Streamer
       }
     }
   } catch (err: any) {
-    if (err?.name === 'AbortError') {
-      console.warn('[StreamerApi] POST /api/streamers/delete timed out after 8000ms');
-    } else {
-      console.warn('[StreamerApi] deleteStreamerProfileAsync error:', err);
-    }
+    console.warn('[StreamerApi] PUT /api/streamers/:id error, using POST fallback:', err);
   } finally {
     clearTimeout(timeoutId);
   }
 
-  return deleteStreamerProfile(cleanName);
+  return saveStreamerProfilesBatchAsync([profile], { replace: false });
+}
+
+/**
+ * Delete a streamer profile permanently from server DB
+ */
+export function deleteStreamerProfile(target: string | { id?: string; name: string }): StreamerProfile[] {
+  const name = typeof target === 'string' ? target : target.name;
+  const id = typeof target === 'object' ? target.id : '';
+  const cleanName = (name || '').trim().toLowerCase();
+  const cleanId = (id || '').trim();
+
+  const current = getStoredStreamerProfiles();
+  const updatedList = current.filter((p) => {
+    if (cleanId && p.id === cleanId) return false;
+    if (cleanName && p.name.toLowerCase().trim() === cleanName) return false;
+    return true;
+  });
+  _cachedStreamerProfiles = updatedList;
+
+  // Dispatch delete directly to DB server API
+  const endpoint = cleanId ? `/api/streamers/${encodeURIComponent(cleanId)}` : '/api/streamers/delete';
+  fetch(endpoint, {
+    method: cleanId ? 'DELETE' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: cleanId, name }),
+  }).catch(() => {});
+
+  fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('streamers-updated', { detail: updatedList }));
+  }
+
+  return updatedList;
+}
+
+export async function deleteStreamerProfileAsync(target: string | { id?: string; name: string }): Promise<StreamerProfile[]> {
+  const name = typeof target === 'string' ? target : target.name;
+  const id = typeof target === 'object' ? target.id : '';
+  const cleanName = (name || '').trim();
+  const cleanId = (id || '').trim();
+  if (!cleanName && !cleanId) return getStoredStreamerProfiles();
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    // 1. Try DELETE /api/streamers/:id (or :name)
+    const targetParam = cleanId || cleanName;
+    const res = await fetch(`/api/streamers/${encodeURIComponent(targetParam)}`, {
+      signal: controller.signal,
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cleanId, name: cleanName }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.streamers)) {
+        const serverList = sortStreamerProfiles(data.streamers);
+        _cachedStreamerProfiles = serverList;
+        await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+        }
+        return serverList;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[StreamerApi] DELETE /api/streamers/:id error, trying POST fallback:', err);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  // 2. Fallback: POST /api/streamers/delete
+  try {
+    const res = await fetch('/api/streamers/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cleanId, name: cleanName }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.streamers)) {
+        const serverList = sortStreamerProfiles(data.streamers);
+        _cachedStreamerProfiles = serverList;
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+        }
+        return serverList;
+      }
+    }
+  } catch {}
+
+  return deleteStreamerProfile(target);
 }
 
 /**

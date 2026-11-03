@@ -277,8 +277,9 @@ async function startServer() {
     '하로로.': 'haroro',
     '하두링': 'haduring',
     '감블러': 'gambler',
-    '#김동하': 'khan',
-    '김동하': 'khan',
+    '#김동하': 'likekk',
+    '김동하': 'likekk',
+    '＃김동하': 'likekk',
     '#민찬기': 'minchanki',
     '민찬기': 'minchanki',
   };
@@ -454,7 +455,13 @@ async function startServer() {
     try {
       cachedLiveResponse = null;
       const { streamers, streamer, replace } = req.body || {};
-      const incoming = Array.isArray(streamers) ? streamers : streamer ? [streamer] : [];
+      const incoming = Array.isArray(streamers)
+        ? streamers
+        : streamer
+        ? [streamer]
+        : (req.body && typeof req.body.name === 'string' && req.body.name.trim())
+        ? [req.body]
+        : [];
 
       if (incoming.length === 0) {
         return res.status(400).json({ success: false, error: 'No streamer data provided' });
@@ -539,12 +546,22 @@ async function startServer() {
       const currentMap = new Map<string, any>();
       for (const s of current) {
         if (s?.id) currentMap.set(String(s.id), s);
-        if (s?.name) currentMap.set(s.name.toLowerCase().trim(), s);
+        if (s?.name) {
+          currentMap.set(s.name.toLowerCase().trim(), s);
+          const stripped = s.name.replace(/[\.\_\#\^\*\♥\-\＃]/g, '').toLowerCase().trim();
+          if (stripped && !currentMap.has(stripped)) {
+            currentMap.set(stripped, s);
+          }
+        }
       }
 
       for (const item of incoming) {
         const cleanName = (item.name || '').trim();
-        const existing = (singleId ? currentMap.get(singleId) : null) || (cleanName ? currentMap.get(cleanName.toLowerCase()) : null);
+        const stripped = cleanName.replace(/[\.\_\#\^\*\♥\-\＃]/g, '').toLowerCase().trim();
+        const existing =
+          (singleId ? currentMap.get(singleId) : null) ||
+          (cleanName ? currentMap.get(cleanName.toLowerCase()) : null) ||
+          (stripped ? currentMap.get(stripped) : null);
         if (!existing && !cleanName) continue;
 
         const effectiveName = existing?.name || cleanName;
@@ -592,33 +609,47 @@ async function startServer() {
 
   app.put('/api/streamers', handlePutStreamers);
   app.put('/api/streamers/:id', handlePutStreamers);
+  app.post('/api/streamers/:id', handlePutStreamers);
+  app.post('/api/streamers/update', handlePutStreamers);
+  app.put('/api/streamers/update', handlePutStreamers);
 
   // DELETE /api/streamers & DELETE /api/streamers/:id: Safe backend DB removal
   async function handleDeleteStreamers(req: any, res: any) {
     try {
       cachedLiveResponse = null;
-      const singleId = req.params?.id || req.body?.id || req.query?.id;
+      const rawId = req.params?.id || req.body?.id || req.query?.id;
+      const singleId = rawId ? decodeURIComponent(String(rawId)).trim() : '';
       const rawNames = req.body?.names || (req.query?.names ? (Array.isArray(req.query.names) ? req.query.names : [req.query.names]) : null);
       const singleName = (req.body?.name || req.query?.name || '') as string;
       const targetNames: string[] = Array.isArray(rawNames)
-        ? rawNames.map((n: any) => String(n).toLowerCase().trim()).filter(Boolean)
+        ? rawNames.map((n: any) => decodeURIComponent(String(n)).toLowerCase().trim()).filter(Boolean)
         : singleName
-        ? [singleName.toLowerCase().trim()]
+        ? [decodeURIComponent(singleName).toLowerCase().trim()]
         : [];
 
       const current = readStreamersFromFile();
       const deleteNameSet = new Set(targetNames);
-      const deleteIdSet = new Set(singleId ? [String(singleId)] : []);
+      if (singleId) {
+        deleteNameSet.add(singleId.toLowerCase());
+      }
 
       const remaining = current.filter((s) => {
-        if (deleteIdSet.has(String(s.id))) return false;
-        if (s.name && deleteNameSet.has(s.name.toLowerCase().trim())) return false;
+        const sId = String(s.id || getD1StreamerId(s.name)).trim();
+        const sName = (s.name || '').toLowerCase().trim();
+        const sStripped = sName.replace(/[\.\_\#\^\*\♥\-\＃]/g, '');
+
+        if (singleId && (sId === singleId || s.id === singleId || sName === singleId.toLowerCase())) {
+          return false;
+        }
+        if (deleteNameSet.has(sName) || (sStripped && deleteNameSet.has(sStripped))) {
+          return false;
+        }
         return true;
       });
 
       const deletedCount = current.length - remaining.length;
       writeStreamersToFile(remaining);
-      console.log(`[Server] Streamer(s) deleted: deleted=${deletedCount}, remaining=${remaining.length}`);
+      console.log(`[Server] Streamer(s) deleted: target="${singleId || targetNames.join(',')}", deleted=${deletedCount}, remaining=${remaining.length}`);
 
       return res.json({
         success: true,

@@ -3,6 +3,7 @@ import { LineKey, LINE_KEYS, LINE_LABELS, Match, StreamerProfile } from '../type
 import {
   syncStreamersFromBackend,
   saveStreamerProfilesBatchAsync,
+  updateStreamerProfileAsync,
   deleteStreamerProfileAsync,
   deleteStreamersBatchAsync,
   tidyStreamersFromMatches,
@@ -112,7 +113,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   const [newLine, setNewLine] = useState<LineKey>('mid');
 
   // Status & Confirmation states
-  const [deleteTargetName, setDeleteTargetName] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<StreamerProfile | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<string>('연동됨');
@@ -196,56 +197,97 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       fetchAuthoritativeProfiles();
-      setDeleteTargetName(null);
+      setDeleteTarget(null);
       setIsAddingNew(false);
       setSelectedNames(new Set());
     }
   }, [isOpen, fetchAuthoritativeProfiles]);
 
-  // Close handler: Pure modal close without triggering any match creation or seeding
-  const handleModalClose = useCallback(() => {
-    onClose();
-  }, [onClose]);
+  // Active background save promises tracker to guarantee completion before modal closes
+  const activeSavePromisesRef = useRef<Promise<any>[]>([]);
 
   // --------------------------------------------------------------------------
-  // 1. AUTO-SAVE HELPER: Persists a profile directly to DB API (POST /api/streamers)
+  // 1. AUTO-SAVE HELPER: Persists a profile directly to DB API (PUT /api/streamers/:id)
   // --------------------------------------------------------------------------
   const executeAutoSave = useCallback(
-    async (profile: StreamerProfile, actionLabel?: string) => {
+    (profile: StreamerProfile, actionLabel?: string) => {
       setAutoSaveStatus('저장 중...');
-      try {
-        const serverList = await saveStreamerProfilesBatchAsync([profile], { replace: false });
-        if (serverList && serverList.length > 0) {
-          const dict = mapProfilesToDict(serverList);
-          setLocalMap(dict);
-          onProfilesUpdatedRef.current(serverList);
-          if (onSaveCompleteRef.current) {
-            try {
-              await onSaveCompleteRef.current(serverList);
-            } catch {}
+      const savePromise = (async () => {
+        try {
+          const serverList = await updateStreamerProfileAsync(profile);
+          if (serverList && serverList.length > 0) {
+            const dict = mapProfilesToDict(serverList);
+            setLocalMap(dict);
+            onProfilesUpdatedRef.current(serverList);
+            if (onSaveCompleteRef.current) {
+              try {
+                await onSaveCompleteRef.current(serverList);
+              } catch {}
+            }
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+            }
           }
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
-          }
-        }
-        setAutoSaveStatus('자동 저장됨 ✓');
-        setSavedIndicatorName(profile.name);
-        setTimeout(() => setSavedIndicatorName(null), 2500);
+          setAutoSaveStatus('자동 저장됨 ✓');
+          setSavedIndicatorName(profile.name);
+          setTimeout(() => setSavedIndicatorName(null), 2500);
 
-        if (actionLabel) {
-          onToastRef.current(actionLabel);
+          if (actionLabel) {
+            onToastRef.current(actionLabel);
+          }
+          return serverList;
+        } catch (err) {
+          console.warn('[StreamerManageModal] Auto-save failed:', err);
+          setAutoSaveStatus('저장 실패');
+          onToastRef.current('서버 자동 저장에 실패했습니다.');
+          throw err;
         }
-      } catch (err) {
-        console.warn('[StreamerManageModal] Auto-save failed:', err);
-        setAutoSaveStatus('저장 실패');
-        onToastRef.current('서버 자동 저장에 실패했습니다.');
-      }
+      })();
+
+      activeSavePromisesRef.current.push(savePromise);
+      savePromise.finally(() => {
+        activeSavePromisesRef.current = activeSavePromisesRef.current.filter((p) => p !== savePromise);
+      });
+      return savePromise;
     },
     []
   );
 
+  // Close handler: Flush uncommitted inputs, await all pending saves, then close and re-fetch
+  const handleModalClose = useCallback(async () => {
+    // 1. Flush any uncommitted input changes
+    const saveActions: Promise<any>[] = [];
+    for (const [key, rawVal] of Object.entries(editingIds)) {
+      const target = localMap[key];
+      const valStr = typeof rawVal === 'string' ? rawVal.trim() : '';
+      if (target && valStr !== (target.soop_id || '').trim()) {
+        const updated: StreamerProfile = {
+          ...target,
+          soop_id: valStr,
+          updated_at: new Date().toISOString(),
+        };
+        setLocalMap((prev) => ({ ...prev, [key]: updated }));
+        saveActions.push(executeAutoSave(updated));
+      }
+    }
+
+    // 2. Await in-flight and newly initiated save requests
+    const allPending = [...activeSavePromisesRef.current, ...saveActions];
+    if (allPending.length > 0) {
+      setAutoSaveStatus('저장 완료 대기 중...');
+      try {
+        await Promise.all(allPending);
+      } catch (err) {
+        console.warn('[StreamerManageModal] Error awaiting save promises:', err);
+      }
+    }
+
+    // 3. Pure modal close and trigger parent Re-fetch
+    onClose();
+  }, [editingIds, localMap, executeAutoSave, onClose]);
+
   // --------------------------------------------------------------------------
-  // 2. SOOP ID Edit & Auto-Save (onBlur or Enter)
+  // 2. SOOP ID Edit & Auto-Save (onBlur or Enter) - Always allowed regardless of match count
   // --------------------------------------------------------------------------
   const handleIdChange = (name: string, val: string) => {
     const key = name.toLowerCase().trim();
@@ -260,12 +302,6 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     const currentEntered = (editingIds[key] ?? target.soop_id ?? '').trim();
     if (currentEntered === (target.soop_id || '').trim()) {
       return; // No change
-    }
-
-    if (!isAdmin) {
-      onToastRef.current('스트리머 수정은 관리자만 가능합니다.');
-      setEditingIds((prev) => ({ ...prev, [key]: target.soop_id || '' }));
-      return;
     }
 
     const updatedProfile: StreamerProfile = {
@@ -288,13 +324,9 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   };
 
   // --------------------------------------------------------------------------
-  // 3. Position Change & Auto-Save
+  // 3. Position Change & Auto-Save - Always allowed regardless of match count
   // --------------------------------------------------------------------------
   const handlePositionChange = async (name: string, newPosition: LineKey) => {
-    if (!isAdmin) {
-      onToastRef.current('포지션 변경은 관리자만 가능합니다.');
-      return;
-    }
     const key = name.toLowerCase().trim();
     const target = localMap[key];
     if (!target || target.main_position === newPosition) return;
@@ -317,13 +349,9 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   };
 
   // --------------------------------------------------------------------------
-  // 4. [숨기기 / 노출] 토글 & Auto-Save (전적 유무 상관없이 가능)
+  // 4. [숨기기 / 노출] 토글 & Auto-Save - Always allowed regardless of match count
   // --------------------------------------------------------------------------
   const handleToggleHidden = async (name: string) => {
-    if (!isAdmin) {
-      onToastRef.current('숨김 설정은 관리자만 가능합니다.');
-      return;
-    }
     const key = name.toLowerCase().trim();
     const target = localMap[key];
     if (!target) return;
@@ -351,58 +379,84 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   // --------------------------------------------------------------------------
   // 5. [개별 삭제 (휴지통)]: 전적 0건인 스트리머만 DB 완전 삭제 가능
   // --------------------------------------------------------------------------
-  const handleRequestDelete = (name: string) => {
+  const handleRequestDelete = (streamer: StreamerProfile) => {
     if (!isAdmin) {
       onToastRef.current('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
     }
 
-    const key = name.toLowerCase().trim();
+    const key = streamer.name.toLowerCase().trim();
     const stat = matchStatsMap.get(key) || { total: 0, wins: 0, losses: 0, winRate: 0 };
 
     if (stat.total > 0) {
       onToastRef.current(
-        `'${name}' 스트리머는 CK 전적(${stat.total}전)이 기록되어 있어 삭제할 수 없습니다. 대신 [숨기기]를 사용해주세요.`
+        `'${streamer.name}' 스트리머는 CK 전적(${stat.total}전)이 기록되어 있어 삭제할 수 없습니다. 대신 [숨기기]를 사용해주세요.`
       );
       return;
     }
 
-    setDeleteTargetName(name);
+    setDeleteTarget(streamer);
   };
 
   const handleConfirmSingleDelete = async () => {
-    if (!deleteTargetName || !isAdmin) return;
+    if (!deleteTarget || !isAdmin) return;
 
     setIsProcessing(true);
     setAutoSaveStatus('삭제 중...');
-    const targetName = deleteTargetName;
+    const target = deleteTarget;
+
+    // 1. Immediate optimistic UI filter from localMap
+    setLocalMap((prev) => {
+      const next = { ...prev };
+      for (const [k, pVal] of Object.entries(next)) {
+        const p = pVal as StreamerProfile;
+        if (
+          (target.id && p?.id === target.id) ||
+          p?.name?.toLowerCase().trim() === target.name.toLowerCase().trim()
+        ) {
+          delete next[k];
+        }
+      }
+      return next;
+    });
+
+    setSelectedNames((prev) => {
+      const next = new Set(prev);
+      next.delete(target.name);
+      return next;
+    });
 
     try {
-      const serverList = await deleteStreamerProfileAsync(targetName);
-      if (Array.isArray(serverList)) {
-        const dict = mapProfilesToDict(serverList);
+      const serverList = await deleteStreamerProfileAsync({ id: target.id, name: target.name });
+      let finalList = serverList;
+
+      if (!Array.isArray(finalList) || finalList.length === 0) {
+        // Fallback fetch if serverList wasn't returned
+        finalList = await syncStreamersFromBackend(true);
+      }
+
+      if (Array.isArray(finalList)) {
+        const dict = mapProfilesToDict(finalList);
         setLocalMap(dict);
-        onProfilesUpdatedRef.current(serverList);
+        onProfilesUpdatedRef.current(finalList);
         if (onSaveCompleteRef.current) {
           try {
-            await onSaveCompleteRef.current(serverList);
+            await onSaveCompleteRef.current(finalList);
           } catch {}
         }
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: finalList }));
         }
       }
-      setSelectedNames((prev) => {
-        const next = new Set(prev);
-        next.delete(targetName);
-        return next;
-      });
-      setDeleteTargetName(null);
+
+      setDeleteTarget(null);
       setAutoSaveStatus('자동 저장됨 ✓');
-      onToastRef.current(`'${targetName}' 스트리머가 서버 DB에서 완전히 삭제되었습니다.`);
-    } catch {
+      onToastRef.current(`'${target.name}' 스트리머가 서버 DB에서 완전히 삭제되었습니다.`);
+    } catch (err) {
+      console.warn('[StreamerManageModal] Delete error:', err);
       setAutoSaveStatus('삭제 실패');
       onToastRef.current('스트리머 삭제 중 오류가 발생했습니다.');
+      await fetchAuthoritativeProfiles();
     } finally {
       setIsProcessing(false);
     }
@@ -641,9 +695,24 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
     const namesToDelete: string[] = Array.from(selectedNames);
 
+    // Optimistic UI update
+    setLocalMap((prev) => {
+      const next = { ...prev };
+      for (const [k, pVal] of Object.entries(next)) {
+        const p = pVal as StreamerProfile;
+        if (p?.name && selectedNames.has(p.name)) {
+          delete next[k];
+        }
+      }
+      return next;
+    });
+
     try {
       // Persistent Batch Delete via backend API (DELETE /api/streamers)
-      const serverList = await deleteStreamersBatchAsync(namesToDelete);
+      let serverList = await deleteStreamersBatchAsync(namesToDelete);
+      if (!Array.isArray(serverList) || serverList.length === 0) {
+        serverList = await syncStreamersFromBackend(true);
+      }
       if (Array.isArray(serverList)) {
         const dict = mapProfilesToDict(serverList);
         setLocalMap(dict);
@@ -652,6 +721,9 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
           try {
             await onSaveCompleteRef.current(serverList);
           } catch {}
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
         }
       }
 
@@ -665,6 +737,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       console.warn('[StreamerManageModal] Batch delete error:', err);
       setAutoSaveStatus('삭제 실패');
       onToastRef.current('일괄 삭제 중 오류가 발생했습니다.');
+      await fetchAuthoritativeProfiles();
     } finally {
       setIsProcessing(false);
     }
@@ -1033,7 +1106,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
               return (
                 <div
-                  key={streamer.name}
+                  key={streamer.id ? `streamer_${streamer.id}` : `streamer_${streamerKey}_${index}`}
                   className={`pt-3 first:pt-0 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 p-3 rounded-2xl transition-all ${
                     isChecked
                       ? 'bg-[#221218] border-2 border-[#ef4444]/70 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
@@ -1132,7 +1205,6 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                       <select
                         value={streamer.main_position || 'mid'}
                         onChange={(e) => handlePositionChange(streamer.name, e.target.value as LineKey)}
-                        disabled={!isAdmin}
                         className={`h-[34px] pl-2.5 pr-7 rounded-xl text-[11px] font-bold border appearance-none outline-none cursor-pointer transition-all ${
                           LINE_COLOR_CLASSES[streamer.main_position || 'mid'].bg
                         } ${LINE_COLOR_CLASSES[streamer.main_position || 'mid'].text} ${
@@ -1161,9 +1233,9 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.currentTarget.blur();
+                            handleIdCommit(streamer.name);
                           }
                         }}
-                        disabled={!isAdmin}
                         placeholder="SOOP ID (user_id 입력 후 Enter 또는 포커스 아웃)"
                         className={`w-full h-[34px] bg-[#0a0a12] border rounded-xl px-3 text-[12px] font-mono text-white placeholder-[#505068] outline-none transition-all ${
                           isIndicatorActive
@@ -1191,7 +1263,6 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                     <button
                       type="button"
                       onClick={() => handleToggleHidden(streamer.name)}
-                      disabled={!isAdmin}
                       className={`h-[34px] px-3 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
                         streamer.is_hidden
                           ? 'bg-[#f59e0b]/15 hover:bg-[#f59e0b]/25 text-[#fbbf24] border-[#f59e0b]/40 shadow-sm'
@@ -1230,7 +1301,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                       /* 전적 0건인 스트리머: 완전 삭제 가능 */
                       <button
                         type="button"
-                        onClick={() => handleRequestDelete(streamer.name)}
+                        onClick={() => handleRequestDelete(streamer)}
                         disabled={!isAdmin || isBenchmark}
                         className="h-[34px] px-2.5 rounded-xl bg-[#181216] hover:bg-[#ef4444]/20 text-[#a05058] hover:text-[#f87171] border border-[#2a1a20] hover:border-[#ef4444]/40 flex items-center gap-1 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40"
                         title="전적이 없는 스트리머입니다. 클릭 시 DB에서 완전히 삭제됩니다."
@@ -1272,7 +1343,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         {/* ================================================================= */}
         {/* 7. INDIVIDUAL DELETE CONFIRMATION DIALOG (For 0-match single)     */}
         {/* ================================================================= */}
-        {deleteTargetName && (
+        {deleteTarget && (
           <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-[fadeIn_0.15s]">
             <div className="relative w-full max-w-[360px] bg-[#12121a] border border-[#2a2a3a] rounded-2xl p-5 shadow-2xl">
               <div className="flex items-center gap-2 text-[#f87171] mb-2 font-bold text-[14px]">
@@ -1280,14 +1351,14 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 <span>스트리머 삭제 확인</span>
               </div>
               <p className="text-[12px] text-[#c0c0d0] leading-relaxed mb-4">
-                <strong>'{deleteTargetName}'</strong> 스트리머는 CK일지 전적이 없습니다.
+                <strong>'{deleteTarget.name}'</strong> 스트리머는 CK일지 전적이 없습니다.
                 <br />
                 서버 DB 및 목록에서 영구적으로 삭제하시겠습니까?
               </p>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setDeleteTargetName(null)}
+                  onClick={() => setDeleteTarget(null)}
                   disabled={isProcessing}
                   className="flex-1 h-[36px] bg-[#1a1a28] hover:bg-[#26263a] text-[#a0a0b8] rounded-xl text-[12px] font-medium cursor-pointer"
                 >
