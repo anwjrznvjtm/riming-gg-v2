@@ -44,44 +44,86 @@ let memoryMatchesCache = [];
 /**
  * Ensure D1 ck_matches & streamers tables exist
  */
-async function ensureTable(db) {
-  if (!db || typeof db.exec !== 'function') return;
-  try {
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS ck_matches (
-        id TEXT PRIMARY KEY,
-        date TEXT NOT NULL,
-        ck_name TEXT NOT NULL,
-        match_format TEXT NOT NULL DEFAULT '단판',
-        set_number INTEGER NOT NULL DEFAULT 1,
-        score TEXT NOT NULL DEFAULT '1:0',
-        winning_team TEXT NOT NULL,
-        team_a TEXT NOT NULL,
-        team_b TEXT NOT NULL,
-        team_a_champs TEXT NOT NULL,
-        team_b_champs TEXT NOT NULL,
-        team_a_kda TEXT NOT NULL,
-        team_b_kda TEXT NOT NULL,
-        ban_a TEXT NOT NULL,
-        ban_b TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_ck_matches_date ON ck_matches(date DESC);
+// Pre-seeded authoritative 91 streamers list
+const DEFAULT_STREAMERS_DATA = [{"name":"우리밍_","soop_id":"kmj05317","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:17:47.282Z","memo":""},{"name":"#김동하","soop_id":"likekk","main_position":"top","is_hidden":false,"memo":"","updated_at":"2026-11-04T08:04:50.476Z"},{"name":"＃김동하","soop_id":"likekk","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T09:30:04.296Z"},{"name":"#민찬기","soop_id":"minchanki","main_position":"mid","is_hidden":false,"updated_at":"2026-11-04T08:25:11.230Z","memo":""},{"name":"˚서건우","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"1vsAll","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"감블러","soop_id":"gambler","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"광폿","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"구스범스","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"김구거구거","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"김군","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"김레인♥","soop_id":"kimrain","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"김민교.","soop_id":"minkyo1994","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"김세아","soop_id":"kimseah94","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"김야미♥","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"깐숙","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"깽깽이.","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"꿀탱탱","soop_id":"kkultt","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"꿀템은죽었다","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"뀨삐","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"나는눈꽃.","soop_id":"snowflower","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"나는상윤","soop_id":"sangyoon","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"나무늘봉순","soop_id":"namunlbong","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"나연아.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"나옹이빵","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"name":"나탈리-","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"냥꼬밍","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"냥츠","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-03T10:34:43.665Z"},{"name":"뇽이♥","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"눈길.","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"name":"다나짱♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"듀단.","soop_id":"dydan","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"디나이05","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"name":"디임","soop_id":"diim","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"란쵸","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"로코볼","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"로키05","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"name":"린다랑b","soop_id":"lindarang","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"마우낭","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"문또농","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"미쓰리","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"미키.","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"백지라구","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"name":"뱃뉴BDNS","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"병헌.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"빵지니♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"뿌리.","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"상어녀","soop_id":"eun7432","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"샤코타임0","soop_id":"shacotime","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"서도일","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"성훈-","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"수주-","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"스맵임","soop_id":"smeb","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"쏘대장","soop_id":"ssodaezang","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"아뚱.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"아뜨_","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"name":"아이보리__","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"name":"앵지","soop_id":"angji","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"야옹민지","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"엊우진","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"여올","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"영재애애","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"오뀨","soop_id":"oggyu","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"옥맨","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"우치!","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"name":"유복실","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"윤코#","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"name":"으냉이","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"이경민+_+","soop_id":"leekyeongmin","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"이하름","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"임선비.","soop_id":"sunbi1024","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"장하니","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"저라뎃","soop_id":"jradet","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"전략적죽음","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"졈니","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"주보리♥","soop_id":"jubori","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"준밧드","soop_id":"junbadd","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"짐묵","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"name":"찌미♥","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"채니☆","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"최강이연지","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"킹냥이","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"태영♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"하두링","soop_id":"haduring","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"하로로.","soop_id":"haroro","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"하루98","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"한둬얼","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"헤니♥","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"효딤","soop_id":"hyodim","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"히댕","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"name":"히엉^^7","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""}];
 
-      CREATE TABLE IF NOT EXISTS streamers (
-        id TEXT PRIMARY KEY,
-        name TEXT UNIQUE NOT NULL,
-        soop_id TEXT DEFAULT '',
-        main_position TEXT NOT NULL DEFAULT 'mid',
-        is_hidden INTEGER NOT NULL DEFAULT 0,
-        memo TEXT DEFAULT '',
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name);
-    `);
+async function ensureTable(db) {
+  if (!db) return;
+  try {
+    if (typeof db.prepare === 'function') {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS ck_matches (
+          id TEXT PRIMARY KEY,
+          date TEXT NOT NULL,
+          ck_name TEXT NOT NULL,
+          match_format TEXT NOT NULL DEFAULT '단판',
+          set_number INTEGER NOT NULL DEFAULT 1,
+          score TEXT NOT NULL DEFAULT '1:0',
+          winning_team TEXT NOT NULL,
+          team_a TEXT NOT NULL,
+          team_b TEXT NOT NULL,
+          team_a_champs TEXT NOT NULL,
+          team_b_champs TEXT NOT NULL,
+          team_a_kda TEXT NOT NULL,
+          team_b_kda TEXT NOT NULL,
+          ban_a TEXT NOT NULL,
+          ban_b TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `).run();
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS streamers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          soop_id TEXT DEFAULT '',
+          main_position TEXT NOT NULL DEFAULT 'mid',
+          is_hidden INTEGER NOT NULL DEFAULT 0,
+          memo TEXT DEFAULT '',
+          updated_at TEXT NOT NULL
+        )
+      `).run();
+      try {
+        await db.prepare('CREATE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name)').run();
+      } catch {}
+    } else if (typeof db.exec === 'function') {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS streamers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          soop_id TEXT DEFAULT '',
+          main_position TEXT NOT NULL DEFAULT 'mid',
+          is_hidden INTEGER NOT NULL DEFAULT 0,
+          memo TEXT DEFAULT '',
+          updated_at TEXT NOT NULL
+        );
+      `);
+    }
   } catch (err) {
     console.warn('[Worker] ensureTable warning:', err);
+  }
+}
+
+async function seedDefaultStreamers(db) {
+  if (!db || typeof db.prepare !== 'function') return;
+  await ensureTable(db);
+  const now = new Date().toISOString();
+  for (const s of DEFAULT_STREAMERS_DATA) {
+    try {
+      const sId = s.id || ('s_' + (s.name || '').replace(/[._#^*♥-＃☆+s]/g, '').toLowerCase().trim());
+      await db.prepare(`
+        INSERT OR IGNORE INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        sId,
+        s.name,
+        s.soop_id || '',
+        s.main_position || 'mid',
+        s.is_hidden ? 1 : 0,
+        s.memo || '',
+        s.updated_at || now
+      ).run();
+    } catch {}
   }
 }
 
@@ -122,26 +164,82 @@ export default {
     const kv = env?.RIMING_KV || env?.KV;
 
     try {
+      if (url.pathname.startsWith('/api/admin/init-db')) {
+        if (db) {
+          await ensureTable(db);
+          await seedDefaultStreamers(db);
+          const res = await db
+            .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
+            .all();
+          const list = (res?.results || []).map((r) => ({
+            id: r.id,
+            name: r.name,
+            soop_id: r.soop_id || '',
+            main_position: r.main_position || 'mid',
+            is_hidden: Boolean(r.is_hidden),
+            memo: r.memo || '',
+            updated_at: r.updated_at,
+          }));
+          return jsonResponse({
+            success: true,
+            count: list.length,
+            streamers: list,
+            message: 'D1 데이터베이스 초기화 및 스트리머 명단 정돈 완료 (총 ' + list.length + '명)',
+            storage: 'D1',
+          });
+        }
+        return jsonResponse({
+          success: true,
+          count: DEFAULT_STREAMERS_DATA.length,
+          streamers: DEFAULT_STREAMERS_DATA,
+          message: '기본 스트리머 명단 복원 완료',
+          storage: 'default',
+        });
+      }
+
       const isStreamersRoute = url.pathname.startsWith('/api/streamers') || url.searchParams.get('type') === 'streamer';
       if (isStreamersRoute) {
         if (db) await ensureTable(db);
         if (request.method === 'GET') {
           if (db) {
-            const res = await db
-              .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
-              .all();
-            const list = (res?.results || []).map((r) => ({
-              id: r.id,
-              name: r.name,
-              soop_id: r.soop_id || '',
-              main_position: r.main_position || 'mid',
-              is_hidden: Boolean(r.is_hidden),
-              memo: r.memo || '',
-              updated_at: r.updated_at,
-            }));
-            return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
+            try {
+              let res = await db
+                .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
+                .all();
+              let list = (res?.results || []).map((r) => ({
+                id: r.id,
+                name: r.name,
+                soop_id: r.soop_id || '',
+                main_position: r.main_position || 'mid',
+                is_hidden: Boolean(r.is_hidden),
+                memo: r.memo || '',
+                updated_at: r.updated_at,
+              }));
+
+              if (list.length === 0) {
+                await seedDefaultStreamers(db);
+                res = await db
+                  .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
+                  .all();
+                list = (res?.results || []).map((r) => ({
+                  id: r.id,
+                  name: r.name,
+                  soop_id: r.soop_id || '',
+                  main_position: r.main_position || 'mid',
+                  is_hidden: Boolean(r.is_hidden),
+                  memo: r.memo || '',
+                  updated_at: r.updated_at,
+                }));
+              }
+
+              if (list.length > 0) {
+                return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
+              }
+            } catch (err) {
+              console.warn('[Worker] D1 query error:', err);
+            }
           }
-          return jsonResponse({ success: true, count: 0, streamers: [], storage: 'fallback' });
+          return jsonResponse({ success: true, count: DEFAULT_STREAMERS_DATA.length, streamers: DEFAULT_STREAMERS_DATA, storage: 'default' });
         }
 
         if (request.method === 'POST' || request.method === 'PUT') {
@@ -187,12 +285,12 @@ export default {
                      OR LOWER(TRIM(name)) = LOWER(TRIM(?))
                      OR name = ?
                      OR name = ?
-                     OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
+                     OR name = ?
                 `)
                 .bind(
                   soopId, position, isHidden, memo, updatedIso,
                   sId, cleanName, cleanName,
-                  stripped, '#' + stripped, stripped
+                  stripped, '#' + stripped, '＃' + stripped
                 )
                 .run();
 
@@ -220,16 +318,16 @@ export default {
                 }
               }
 
-              // 3. Sibling cleanup: update all symbol variations (e.g. '민찬기' vs '#민찬기') so outdated IDs (ckmin706) cannot survive
+              // 3. Sibling cleanup: update all symbol variations (e.g. '민찬기' vs '#민찬기' vs '＃민찬기')
               if (stripped) {
                 try {
                   await db
                     .prepare(`
                       UPDATE streamers
                       SET soop_id = ?, main_position = ?, is_hidden = ?, updated_at = ?
-                      WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
+                      WHERE name = ? OR name = ? OR name = ?
                     `)
-                    .bind(soopId, position, isHidden, updatedIso, stripped)
+                    .bind(soopId, position, isHidden, updatedIso, stripped, '#' + stripped, '＃' + stripped)
                     .run();
                 } catch {}
               }

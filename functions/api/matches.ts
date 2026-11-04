@@ -48,30 +48,57 @@ function jsonResponse(data: any, status = 200): Response {
  * D1 Table Auto-init helper (used only when DB is provided)
  */
 async function ensureTable(db: any) {
-  if (!db || typeof db.exec !== 'function') return;
+  if (!db) return;
   try {
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS ck_matches (
-        id TEXT PRIMARY KEY,
-        date TEXT NOT NULL,
-        ck_name TEXT NOT NULL,
-        match_format TEXT NOT NULL DEFAULT '단판',
-        set_number INTEGER NOT NULL DEFAULT 1,
-        score TEXT NOT NULL DEFAULT '1:0',
-        winning_team TEXT NOT NULL,
-        team_a TEXT NOT NULL,
-        team_b TEXT NOT NULL,
-        team_a_champs TEXT NOT NULL,
-        team_b_champs TEXT NOT NULL,
-        team_a_kda TEXT NOT NULL,
-        team_b_kda TEXT NOT NULL,
-        ban_a TEXT NOT NULL,
-        ban_b TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_ck_matches_date ON ck_matches(date DESC);
-    `);
+    if (typeof db.prepare === 'function') {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS ck_matches (
+          id TEXT PRIMARY KEY,
+          date TEXT NOT NULL,
+          ck_name TEXT NOT NULL,
+          match_format TEXT NOT NULL DEFAULT '단판',
+          set_number INTEGER NOT NULL DEFAULT 1,
+          score TEXT NOT NULL DEFAULT '1:0',
+          winning_team TEXT NOT NULL,
+          team_a TEXT NOT NULL,
+          team_b TEXT NOT NULL,
+          team_a_champs TEXT NOT NULL,
+          team_b_champs TEXT NOT NULL,
+          team_a_kda TEXT NOT NULL,
+          team_b_kda TEXT NOT NULL,
+          ban_a TEXT NOT NULL,
+          ban_b TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `).run();
+      try {
+        await db.prepare('CREATE INDEX IF NOT EXISTS idx_ck_matches_date ON ck_matches(date DESC)').run();
+      } catch {}
+    } else if (typeof db.exec === 'function') {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS ck_matches (
+          id TEXT PRIMARY KEY,
+          date TEXT NOT NULL,
+          ck_name TEXT NOT NULL,
+          match_format TEXT NOT NULL DEFAULT '단판',
+          set_number INTEGER NOT NULL DEFAULT 1,
+          score TEXT NOT NULL DEFAULT '1:0',
+          winning_team TEXT NOT NULL,
+          team_a TEXT NOT NULL,
+          team_b TEXT NOT NULL,
+          team_a_champs TEXT NOT NULL,
+          team_b_champs TEXT NOT NULL,
+          team_a_kda TEXT NOT NULL,
+          team_b_kda TEXT NOT NULL,
+          ban_a TEXT NOT NULL,
+          ban_b TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ck_matches_date ON ck_matches(date DESC);
+      `);
+    }
   } catch (e) {
     console.warn('ensureTable warning:', e);
   }

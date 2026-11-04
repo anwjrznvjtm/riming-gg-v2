@@ -1,9 +1,18 @@
 import { LineKey, Match, StreamerProfile, SoopLiveBroadcast, LiveStreamerMember, LINE_KEYS } from '../types';
+import { DEFAULT_STREAMERS } from '../data/defaultStreamers';
 
 export const SOOP_CLIENT_ID = '6746e3e1945b4cd93b1fba5fd28afc34';
 
-// In-memory runtime cache for server-synchronized streamers (Single Source of Truth: server/streamers.json)
-let _cachedStreamerProfiles: StreamerProfile[] | null = null;
+// In-memory runtime cache pre-seeded with authoritative 91 streamers
+let _cachedStreamerProfiles: StreamerProfile[] | null = DEFAULT_STREAMERS.map((s) => ({
+  id: (s as any).id,
+  name: s.name,
+  soop_id: s.soop_id || '',
+  main_position: (s.main_position as LineKey) || 'mid',
+  is_hidden: Boolean(s.is_hidden),
+  updated_at: s.updated_at,
+  memo: s.memo || '',
+}));
 let _activeFetchPromise: Promise<StreamerProfile[]> | null = null;
 
 /**
@@ -119,7 +128,6 @@ export function autoExtractStreamersFromMatches(matches: Match[]): StreamerProfi
  */
 export async function fetchStreamersFromServer(forceRefresh = false): Promise<StreamerProfile[]> {
   if (forceRefresh) {
-    _cachedStreamerProfiles = null;
     _activeFetchPromise = null;
   }
   if (!forceRefresh && _cachedStreamerProfiles && _cachedStreamerProfiles.length > 0) {
@@ -257,7 +265,18 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
       }
     }
 
-    return _cachedStreamerProfiles || [];
+    if (!_cachedStreamerProfiles || _cachedStreamerProfiles.length === 0) {
+      _cachedStreamerProfiles = DEFAULT_STREAMERS.map((s) => ({
+        id: (s as any).id,
+        name: s.name,
+        soop_id: s.soop_id || '',
+        main_position: (s.main_position as LineKey) || 'mid',
+        is_hidden: Boolean(s.is_hidden),
+        updated_at: s.updated_at,
+        memo: s.memo || '',
+      }));
+    }
+    return _cachedStreamerProfiles;
   })();
 
   _activeFetchPromise = fetchPromise;
@@ -273,14 +292,24 @@ export async function syncStreamersFromBackend(forceRefresh = false): Promise<St
 
 /**
  * Synchronous getter: returns in-memory cached profiles directly from server sync.
- * Returns empty array if server DB response has not loaded yet (Never uses mock data).
+ * Guarantees authoritative 91 streamers list is always returned.
  */
 export function getStoredStreamerProfiles(): StreamerProfile[] {
   if (_cachedStreamerProfiles && _cachedStreamerProfiles.length > 0) {
     return _cachedStreamerProfiles;
   }
+  const defaultList: StreamerProfile[] = DEFAULT_STREAMERS.map((s) => ({
+    id: (s as any).id,
+    name: s.name,
+    soop_id: s.soop_id || '',
+    main_position: (s.main_position as LineKey) || 'mid',
+    is_hidden: Boolean(s.is_hidden),
+    updated_at: s.updated_at,
+    memo: s.memo || '',
+  }));
+  _cachedStreamerProfiles = defaultList;
   fetchStreamersFromServer().catch(() => {});
-  return _cachedStreamerProfiles || [];
+  return defaultList;
 }
 
 /**
@@ -715,10 +744,16 @@ export async function initD1DatabaseAsync(): Promise<{
   message?: string;
 }> {
   try {
-    const res = await fetch('/api/admin/init-db', {
+    let res = await fetch('/api/admin/init-db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
+    if (!res.ok) {
+      res = await fetch('https://riming-gg.janghyck2.workers.dev/api/admin/init-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     if (res.ok) {
       const data = await res.json();
       if (data?.success && Array.isArray(data.streamers)) {
@@ -749,10 +784,16 @@ export async function tidyStreamersFromMatches(
 }> {
   // 1. First attempt authoritative backend D1 synchronization via /api/admin/init-db
   try {
-    const initRes = await fetch('/api/admin/init-db', {
+    let initRes = await fetch('/api/admin/init-db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
+    if (!initRes.ok) {
+      initRes = await fetch('https://riming-gg.janghyck2.workers.dev/api/admin/init-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     if (initRes.ok) {
       const initData = await initRes.json();
       if (initData?.success && Array.isArray(initData.streamers)) {

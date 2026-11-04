@@ -3,9 +3,7 @@
  * Direct Cloudflare D1 Database (env.DB) CRUD & Auto-Save endpoint for Streamers.
  */
 
-interface Env {
-  DB?: any; // Cloudflare D1Database binding
-}
+import { DEFAULT_STREAMERS } from '../../src/data/defaultStreamers';
 
 export interface StreamerRow {
   id: string;
@@ -34,6 +32,11 @@ export function jsonResponse(data: any, status = 200): Response {
   });
 }
 
+export function getD1(context: any) {
+  const env = context?.env || context;
+  return env?.DB || env?.RIMING_DB || env?.D1 || env?.database || null;
+}
+
 export function stripSymbols(name: string): string {
   return (name || '').replace(/[\.\_\#\^\*\♥\-\＃\☆\+\s]/g, '').toLowerCase().trim();
 }
@@ -49,24 +52,28 @@ export function getStreamerId(name: string): string {
 }
 
 export async function ensureStreamersTable(db: any) {
-  if (!db || typeof db.exec !== 'function') return;
+  if (!db || typeof db.prepare !== 'function') return;
   try {
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS streamers (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        soop_id TEXT DEFAULT '',
-        main_position TEXT NOT NULL DEFAULT 'mid',
-        is_hidden INTEGER NOT NULL DEFAULT 0,
-        memo TEXT DEFAULT '',
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name);
-      CREATE INDEX IF NOT EXISTS idx_streamers_id ON streamers(id);
-    `);
+    await db
+      .prepare(`
+        CREATE TABLE IF NOT EXISTS streamers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          soop_id TEXT DEFAULT '',
+          main_position TEXT NOT NULL DEFAULT 'mid',
+          is_hidden INTEGER NOT NULL DEFAULT 0,
+          memo TEXT DEFAULT '',
+          updated_at TEXT NOT NULL
+        )
+      `)
+      .run();
   } catch (err) {
-    console.warn('[Pages Functions /api/streamers] ensureStreamersTable warning:', err);
+    console.warn('[Pages Functions] CREATE TABLE streamers warning:', err);
   }
+
+  try {
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name)').run();
+  } catch {}
 }
 
 export function rowToStreamer(row: any): StreamerRow {
@@ -81,13 +88,65 @@ export function rowToStreamer(row: any): StreamerRow {
   };
 }
 
+export function deduplicateStreamers(rawRows: StreamerRow[]): StreamerRow[] {
+  const map = new Map<string, StreamerRow>();
+  for (const r of rawRows) {
+    const key = stripSymbols(r.name) || r.name.toLowerCase().trim();
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, r);
+    } else {
+      if (!existing.soop_id && r.soop_id) {
+        map.set(key, r);
+      } else if (
+        r.soop_id &&
+        existing.soop_id &&
+        new Date(r.updated_at).getTime() > new Date(existing.updated_at).getTime()
+      ) {
+        map.set(key, { ...existing, ...r, soop_id: r.soop_id });
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+    if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+    return a.name.localeCompare(b.name, 'ko-KR');
+  });
+}
+
+export async function seedDefaultStreamersToD1(db: any) {
+  if (!db || typeof db.prepare !== 'function') return;
+  await ensureStreamersTable(db);
+  const now = new Date().toISOString();
+  for (const s of DEFAULT_STREAMERS) {
+    try {
+      const sId = (s as any).id || getStreamerId(s.name);
+      await db
+        .prepare(`
+          INSERT OR IGNORE INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        .bind(
+          sId,
+          s.name,
+          s.soop_id || '',
+          s.main_position || 'mid',
+          s.is_hidden ? 1 : 0,
+          s.memo || '',
+          s.updated_at || now
+        )
+        .run();
+    } catch {}
+  }
+}
+
 /**
- * Executes a direct D1 UPDATE statement on env.DB as required:
+ * Executes a direct D1 UPDATE statement on env.DB:
  * UPDATE streamers SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ? WHERE id = ? OR name = ?
- * If the record did not exist yet (changes === 0), it performs an INSERT.
  */
 export async function executeD1StreamerUpsert(db: any, item: any): Promise<void> {
-  if (!db || !item?.name) return;
+  if (!db || typeof db.prepare !== 'function' || !item?.name) return;
   const cleanName = String(item.name).trim();
   if (!cleanName) return;
 
@@ -99,28 +158,40 @@ export async function executeD1StreamerUpsert(db: any, item: any): Promise<void>
   const memo = typeof item.memo === 'string' ? item.memo : '';
   const nowIso = item.updated_at || new Date().toISOString();
 
-  // 1. Core UPDATE Query directly executed on Cloudflare D1 with symbol-invariant matching
-  const updateRes = await db
-    .prepare(`
-      UPDATE streamers 
-      SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-      WHERE id = ? 
-         OR name = ? 
-         OR LOWER(TRIM(name)) = LOWER(TRIM(?))
-         OR name = ?
-         OR name = ?
-         OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
-    `)
-    .bind(
-      soopId, position, isHidden, memo, nowIso,
-      sId, cleanName, cleanName,
-      stripped, '#' + stripped, stripped
-    )
-    .run();
+  let updateRes: any = null;
+  try {
+    updateRes = await db
+      .prepare(`
+        UPDATE streamers 
+        SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+        WHERE id = ? 
+           OR name = ? 
+           OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+           OR name = ?
+           OR name = ?
+           OR name = ?
+      `)
+      .bind(
+        soopId,
+        position,
+        isHidden,
+        memo,
+        nowIso,
+        sId,
+        cleanName,
+        cleanName,
+        stripped,
+        '#' + stripped,
+        '＃' + stripped
+      )
+      .run();
+  } catch (err) {
+    console.warn('[Pages Functions] UPDATE query warning:', err);
+  }
 
   const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
 
-  // 2. If row was not present in DB, insert it
+  // If row was not present in DB, insert it
   if (changes === 0) {
     try {
       await db
@@ -131,132 +202,136 @@ export async function executeD1StreamerUpsert(db: any, item: any): Promise<void>
         .bind(sId, cleanName, soopId, position, isHidden, memo, nowIso)
         .run();
     } catch {
-      await db
-        .prepare(`
-          UPDATE streamers 
-          SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-          WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
-        `)
-        .bind(soopId, position, isHidden, memo, nowIso, sId, cleanName, cleanName)
-        .run();
+      try {
+        await db
+          .prepare(`
+            UPDATE streamers 
+            SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+            WHERE id = ? OR name = ?
+          `)
+          .bind(soopId, position, isHidden, memo, nowIso, sId, cleanName)
+          .run();
+      } catch {}
     }
   }
 
-  // 3. Sibling cleanup: update all symbol variations (e.g. '민찬기' vs '#민찬기') so outdated IDs (e.g. ckmin706) cannot survive
-  try {
-    if (stripped) {
+  // Sibling cleanup: update all symbol variations (e.g. '민찬기' vs '#민찬기' vs '＃민찬기')
+  if (stripped) {
+    try {
       await db
         .prepare(`
           UPDATE streamers
           SET soop_id = ?, main_position = ?, is_hidden = ?, updated_at = ?
-          WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
+          WHERE name = ? OR name = ? OR name = ?
         `)
-        .bind(soopId, position, isHidden, nowIso, stripped)
+        .bind(soopId, position, isHidden, nowIso, stripped, '#' + stripped, '＃' + stripped)
         .run();
-    }
-  } catch (err) {
-    console.warn('[Pages Functions] Sibling update warning:', err);
+    } catch {}
   }
 }
 
 export async function fetchAllStreamersFromD1(db: any): Promise<StreamerRow[]> {
-  const queryRes = await db
-    .prepare(`
-      SELECT * FROM streamers 
-      ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC
-    `)
-    .all();
-
-  const rawRows = (queryRes?.results || []).map((r: any) => rowToStreamer(r));
-
-  // Deduplicate variations of the same name (e.g. #민찬기 and 민찬기)
-  const map = new Map<string, StreamerRow>();
-  for (const r of rawRows) {
-    const key = stripSymbols(r.name) || r.name.toLowerCase().trim();
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, r);
-    } else {
-      // Prioritize the entry with an explicit soop_id, or the latest updated
-      if (!existing.soop_id && r.soop_id) {
-        map.set(key, r);
-      } else if (r.soop_id && existing.soop_id && new Date(r.updated_at).getTime() > new Date(existing.updated_at).getTime()) {
-        map.set(key, { ...existing, ...r, soop_id: r.soop_id });
-      }
-    }
+  if (!db || typeof db.prepare !== 'function') {
+    return DEFAULT_STREAMERS.map((s) => rowToStreamer(s));
   }
 
-  const cleanList = Array.from(map.values()).sort((a, b) => {
-    if (a.name === '우리밍_' || a.name === '우리밍') return -1;
-    if (b.name === '우리밍_' || b.name === '우리밍') return 1;
-    return a.name.localeCompare(b.name, 'ko-KR');
-  });
+  try {
+    await ensureStreamersTable(db);
+    const queryRes = await db
+      .prepare(`
+        SELECT * FROM streamers 
+        ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC
+      `)
+      .all();
 
-  return cleanList;
+    const rawRows = (queryRes?.results || []).map((r: any) => rowToStreamer(r));
+    if (rawRows.length > 0) {
+      return deduplicateStreamers(rawRows);
+    }
+  } catch (err) {
+    console.warn('[Pages Functions] fetchAllStreamersFromD1 error, trying seed:', err);
+  }
+
+  // If table is empty (0 rows) or table didn't exist yet, auto-seed with all 91 streamers
+  try {
+    await seedDefaultStreamersToD1(db);
+    const retryRes = await db
+      .prepare(`
+        SELECT * FROM streamers 
+        ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC
+      `)
+      .all();
+    const retryRows = (retryRes?.results || []).map((r: any) => rowToStreamer(r));
+    if (retryRows.length > 0) {
+      return deduplicateStreamers(retryRows);
+    }
+  } catch (seedErr) {
+    console.warn('[Pages Functions] seedDefaultStreamersToD1 error:', seedErr);
+  }
+
+  return DEFAULT_STREAMERS.map((s) => rowToStreamer(s));
 }
 
 export const onRequestOptions = async () => {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 };
 
-// GET /api/streamers: Reads authoritative list directly from D1 DB
-export const onRequestGet = async (context: { request: Request; env: Env }) => {
-  const db = context.env?.DB;
+// GET /api/streamers: Reads authoritative list directly from D1 DB with guaranteed default fallback
+export const onRequestGet = async (context: any) => {
+  try {
+    const db = getD1(context);
+    const streamers = await fetchAllStreamersFromD1(db);
 
-  if (db) {
-    try {
-      await ensureStreamersTable(db);
-      const streamers = await fetchAllStreamersFromD1(db);
-
-      return jsonResponse({
-        success: true,
-        count: streamers.length,
-        streamers,
-        storage: 'Cloudflare-D1',
-      });
-    } catch (err: any) {
-      console.error('[Pages Functions] D1 query error:', err);
-    }
+    return jsonResponse({
+      success: true,
+      count: streamers.length,
+      streamers,
+      storage: db ? 'Cloudflare-D1' : 'default-bundle',
+    });
+  } catch (err: any) {
+    console.error('[Pages Functions /api/streamers] Fatal GET error caught:', err);
+    const fallback = DEFAULT_STREAMERS.map((s) => rowToStreamer(s));
+    return jsonResponse({
+      success: true,
+      count: fallback.length,
+      streamers: fallback,
+      storage: 'emergency-fallback',
+      error: err?.message,
+    });
   }
-
-  // Graceful fallback
-  return jsonResponse({
-    success: true,
-    count: 0,
-    streamers: [],
-    storage: 'fallback',
-  });
 };
 
 // POST & PUT /api/streamers: Auto-Save & Manual Update directly to Cloudflare D1 DB
-export async function handleUpdateStreamers(context: { request: Request; env: Env }) {
-  const db = context.env?.DB;
-
-  let body: any = {};
+export async function handleUpdateStreamers(context: any) {
   try {
-    body = await context.request.json();
-  } catch {
-    body = {};
-  }
+    const db = getD1(context);
 
-  const { streamers, streamer } = body || {};
-  const incoming = Array.isArray(streamers)
-    ? streamers
-    : streamer
-    ? [streamer]
-    : (body?.name || body?.soop_id || body?.id)
-    ? [body]
-    : [];
+    let body: any = {};
+    try {
+      body = await context.request.json();
+    } catch {
+      body = {};
+    }
 
-  if (incoming.length === 0) {
-    return jsonResponse({ success: false, error: '수정할 스트리머 정보가 없습니다.' }, 400);
-  }
+    const { streamers, streamer } = body || {};
+    const incoming = Array.isArray(streamers)
+      ? streamers
+      : streamer
+      ? [streamer]
+      : (body?.name || body?.soop_id || body?.id)
+      ? [body]
+      : [];
 
-  if (db) {
-    await ensureStreamersTable(db);
+    if (incoming.length === 0) {
+      const currentList = await fetchAllStreamersFromD1(db);
+      return jsonResponse({ success: true, count: currentList.length, streamers: currentList });
+    }
 
-    for (const item of incoming) {
-      await executeD1StreamerUpsert(db, item);
+    if (db) {
+      await ensureStreamersTable(db);
+      for (const item of incoming) {
+        await executeD1StreamerUpsert(db, item);
+      }
     }
 
     const fresh = await fetchAllStreamersFromD1(db);
@@ -265,56 +340,52 @@ export async function handleUpdateStreamers(context: { request: Request; env: En
       success: true,
       count: fresh.length,
       streamers: fresh,
-      storage: 'Cloudflare-D1',
+      storage: db ? 'Cloudflare-D1' : 'memory',
       updated_at: new Date().toISOString(),
     });
+  } catch (err: any) {
+    console.error('[Pages Functions] handleUpdateStreamers error:', err);
+    return jsonResponse({ success: false, error: err?.message || 'Update failed' }, 500);
   }
-
-  return jsonResponse({
-    success: true,
-    count: incoming.length,
-    streamers: incoming.map((r: any) => rowToStreamer(r)),
-    storage: 'fallback',
-  });
 }
 
 export const onRequestPost = handleUpdateStreamers;
 export const onRequestPut = handleUpdateStreamers;
 
 // DELETE /api/streamers: Permanent delete directly from Cloudflare D1 DB
-export const onRequestDelete = async (context: { request: Request; env: Env }) => {
-  const db = context.env?.DB;
-  const url = new URL(context.request.url);
-
-  let targetId = url.searchParams.get('id');
-  let targetName = url.searchParams.get('name');
-
+export const onRequestDelete = async (context: any) => {
   try {
-    const body = await context.request.json().catch(() => ({}));
-    if (body?.id) targetId = body.id;
-    if (body?.name) targetName = body.name;
-  } catch {}
+    const db = getD1(context);
+    const url = new URL(context.request.url);
 
-  if (!targetId && !targetName) {
-    return jsonResponse({ success: false, error: '삭제할 스트리머 ID 또는 이름이 필요합니다.' }, 400);
-  }
+    let targetId = url.searchParams.get('id');
+    let targetName = url.searchParams.get('name');
 
-  if (db) {
-    await ensureStreamersTable(db);
-    if (targetName) {
-      const stripped = stripSymbols(targetName);
-      await db
-        .prepare(`
-          DELETE FROM streamers 
-          WHERE name = ? 
-             OR LOWER(TRIM(name)) = LOWER(TRIM(?))
-             OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
-        `)
-        .bind(targetName.trim(), targetName.trim(), stripped)
-        .run();
-    }
-    if (targetId) {
-      await db.prepare('DELETE FROM streamers WHERE id = ?').bind(targetId).run();
+    try {
+      const body = await context.request.json().catch(() => ({}));
+      if (body?.id) targetId = body.id;
+      if (body?.name) targetName = body.name;
+    } catch {}
+
+    if (db && (targetId || targetName)) {
+      await ensureStreamersTable(db);
+      if (targetName) {
+        const stripped = stripSymbols(targetName);
+        await db
+          .prepare(`
+            DELETE FROM streamers 
+            WHERE name = ? 
+               OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+               OR name = ?
+               OR name = ?
+               OR name = ?
+          `)
+          .bind(targetName.trim(), targetName.trim(), stripped, '#' + stripped, '＃' + stripped)
+          .run();
+      }
+      if (targetId) {
+        await db.prepare('DELETE FROM streamers WHERE id = ?').bind(targetId).run();
+      }
     }
 
     const fresh = await fetchAllStreamersFromD1(db);
@@ -322,9 +393,10 @@ export const onRequestDelete = async (context: { request: Request; env: Env }) =
       success: true,
       count: fresh.length,
       streamers: fresh,
-      storage: 'Cloudflare-D1',
+      storage: db ? 'Cloudflare-D1' : 'memory',
     });
+  } catch (err: any) {
+    console.error('[Pages Functions] onRequestDelete error:', err);
+    return jsonResponse({ success: false, error: err?.message }, 500);
   }
-
-  return jsonResponse({ success: true, message: 'Deleted in memory/fallback' });
 };

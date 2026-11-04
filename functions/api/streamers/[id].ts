@@ -6,81 +6,70 @@
 import {
   CORS_HEADERS,
   jsonResponse,
+  getD1,
   ensureStreamersTable,
   executeD1StreamerUpsert,
   fetchAllStreamersFromD1,
   rowToStreamer,
 } from '../streamers';
 
-interface Env {
-  DB?: any;
-}
-
 export const onRequestOptions = async () => {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 };
 
 // PUT /api/streamers/:id: Direct D1 UPDATE for single streamer
-export const onRequestPut = async (context: {
-  request: Request;
-  env: Env;
-  params: { id: string };
-}) => {
-  const db = context.env?.DB;
-  const rawId = context.params?.id ? decodeURIComponent(context.params.id).trim() : '';
-
-  let body: any = {};
+export const onRequestPut = async (context: any) => {
   try {
-    body = await context.request.json();
-  } catch {
-    body = {};
-  }
+    const db = getD1(context);
+    const rawId = context.params?.id ? decodeURIComponent(context.params.id).trim() : '';
 
-  const incomingItem = {
-    ...body,
-    id: body.id || (rawId.startsWith('s_') ? rawId : undefined),
-    name: body.name || (!rawId.startsWith('s_') ? rawId : undefined),
-  };
+    let body: any = {};
+    try {
+      body = await context.request.json();
+    } catch {
+      body = {};
+    }
 
-  if (!incomingItem.name && !incomingItem.id && rawId) {
-    incomingItem.id = rawId;
-  }
+    const incomingItem = {
+      ...body,
+      id: body.id || (rawId.startsWith('s_') ? rawId : undefined),
+      name: body.name || (!rawId.startsWith('s_') ? rawId : undefined),
+    };
 
-  if (db) {
-    await ensureStreamersTable(db);
-    await executeD1StreamerUpsert(db, incomingItem);
+    if (!incomingItem.name && !incomingItem.id && rawId) {
+      incomingItem.id = rawId;
+    }
+
+    if (db) {
+      await ensureStreamersTable(db);
+      await executeD1StreamerUpsert(db, incomingItem);
+    }
+
     const fresh = await fetchAllStreamersFromD1(db);
 
     return jsonResponse({
       success: true,
       count: fresh.length,
       streamers: fresh,
-      storage: 'Cloudflare-D1',
+      storage: db ? 'Cloudflare-D1' : 'memory',
       updated_at: new Date().toISOString(),
     });
+  } catch (err: any) {
+    console.error('[Pages Functions /api/streamers/:id] PUT error:', err);
+    return jsonResponse({ success: false, error: err?.message || 'Update failed' }, 500);
   }
-
-  return jsonResponse({
-    success: true,
-    streamer: rowToStreamer(incomingItem),
-    storage: 'fallback',
-  });
 };
 
 export const onRequestPost = onRequestPut;
 
 // DELETE /api/streamers/:id: Direct D1 delete by ID or Name
-export const onRequestDelete = async (context: {
-  request: Request;
-  env: Env;
-  params: { id: string };
-}) => {
-  const db = context.env?.DB;
-  const rawId = context.params?.id ? decodeURIComponent(context.params.id).trim() : '';
+export const onRequestDelete = async (context: any) => {
+  try {
+    const db = getD1(context);
+    const rawId = context.params?.id ? decodeURIComponent(context.params.id).trim() : '';
 
-  if (db) {
-    await ensureStreamersTable(db);
-    if (rawId) {
+    if (db && rawId) {
+      await ensureStreamersTable(db);
       await db
         .prepare('DELETE FROM streamers WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))')
         .bind(rawId, rawId, rawId)
@@ -92,33 +81,10 @@ export const onRequestDelete = async (context: {
       success: true,
       count: fresh.length,
       streamers: fresh,
-      storage: 'Cloudflare-D1',
+      storage: db ? 'Cloudflare-D1' : 'memory',
     });
+  } catch (err: any) {
+    console.error('[Pages Functions /api/streamers/:id] DELETE error:', err);
+    return jsonResponse({ success: false, error: err?.message || 'Delete failed' }, 500);
   }
-
-  return jsonResponse({ success: true, message: 'Deleted in memory/fallback' });
-};
-
-// GET /api/streamers/:id: Query single streamer by ID or Name
-export const onRequestGet = async (context: {
-  request: Request;
-  env: Env;
-  params: { id: string };
-}) => {
-  const db = context.env?.DB;
-  const rawId = context.params?.id ? decodeURIComponent(context.params.id).trim() : '';
-
-  if (db) {
-    await ensureStreamersTable(db);
-    const res = await db
-      .prepare('SELECT * FROM streamers WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1')
-      .bind(rawId, rawId, rawId)
-      .first();
-
-    if (res) {
-      return jsonResponse({ success: true, streamer: rowToStreamer(res), storage: 'Cloudflare-D1' });
-    }
-  }
-
-  return jsonResponse({ success: false, error: 'Streamer not found' }, 404);
 };
