@@ -580,6 +580,9 @@ async function startServer() {
         };
 
         currentMap.set(normKey, updatedStreamer);
+        if (stripped) {
+          currentMap.set(stripped, updatedStreamer);
+        }
         if (effectiveId) {
           currentMap.set(String(effectiveId), updatedStreamer);
         }
@@ -588,7 +591,17 @@ async function startServer() {
       const uniqueByName = new Map<string, any>();
       for (const s of currentMap.values()) {
         if (s?.name) {
-          uniqueByName.set(s.name.toLowerCase().trim(), s);
+          const strippedKey = s.name.replace(/[\.\_\#\^\*\♥\-\＃\☆\+\s]/g, '').toLowerCase().trim() || s.name.toLowerCase().trim();
+          const existing = uniqueByName.get(strippedKey);
+          if (!existing) {
+            uniqueByName.set(strippedKey, s);
+          } else {
+            if (!existing.soop_id && s.soop_id) {
+              uniqueByName.set(strippedKey, s);
+            } else if (s.soop_id && existing.soop_id && new Date(s.updated_at).getTime() > new Date(existing.updated_at).getTime()) {
+              uniqueByName.set(strippedKey, { ...existing, ...s, soop_id: s.soop_id });
+            }
+          }
         }
       }
 

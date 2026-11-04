@@ -128,15 +128,20 @@ export default function App() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         syncFromApi(true);
-        syncStreamersFromBackend().catch(() => {});
+        syncStreamersFromBackend(true).catch(() => {});
       }
+    };
+    const handleStreamersUpdated = () => {
+      syncStreamersFromBackend(true).catch(() => {});
     };
     window.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleVisibilityChange);
+    window.addEventListener('streamers-updated', handleStreamersUpdated);
     return () => {
       clearInterval(interval);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
+      window.removeEventListener('streamers-updated', handleStreamersUpdated);
     };
   }, [syncFromApi]);
 

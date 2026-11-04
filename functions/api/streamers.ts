@@ -34,8 +34,12 @@ export function jsonResponse(data: any, status = 200): Response {
   });
 }
 
+export function stripSymbols(name: string): string {
+  return (name || '').replace(/[\.\_\#\^\*\♥\-\＃\☆\+\s]/g, '').toLowerCase().trim();
+}
+
 export function getStreamerId(name: string): string {
-  const norm = (name || '').trim().toLowerCase();
+  const norm = stripSymbols(name) || (name || '').trim().toLowerCase();
   let hash = 0;
   for (let i = 0; i < norm.length; i++) {
     hash = (hash << 5) - hash + norm.charCodeAt(i);
@@ -57,7 +61,7 @@ export async function ensureStreamersTable(db: any) {
         memo TEXT DEFAULT '',
         updated_at TEXT NOT NULL
       );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name);
+      CREATE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name);
       CREATE INDEX IF NOT EXISTS idx_streamers_id ON streamers(id);
     `);
   } catch (err) {
@@ -87,6 +91,7 @@ export async function executeD1StreamerUpsert(db: any, item: any): Promise<void>
   const cleanName = String(item.name).trim();
   if (!cleanName) return;
 
+  const stripped = stripSymbols(cleanName);
   const sId = item.id ? String(item.id).trim() : getStreamerId(cleanName);
   const soopId = typeof item.soop_id === 'string' ? item.soop_id.trim() : '';
   const position = item.main_position || 'mid';
@@ -94,14 +99,23 @@ export async function executeD1StreamerUpsert(db: any, item: any): Promise<void>
   const memo = typeof item.memo === 'string' ? item.memo : '';
   const nowIso = item.updated_at || new Date().toISOString();
 
-  // 1. Core UPDATE Query directly executed on Cloudflare D1
+  // 1. Core UPDATE Query directly executed on Cloudflare D1 with symbol-invariant matching
   const updateRes = await db
     .prepare(`
       UPDATE streamers 
       SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-      WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+      WHERE id = ? 
+         OR name = ? 
+         OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+         OR name = ?
+         OR name = ?
+         OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
     `)
-    .bind(soopId, position, isHidden, memo, nowIso, sId, cleanName, cleanName)
+    .bind(
+      soopId, position, isHidden, memo, nowIso,
+      sId, cleanName, cleanName,
+      stripped, '#' + stripped, stripped
+    )
     .run();
 
   const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
@@ -121,11 +135,27 @@ export async function executeD1StreamerUpsert(db: any, item: any): Promise<void>
         .prepare(`
           UPDATE streamers 
           SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-          WHERE name = ? OR id = ?
+          WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
         `)
-        .bind(soopId, position, isHidden, memo, nowIso, cleanName, sId)
+        .bind(soopId, position, isHidden, memo, nowIso, sId, cleanName, cleanName)
         .run();
     }
+  }
+
+  // 3. Sibling cleanup: update all symbol variations (e.g. '민찬기' vs '#민찬기') so outdated IDs (e.g. ckmin706) cannot survive
+  try {
+    if (stripped) {
+      await db
+        .prepare(`
+          UPDATE streamers
+          SET soop_id = ?, main_position = ?, is_hidden = ?, updated_at = ?
+          WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
+        `)
+        .bind(soopId, position, isHidden, nowIso, stripped)
+        .run();
+    }
+  } catch (err) {
+    console.warn('[Pages Functions] Sibling update warning:', err);
   }
 }
 
@@ -137,7 +167,32 @@ export async function fetchAllStreamersFromD1(db: any): Promise<StreamerRow[]> {
     `)
     .all();
 
-  return (queryRes?.results || []).map((r: any) => rowToStreamer(r));
+  const rawRows = (queryRes?.results || []).map((r: any) => rowToStreamer(r));
+
+  // Deduplicate variations of the same name (e.g. #민찬기 and 민찬기)
+  const map = new Map<string, StreamerRow>();
+  for (const r of rawRows) {
+    const key = stripSymbols(r.name) || r.name.toLowerCase().trim();
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, r);
+    } else {
+      // Prioritize the entry with an explicit soop_id, or the latest updated
+      if (!existing.soop_id && r.soop_id) {
+        map.set(key, r);
+      } else if (r.soop_id && existing.soop_id && new Date(r.updated_at).getTime() > new Date(existing.updated_at).getTime()) {
+        map.set(key, { ...existing, ...r, soop_id: r.soop_id });
+      }
+    }
+  }
+
+  const cleanList = Array.from(map.values()).sort((a, b) => {
+    if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+    if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+    return a.name.localeCompare(b.name, 'ko-KR');
+  });
+
+  return cleanList;
 }
 
 export const onRequestOptions = async () => {
@@ -247,7 +302,16 @@ export const onRequestDelete = async (context: { request: Request; env: Env }) =
   if (db) {
     await ensureStreamersTable(db);
     if (targetName) {
-      await db.prepare('DELETE FROM streamers WHERE name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))').bind(targetName.trim(), targetName.trim()).run();
+      const stripped = stripSymbols(targetName);
+      await db
+        .prepare(`
+          DELETE FROM streamers 
+          WHERE name = ? 
+             OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+             OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
+        `)
+        .bind(targetName.trim(), targetName.trim(), stripped)
+        .run();
     }
     if (targetId) {
       await db.prepare('DELETE FROM streamers WHERE id = ?').bind(targetId).run();

@@ -169,21 +169,31 @@ export default {
           if (db) {
             for (const item of incoming) {
               const cleanName = (item?.name || (pathId && !pathId.startsWith('s_') ? pathId : '')).trim();
-              const sId = (item?.id || (pathId && pathId.startsWith('s_') ? pathId : '') || (cleanName ? `s_${cleanName}` : '')).trim();
+              const stripped = cleanName.replace(/[\.\_\#\^\*\♥\-\＃\☆\+\s]/g, '').toLowerCase().trim();
+              const sId = (item?.id || (pathId && pathId.startsWith('s_') ? pathId : '') || (stripped ? `s_${stripped}` : (cleanName ? `s_${cleanName}` : ''))).trim();
               const soopId = typeof item?.soop_id === 'string' ? item.soop_id.trim() : '';
               const position = item?.main_position || 'mid';
               const isHidden = item?.is_hidden ? 1 : 0;
               const memo = item?.memo || '';
               const updatedIso = item?.updated_at || nowIso;
 
-              // 1. Direct D1 UPDATE as requested by user
+              // 1. Direct D1 UPDATE matching exact id, name, or symbol-stripped variation
               const updateRes = await db
                 .prepare(`
                   UPDATE streamers 
                   SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-                  WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+                  WHERE id = ? 
+                     OR name = ? 
+                     OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+                     OR name = ?
+                     OR name = ?
+                     OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
                 `)
-                .bind(soopId, position, isHidden, memo, updatedIso, sId, cleanName, cleanName)
+                .bind(
+                  soopId, position, isHidden, memo, updatedIso,
+                  sId, cleanName, cleanName,
+                  stripped, '#' + stripped, stripped
+                )
                 .run();
 
               const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
@@ -203,18 +213,32 @@ export default {
                     .prepare(`
                       UPDATE streamers 
                       SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-                      WHERE name = ? OR id = ?
+                      WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
                     `)
-                    .bind(soopId, position, isHidden, memo, updatedIso, cleanName || sId, sId)
+                    .bind(soopId, position, isHidden, memo, updatedIso, sId, cleanName, cleanName)
                     .run();
                 }
+              }
+
+              // 3. Sibling cleanup: update all symbol variations (e.g. '민찬기' vs '#민찬기') so outdated IDs (ckmin706) cannot survive
+              if (stripped) {
+                try {
+                  await db
+                    .prepare(`
+                      UPDATE streamers
+                      SET soop_id = ?, main_position = ?, is_hidden = ?, updated_at = ?
+                      WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(TRIM(name)), '#', ''), '＃', ''), '.', ''), '_', ''), ' ', '') = ?
+                    `)
+                    .bind(soopId, position, isHidden, updatedIso, stripped)
+                    .run();
+                } catch {}
               }
             }
 
             const res = await db
               .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
               .all();
-            const list = (res?.results || []).map((r) => ({
+            const rawList = (res?.results || []).map((r) => ({
               id: r.id,
               name: r.name,
               soop_id: r.soop_id || '',
@@ -223,6 +247,29 @@ export default {
               memo: r.memo || '',
               updated_at: r.updated_at,
             }));
+
+            // Deduplicate variations of the same name (e.g. #민찬기 and 민찬기)
+            const map = new Map();
+            for (const r of rawList) {
+              const key = (r.name || '').replace(/[\.\_\#\^\*\♥\-\＃\☆\+\s]/g, '').toLowerCase().trim() || r.name.toLowerCase().trim();
+              const existing = map.get(key);
+              if (!existing) {
+                map.set(key, r);
+              } else {
+                if (!existing.soop_id && r.soop_id) {
+                  map.set(key, r);
+                } else if (r.soop_id && existing.soop_id && new Date(r.updated_at).getTime() > new Date(existing.updated_at).getTime()) {
+                  map.set(key, { ...existing, ...r, soop_id: r.soop_id });
+                }
+              }
+            }
+
+            const list = Array.from(map.values()).sort((a, b) => {
+              if (a.name === '우리밍_' || a.name === '우리밍') return -1;
+              if (b.name === '우리밍_' || b.name === '우리밍') return 1;
+              return a.name.localeCompare(b.name, 'ko-KR');
+            });
+
             return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
           }
           return jsonResponse({ success: true, count: incoming.length, streamers: incoming, storage: 'fallback' });

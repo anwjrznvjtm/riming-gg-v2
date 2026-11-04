@@ -58,6 +58,7 @@ const KNOWN_SOOP_IDS: Record<string, string> = {
   '＃김동하': 'likekk',
   '#민찬기': 'minchanki',
   '민찬기': 'minchanki',
+  '＃민찬기': 'minchanki',
 };
 
 export function autoExtractStreamersFromMatches(matches: Match[]): StreamerProfile[] {
@@ -131,9 +132,10 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
   const fetchPromise = (async () => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const cacheBuster = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     try {
-      const res = await fetch(`/api/streamers?_t=${Date.now()}${forceRefresh ? '&refresh=true' : ''}`, {
+      const res = await fetch(`/api/streamers?t=${cacheBuster}${forceRefresh ? '&refresh=true' : ''}`, {
         signal: controller.signal,
         cache: 'no-store',
         headers: {
@@ -160,16 +162,43 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
 
           const sorted = sortStreamerProfiles(list);
           _cachedStreamerProfiles = sorted;
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
+          }
           return sorted;
         }
       }
 
-      // If backend API returned empty or failed, fallback to direct Cloudflare D1 Worker
-      const d1Res = await fetch('https://riming-gg.janghyck2.workers.dev?_t=' + Date.now(), { signal: controller.signal });
+      // If backend API returned empty or failed, fallback to direct Cloudflare D1 Worker (/api/streamers endpoint)
+      const d1Res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers?t=${cacheBuster}`, {
+        signal: controller.signal,
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+          Pragma: 'no-cache',
+        },
+      });
+
       if (d1Res.ok) {
-        const raw = await d1Res.json();
-        if (Array.isArray(raw)) {
-          const d1Streamers = raw.filter((x: any) => x.type === 'streamer' && x.name);
+        const d1Data = await d1Res.json();
+        if (d1Data?.success && Array.isArray(d1Data.streamers) && d1Data.streamers.length > 0) {
+          const list: StreamerProfile[] = d1Data.streamers.map((s: any) => ({
+            id: s.id,
+            name: s.name.trim(),
+            soop_id: (s.soop_id || '').trim(),
+            main_position: s.main_position || 'mid',
+            is_hidden: Boolean(s.is_hidden),
+            updated_at: s.updated_at,
+            memo: s.memo,
+          }));
+          const sorted = sortStreamerProfiles(list);
+          _cachedStreamerProfiles = sorted;
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
+          }
+          return sorted;
+        } else if (Array.isArray(d1Data)) {
+          const d1Streamers = d1Data.filter((x: any) => x.type === 'streamer' && x.name);
           if (d1Streamers.length > 0) {
             const list: StreamerProfile[] = d1Streamers.map((s: any) => ({
               id: s.id,
@@ -182,9 +211,12 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
             }));
             const sorted = sortStreamerProfiles(list);
             _cachedStreamerProfiles = sorted;
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
+            }
             return sorted;
           }
-          const list = autoExtractStreamersFromMatches(raw);
+          const list = autoExtractStreamersFromMatches(d1Data);
           _cachedStreamerProfiles = list;
           return list;
         }
@@ -196,28 +228,25 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
         console.warn('[StreamerApi] GET /api/streamers fetch warning:', err);
       }
       try {
-        const d1Res = await fetch('https://riming-gg.janghyck2.workers.dev?_t=' + Date.now());
+        const d1Res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers?t=${Date.now()}`);
         if (d1Res.ok) {
-          const raw = await d1Res.json();
-          if (Array.isArray(raw)) {
-            const d1Streamers = raw.filter((x: any) => x.type === 'streamer' && x.name);
-            if (d1Streamers.length > 0) {
-              const list: StreamerProfile[] = d1Streamers.map((s: any) => ({
-                id: s.id,
-                name: s.name.trim(),
-                soop_id: (s.soop_id || '').trim(),
-                main_position: s.main_position || 'mid',
-                is_hidden: Boolean(s.is_hidden),
-                updated_at: s.updated_at,
-                memo: s.memo,
-              }));
-              const sorted = sortStreamerProfiles(list);
-              _cachedStreamerProfiles = sorted;
-              return sorted;
+          const d1Data = await d1Res.json();
+          if (d1Data?.success && Array.isArray(d1Data.streamers) && d1Data.streamers.length > 0) {
+            const list: StreamerProfile[] = d1Data.streamers.map((s: any) => ({
+              id: s.id,
+              name: s.name.trim(),
+              soop_id: (s.soop_id || '').trim(),
+              main_position: s.main_position || 'mid',
+              is_hidden: Boolean(s.is_hidden),
+              updated_at: s.updated_at,
+              memo: s.memo,
+            }));
+            const sorted = sortStreamerProfiles(list);
+            _cachedStreamerProfiles = sorted;
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
             }
-            const list = autoExtractStreamersFromMatches(raw);
-            _cachedStreamerProfiles = list;
-            return list;
+            return sorted;
           }
         }
       } catch {}
@@ -379,8 +408,9 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
 
   try {
     // 2. Multi-tier API calls to guarantee D1 DB persistence across Cloudflare Pages & Workers
+    const t = Date.now();
     // Route 1: PUT /api/streamers/:id
-    let res = await fetch(`/api/streamers/${encodeURIComponent(streamerId)}`, {
+    let res = await fetch(`/api/streamers/${encodeURIComponent(streamerId)}?t=${t}`, {
       signal: controller.signal,
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -389,7 +419,7 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
 
     // Route 2: POST /api/streamers/update fallback
     if (!res.ok) {
-      res = await fetch('/api/streamers/update', {
+      res = await fetch(`/api/streamers/update?t=${t}`, {
         signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -399,11 +429,21 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
 
     // Route 3: POST /api/streamers fallback
     if (!res.ok) {
-      res = await fetch('/api/streamers', {
+      res = await fetch(`/api/streamers?t=${t}`, {
         signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ replace: false, streamers: [profile] }),
+      });
+    }
+
+    // Route 4: Direct Cloudflare Worker fallback
+    if (!res.ok) {
+      res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers/update?t=${t}`, {
+        signal: controller.signal,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ streamer: profile }),
       });
     }
 

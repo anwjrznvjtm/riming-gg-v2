@@ -8,7 +8,6 @@
     "memo": ""
   },
   {
-    "id": "s_23eab980eb8f99ed9598",
     "name": "#김동하",
     "soop_id": "likekk",
     "main_position": "top",
@@ -24,12 +23,13 @@
     "updated_at": "2026-11-03T09:30:04.296Z"
   },
   {
+    "id": "s_#민찬기",
     "name": "#민찬기",
     "soop_id": "minchanki",
     "main_position": "mid",
     "is_hidden": false,
-    "updated_at": "2026-11-02T09:07:26.428Z",
-    "memo": ""
+    "memo": "",
+    "updated_at": "2026-11-04T08:25:11.230Z"
   },
   {
     "name": "˚서건우",
