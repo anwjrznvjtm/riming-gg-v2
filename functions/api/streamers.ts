@@ -7,7 +7,7 @@ interface Env {
   DB?: any; // Cloudflare D1Database binding
 }
 
-interface StreamerRow {
+export interface StreamerRow {
   id: string;
   name: string;
   soop_id: string;
@@ -17,7 +17,7 @@ interface StreamerRow {
   updated_at: string;
 }
 
-const CORS_HEADERS = {
+export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
@@ -27,14 +27,14 @@ const CORS_HEADERS = {
   'Expires': '0',
 };
 
-function jsonResponse(data: any, status = 200): Response {
+export function jsonResponse(data: any, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: CORS_HEADERS,
   });
 }
 
-function getStreamerId(name: string): string {
+export function getStreamerId(name: string): string {
   const norm = (name || '').trim().toLowerCase();
   let hash = 0;
   for (let i = 0; i < norm.length; i++) {
@@ -44,27 +44,28 @@ function getStreamerId(name: string): string {
   return 's_' + Math.abs(hash).toString(16);
 }
 
-async function ensureStreamersTable(db: any) {
+export async function ensureStreamersTable(db: any) {
   if (!db || typeof db.exec !== 'function') return;
   try {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS streamers (
         id TEXT PRIMARY KEY,
-        name TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
         soop_id TEXT DEFAULT '',
         main_position TEXT NOT NULL DEFAULT 'mid',
         is_hidden INTEGER NOT NULL DEFAULT 0,
         memo TEXT DEFAULT '',
         updated_at TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_streamers_name ON streamers(name);
+      CREATE INDEX IF NOT EXISTS idx_streamers_id ON streamers(id);
     `);
   } catch (err) {
     console.warn('[Pages Functions /api/streamers] ensureStreamersTable warning:', err);
   }
 }
 
-function rowToStreamer(row: any): StreamerRow {
+export function rowToStreamer(row: any): StreamerRow {
   return {
     id: String(row.id || getStreamerId(row.name)),
     name: String(row.name || '').trim(),
@@ -76,26 +77,81 @@ function rowToStreamer(row: any): StreamerRow {
   };
 }
 
+/**
+ * Executes a direct D1 UPDATE statement on env.DB as required:
+ * UPDATE streamers SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ? WHERE id = ? OR name = ?
+ * If the record did not exist yet (changes === 0), it performs an INSERT.
+ */
+export async function executeD1StreamerUpsert(db: any, item: any): Promise<void> {
+  if (!db || !item?.name) return;
+  const cleanName = String(item.name).trim();
+  if (!cleanName) return;
+
+  const sId = item.id ? String(item.id).trim() : getStreamerId(cleanName);
+  const soopId = typeof item.soop_id === 'string' ? item.soop_id.trim() : '';
+  const position = item.main_position || 'mid';
+  const isHidden = item.is_hidden ? 1 : 0;
+  const memo = typeof item.memo === 'string' ? item.memo : '';
+  const nowIso = item.updated_at || new Date().toISOString();
+
+  // 1. Core UPDATE Query directly executed on Cloudflare D1
+  const updateRes = await db
+    .prepare(`
+      UPDATE streamers 
+      SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+      WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+    `)
+    .bind(soopId, position, isHidden, memo, nowIso, sId, cleanName, cleanName)
+    .run();
+
+  const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
+
+  // 2. If row was not present in DB, insert it
+  if (changes === 0) {
+    try {
+      await db
+        .prepare(`
+          INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        .bind(sId, cleanName, soopId, position, isHidden, memo, nowIso)
+        .run();
+    } catch {
+      await db
+        .prepare(`
+          UPDATE streamers 
+          SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+          WHERE name = ? OR id = ?
+        `)
+        .bind(soopId, position, isHidden, memo, nowIso, cleanName, sId)
+        .run();
+    }
+  }
+}
+
+export async function fetchAllStreamersFromD1(db: any): Promise<StreamerRow[]> {
+  const queryRes = await db
+    .prepare(`
+      SELECT * FROM streamers 
+      ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC
+    `)
+    .all();
+
+  return (queryRes?.results || []).map((r: any) => rowToStreamer(r));
+}
+
 export const onRequestOptions = async () => {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 };
 
-// GET /api/streamers
+// GET /api/streamers: Reads authoritative list directly from D1 DB
 export const onRequestGet = async (context: { request: Request; env: Env }) => {
   const db = context.env?.DB;
 
   if (db) {
     try {
       await ensureStreamersTable(db);
-      const queryRes = await db
-        .prepare(`
-          SELECT * FROM streamers 
-          ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC
-        `)
-        .all();
-
-      const results = queryRes?.results || [];
-      const streamers = results.map((r: any) => rowToStreamer(r));
+      const streamers = await fetchAllStreamersFromD1(db);
 
       return jsonResponse({
         success: true,
@@ -108,7 +164,7 @@ export const onRequestGet = async (context: { request: Request; env: Env }) => {
     }
   }
 
-  // Fallback to proxying from local server or Worker
+  // Graceful fallback
   return jsonResponse({
     success: true,
     count: 0,
@@ -117,10 +173,9 @@ export const onRequestGet = async (context: { request: Request; env: Env }) => {
   });
 };
 
-// POST & PUT: Update or Insert Streamer(s)
-async function handleUpdateStreamers(context: { request: Request; env: Env }) {
+// POST & PUT /api/streamers: Auto-Save & Manual Update directly to Cloudflare D1 DB
+export async function handleUpdateStreamers(context: { request: Request; env: Env }) {
   const db = context.env?.DB;
-  const nowIso = new Date().toISOString();
 
   let body: any = {};
   try {
@@ -130,7 +185,13 @@ async function handleUpdateStreamers(context: { request: Request; env: Env }) {
   }
 
   const { streamers, streamer } = body || {};
-  const incoming = Array.isArray(streamers) ? streamers : streamer ? [streamer] : (body?.name || body?.soop_id) ? [body] : [];
+  const incoming = Array.isArray(streamers)
+    ? streamers
+    : streamer
+    ? [streamer]
+    : (body?.name || body?.soop_id || body?.id)
+    ? [body]
+    : [];
 
   if (incoming.length === 0) {
     return jsonResponse({ success: false, error: '수정할 스트리머 정보가 없습니다.' }, 400);
@@ -138,53 +199,19 @@ async function handleUpdateStreamers(context: { request: Request; env: Env }) {
 
   if (db) {
     await ensureStreamersTable(db);
-    const statements: any[] = [];
-
-    const upsertStmt = db.prepare(`
-      INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(name) DO UPDATE SET
-        soop_id = excluded.soop_id,
-        main_position = excluded.main_position,
-        is_hidden = excluded.is_hidden,
-        memo = excluded.memo,
-        updated_at = excluded.updated_at
-    `);
 
     for (const item of incoming) {
-      if (!item?.name || typeof item.name !== 'string' || !item.name.trim()) continue;
-      const cleanName = item.name.trim();
-      const sId = item.id || getStreamerId(cleanName);
-      const soopId = typeof item.soop_id === 'string' ? item.soop_id.trim() : '';
-      const position = item.main_position || 'mid';
-      const isHidden = item.is_hidden ? 1 : 0;
-      const memo = item.memo || '';
-
-      statements.push(
-        upsertStmt.bind(sId, cleanName, soopId, position, isHidden, memo, nowIso)
-      );
+      await executeD1StreamerUpsert(db, item);
     }
 
-    if (statements.length > 0) {
-      await db.batch(statements);
-    }
-
-    // Re-fetch authoritative list from D1
-    const queryRes = await db
-      .prepare(`
-        SELECT * FROM streamers 
-        ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC
-      `)
-      .all();
-
-    const fresh = (queryRes?.results || []).map((r: any) => rowToStreamer(r));
+    const fresh = await fetchAllStreamersFromD1(db);
 
     return jsonResponse({
       success: true,
       count: fresh.length,
       streamers: fresh,
       storage: 'Cloudflare-D1',
-      updated_at: nowIso,
+      updated_at: new Date().toISOString(),
     });
   }
 
@@ -199,7 +226,7 @@ async function handleUpdateStreamers(context: { request: Request; env: Env }) {
 export const onRequestPost = handleUpdateStreamers;
 export const onRequestPut = handleUpdateStreamers;
 
-// DELETE /api/streamers
+// DELETE /api/streamers: Permanent delete directly from Cloudflare D1 DB
 export const onRequestDelete = async (context: { request: Request; env: Env }) => {
   const db = context.env?.DB;
   const url = new URL(context.request.url);
@@ -220,19 +247,13 @@ export const onRequestDelete = async (context: { request: Request; env: Env }) =
   if (db) {
     await ensureStreamersTable(db);
     if (targetName) {
-      await db.prepare('DELETE FROM streamers WHERE name = ?').bind(targetName.trim()).run();
-    } else if (targetId) {
+      await db.prepare('DELETE FROM streamers WHERE name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))').bind(targetName.trim(), targetName.trim()).run();
+    }
+    if (targetId) {
       await db.prepare('DELETE FROM streamers WHERE id = ?').bind(targetId).run();
     }
 
-    const queryRes = await db
-      .prepare(`
-        SELECT * FROM streamers 
-        ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC
-      `)
-      .all();
-
-    const fresh = (queryRes?.results || []).map((r: any) => rowToStreamer(r));
+    const fresh = await fetchAllStreamersFromD1(db);
     return jsonResponse({
       success: true,
       count: fresh.length,

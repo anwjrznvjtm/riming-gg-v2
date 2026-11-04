@@ -8,12 +8,13 @@
     "memo": ""
   },
   {
+    "id": "s_23eab980eb8f99ed9598",
     "name": "#김동하",
     "soop_id": "likekk",
     "main_position": "top",
     "is_hidden": false,
     "memo": "",
-    "updated_at": "2026-11-03T08:15:54.873Z"
+    "updated_at": "2026-11-04T08:04:50.476Z"
   },
   {
     "name": "＃김동하",
@@ -213,6 +214,13 @@
     "is_hidden": false,
     "updated_at": "2026-11-02T09:07:26.428Z",
     "memo": ""
+  },
+  {
+    "name": "냥츠",
+    "soop_id": "",
+    "main_position": "jgl",
+    "is_hidden": false,
+    "updated_at": "2026-11-03T10:34:43.665Z"
   },
   {
     "name": "뇽이♥",
@@ -650,14 +658,6 @@
     "name": "태영♥",
     "soop_id": "",
     "main_position": "mid",
-    "is_hidden": false,
-    "updated_at": "2026-11-02T09:07:26.428Z",
-    "memo": ""
-  },
-  {
-    "name": "투냥츠_",
-    "soop_id": "",
-    "main_position": "jgl",
     "is_hidden": false,
     "updated_at": "2026-11-02T09:07:26.428Z",
     "memo": ""

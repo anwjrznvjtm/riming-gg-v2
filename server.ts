@@ -534,7 +534,8 @@ async function startServer() {
     try {
       cachedLiveResponse = null;
       const { streamers, streamer } = req.body || {};
-      const singleId = req.params?.id;
+      const rawParamId = req.params?.id;
+      const singleId = rawParamId && rawParamId !== 'update' && rawParamId !== 'delete' ? rawParamId : null;
       const incoming = Array.isArray(streamers) ? streamers : streamer ? [streamer] : (req.body && (req.body.name || req.body.soop_id || singleId)) ? [req.body] : [];
 
       if (incoming.length === 0 && !singleId) {
@@ -566,7 +567,7 @@ async function startServer() {
 
         const effectiveName = existing?.name || cleanName;
         const normKey = effectiveName.toLowerCase().trim();
-        const effectiveId = singleId || item.id || existing?.id || getD1StreamerId(effectiveName);
+        const effectiveId = (singleId && singleId !== 'update' ? singleId : null) || item.id || existing?.id || getD1StreamerId(effectiveName);
 
         const updatedStreamer = {
           id: effectiveId,

@@ -149,6 +149,7 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
           const list: StreamerProfile[] = data.streamers
             .filter((s: any) => s && typeof s.name === 'string' && s.name.trim())
             .map((s: any) => ({
+              id: s.id,
               name: s.name.trim(),
               soop_id: typeof s.soop_id === 'string' ? s.soop_id.trim() : '',
               main_position: s.main_position || 'mid',
@@ -356,17 +357,55 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
   const cleanName = (profile.name || '').trim();
   if (!cleanName) return getStoredStreamerProfiles();
 
+  // 1. Immediate optimistic in-memory cache update
+  const current = getStoredStreamerProfiles();
+  const map = new Map<string, StreamerProfile>();
+  for (const p of current) {
+    if (p?.name) map.set(p.name.toLowerCase().trim(), p);
+  }
+  const existing = map.get(cleanName.toLowerCase().trim());
+  const updatedItem: StreamerProfile = {
+    ...existing,
+    ...profile,
+    name: cleanName,
+    updated_at: new Date().toISOString(),
+  };
+  map.set(cleanName.toLowerCase().trim(), updatedItem);
+  _cachedStreamerProfiles = sortStreamerProfiles(Array.from(map.values()));
+
+  const streamerId = profile.id || 's_' + encodeURIComponent(cleanName);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
-    const streamerId = profile.id || 's_' + encodeURIComponent(cleanName);
-    const res = await fetch(`/api/streamers/${encodeURIComponent(streamerId)}`, {
+    // 2. Multi-tier API calls to guarantee D1 DB persistence across Cloudflare Pages & Workers
+    // Route 1: PUT /api/streamers/:id
+    let res = await fetch(`/api/streamers/${encodeURIComponent(streamerId)}`, {
       signal: controller.signal,
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(profile),
     });
+
+    // Route 2: POST /api/streamers/update fallback
+    if (!res.ok) {
+      res = await fetch('/api/streamers/update', {
+        signal: controller.signal,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ streamer: profile }),
+      });
+    }
+
+    // Route 3: POST /api/streamers fallback
+    if (!res.ok) {
+      res = await fetch('/api/streamers', {
+        signal: controller.signal,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replace: false, streamers: [profile] }),
+      });
+    }
 
     if (res.ok) {
       const data = await res.json();
@@ -381,7 +420,7 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
       }
     }
   } catch (err: any) {
-    console.warn('[StreamerApi] PUT /api/streamers/:id error, using POST fallback:', err);
+    console.warn('[StreamerApi] updateStreamerProfileAsync error, using batch fallback:', err);
   } finally {
     clearTimeout(timeoutId);
   }

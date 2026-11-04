@@ -255,6 +255,9 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
   // Close handler: Flush uncommitted inputs, await all pending saves, then close and re-fetch
   const handleModalClose = useCallback(async () => {
+    setIsProcessing(true);
+    setAutoSaveStatus('저장 중...');
+
     // 1. Flush any uncommitted input changes
     const saveActions: Promise<any>[] = [];
     for (const [key, rawVal] of Object.entries(editingIds)) {
@@ -271,7 +274,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       }
     }
 
-    // 2. Await in-flight and newly initiated save requests
+    // 2. Await all in-flight and newly initiated save requests to ensure D1 DB persistence
     const allPending = [...activeSavePromisesRef.current, ...saveActions];
     if (allPending.length > 0) {
       setAutoSaveStatus('저장 완료 대기 중...');
@@ -282,7 +285,24 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       }
     }
 
-    // 3. Pure modal close and trigger parent Re-fetch
+    // 3. Final authoritative re-sync to ensure parent state has latest DB values
+    try {
+      const freshList = await syncStreamersFromBackend(true);
+      if (Array.isArray(freshList) && freshList.length > 0) {
+        onProfilesUpdatedRef.current(freshList);
+        if (onSaveCompleteRef.current) {
+          try {
+            await onSaveCompleteRef.current(freshList);
+          } catch {}
+        }
+      }
+    } catch (e) {
+      console.warn('[StreamerManageModal] Final sync error on close:', e);
+    } finally {
+      setIsProcessing(false);
+    }
+
+    // 4. Pure modal close and trigger parent Re-fetch
     onClose();
   }, [editingIds, localMap, executeAutoSave, onClose]);
 
@@ -1332,10 +1352,11 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
             <button
               type="button"
               onClick={handleModalClose}
-              className="h-[38px] px-6 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-bold rounded-xl text-[13px] shadow-[0_4px_16px_rgba(139,92,246,0.3)] transition-all cursor-pointer flex items-center gap-1.5"
+              disabled={isProcessing}
+              className="h-[38px] px-6 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-bold rounded-xl text-[13px] shadow-[0_4px_16px_rgba(139,92,246,0.3)] transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
             >
               <CheckCircle2 size={15} />
-              <span>완료 및 닫기</span>
+              <span>{isProcessing ? '저장 완료 대기 중...' : '완료 및 닫기'}</span>
             </button>
           </div>
         </div>

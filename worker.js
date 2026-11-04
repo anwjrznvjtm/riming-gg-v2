@@ -147,47 +147,68 @@ export default {
         if (request.method === 'POST' || request.method === 'PUT') {
           const body = await request.json().catch(() => ({}));
           const nowIso = new Date().toISOString();
+
+          // Extract optional :id from pathname: /api/streamers/:id
+          const pathIdMatch = url.pathname.match(/^\/api\/streamers\/([^\/]+)$/);
+          const pathId = pathIdMatch && pathIdMatch[1] !== 'update' && pathIdMatch[1] !== 'delete'
+            ? decodeURIComponent(pathIdMatch[1]).trim()
+            : null;
+
           const incoming = Array.isArray(body?.streamers)
             ? body.streamers
             : body?.streamer
             ? [body.streamer]
-            : body?.name || body?.soop_id
+            : (body?.name || body?.soop_id || body?.id || pathId)
             ? [body]
             : [];
+
           if (incoming.length === 0) {
             return jsonResponse({ error: '수정할 스트리머 데이터가 없습니다.' }, 400);
           }
 
           if (db) {
-            const upsertStmt = db.prepare(`
-              INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT(name) DO UPDATE SET
-                soop_id = excluded.soop_id,
-                main_position = excluded.main_position,
-                is_hidden = excluded.is_hidden,
-                memo = excluded.memo,
-                updated_at = excluded.updated_at
-            `);
+            for (const item of incoming) {
+              const cleanName = (item?.name || (pathId && !pathId.startsWith('s_') ? pathId : '')).trim();
+              const sId = (item?.id || (pathId && pathId.startsWith('s_') ? pathId : '') || (cleanName ? `s_${cleanName}` : '')).trim();
+              const soopId = typeof item?.soop_id === 'string' ? item.soop_id.trim() : '';
+              const position = item?.main_position || 'mid';
+              const isHidden = item?.is_hidden ? 1 : 0;
+              const memo = item?.memo || '';
+              const updatedIso = item?.updated_at || nowIso;
 
-            const stmts = incoming
-              .filter((item) => item?.name && item.name.trim())
-              .map((item) => {
-                const cleanName = item.name.trim();
-                const sId = item.id || `s_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-                return upsertStmt.bind(
-                  sId,
-                  cleanName,
-                  (item.soop_id || '').trim(),
-                  item.main_position || 'mid',
-                  item.is_hidden ? 1 : 0,
-                  item.memo || '',
-                  item.updated_at || nowIso
-                );
-              });
+              // 1. Direct D1 UPDATE as requested by user
+              const updateRes = await db
+                .prepare(`
+                  UPDATE streamers 
+                  SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+                  WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+                `)
+                .bind(soopId, position, isHidden, memo, updatedIso, sId, cleanName, cleanName)
+                .run();
 
-            if (stmts.length > 0) {
-              await db.batch(stmts);
+              const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
+
+              // 2. If row not found in DB, insert it
+              if (changes === 0 && (cleanName || sId)) {
+                try {
+                  await db
+                    .prepare(`
+                      INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?)
+                    `)
+                    .bind(sId, cleanName || sId, soopId, position, isHidden, memo, updatedIso)
+                    .run();
+                } catch {
+                  await db
+                    .prepare(`
+                      UPDATE streamers 
+                      SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+                      WHERE name = ? OR id = ?
+                    `)
+                    .bind(soopId, position, isHidden, memo, updatedIso, cleanName || sId, sId)
+                    .run();
+                }
+              }
             }
 
             const res = await db
@@ -208,8 +229,17 @@ export default {
         }
 
         if (request.method === 'DELETE') {
+          // Check query params or pathname
           let targetId = url.searchParams.get('id');
           let targetName = url.searchParams.get('name');
+
+          const pathIdMatch = url.pathname.match(/^\/api\/streamers\/([^\/]+)$/);
+          if (pathIdMatch && pathIdMatch[1] !== 'delete') {
+            const raw = decodeURIComponent(pathIdMatch[1]).trim();
+            if (raw.startsWith('s_')) targetId = raw;
+            else targetName = raw;
+          }
+
           try {
             const body = await request.json().catch(() => ({}));
             if (body?.id) targetId = body.id;
@@ -218,8 +248,9 @@ export default {
 
           if (db) {
             if (targetName) {
-              await db.prepare('DELETE FROM streamers WHERE name = ?').bind(targetName.trim()).run();
-            } else if (targetId) {
+              await db.prepare('DELETE FROM streamers WHERE name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))').bind(targetName.trim(), targetName.trim()).run();
+            }
+            if (targetId) {
               await db.prepare('DELETE FROM streamers WHERE id = ?').bind(targetId).run();
             }
             const res = await db
