@@ -170,9 +170,6 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
 
           const sorted = sortStreamerProfiles(list);
           _cachedStreamerProfiles = sorted;
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
-          }
           return sorted;
         }
       }
@@ -201,9 +198,6 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
           }));
           const sorted = sortStreamerProfiles(list);
           _cachedStreamerProfiles = sorted;
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
-          }
           return sorted;
         } else if (Array.isArray(d1Data)) {
           const d1Streamers = d1Data.filter((x: any) => x.type === 'streamer' && x.name);
@@ -219,9 +213,6 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
             }));
             const sorted = sortStreamerProfiles(list);
             _cachedStreamerProfiles = sorted;
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
-            }
             return sorted;
           }
           const list = autoExtractStreamersFromMatches(d1Data);
@@ -251,9 +242,6 @@ export async function fetchStreamersFromServer(forceRefresh = false): Promise<St
             }));
             const sorted = sortStreamerProfiles(list);
             _cachedStreamerProfiles = sorted;
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
-            }
             return sorted;
           }
         }

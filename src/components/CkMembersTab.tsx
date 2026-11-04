@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   LineKey,
   LINE_KEYS,
@@ -137,6 +137,10 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
   const [isFinderModalOpen, setIsFinderModalOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Stable refs to prevent re-attaching timers or infinite re-renders
+  const isFetchingLiveRef = useRef(false);
+  const handleFetchLiveRef = useRef<((showToast?: boolean, forceRefresh?: boolean) => Promise<void>) | null>(null);
+
   // Main fetch function with optional cache-bypassing forceRefresh
   const handleFetchLive = useCallback(async (showToastOnManual = false, forceRefresh = false) => {
     setIsLoading(true);
@@ -145,7 +149,6 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
       if (result.success) {
         setLiveBroadcasts(result.broad);
         setLastUpdated(result.fetchedAt);
-        setSecondsRemaining(AUTO_REFRESH_SECONDS);
         if (showToastOnManual) {
           onToast('SOOP 라이브 방송 정보를 최신으로 갱신했습니다.');
         }
@@ -162,6 +165,16 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
       setIsLoading(false);
     }
   }, [onToast]);
+
+  useEffect(() => {
+    handleFetchLiveRef.current = handleFetchLive;
+  }, [handleFetchLive]);
+
+  // Dedicated manual refresh: resets 3-minute countdown to 180s and triggers API call
+  const handleManualRefresh = useCallback(() => {
+    setSecondsRemaining(AUTO_REFRESH_SECONDS);
+    handleFetchLive(true, true);
+  }, [handleFetchLive]);
 
   const handleProfilesUpdated = useCallback((updated: StreamerProfile[]) => {
     setProfiles(updated);
@@ -192,20 +205,20 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     [fetchStreamers, handleFetchLive]
   );
 
-  // Initial load: sync latest streamers directly from authoritative server DB (GET /api/streamers -> server/streamers.json)
+  // Initial load: sync latest streamers directly from authoritative server DB
   useEffect(() => {
     let isMounted = true;
     const loadAuthoritativeData = async () => {
       try {
-        const serverList = await fetchStreamers(true);
-        if (isMounted && Array.isArray(serverList)) {
+        const serverList = await fetchStreamers(false);
+        if (isMounted && Array.isArray(serverList) && serverList.length > 0) {
           setProfiles(serverList);
         }
       } catch (err) {
         console.warn('[CkMembersTab] Failed to load server streamers:', err);
       } finally {
-        if (isMounted) {
-          await handleFetchLive(false, false);
+        if (isMounted && handleFetchLiveRef.current) {
+          await handleFetchLiveRef.current(false, false);
         }
       }
     };
@@ -213,7 +226,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [fetchStreamers, handleFetchLive]);
+  }, [fetchStreamers]);
 
   // Real-time synchronization when modal or background operations update DB streamers
   useEffect(() => {
@@ -224,21 +237,19 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
       } else {
         await fetchStreamers(true);
       }
-      await handleFetchLive(false, true);
     };
 
     window.addEventListener('streamers-updated', handleStreamersUpdatedEvent);
     return () => {
       window.removeEventListener('streamers-updated', handleStreamersUpdatedEvent);
     };
-  }, [fetchStreamers, handleFetchLive]);
+  }, [fetchStreamers]);
 
   // Mobile browser cache-bypass & tab-switch re-sync (visibilitychange, focus, bfcache pageshow)
   useEffect(() => {
     const handleMobileWake = () => {
       if (document.visibilityState === 'visible') {
-        fetchStreamers(true);
-        handleFetchLive(false, true);
+        fetchStreamers(false);
       }
     };
     window.addEventListener('visibilitychange', handleMobileWake);
@@ -249,14 +260,19 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
       window.removeEventListener('focus', handleMobileWake);
       window.removeEventListener('pageshow', handleMobileWake);
     };
-  }, [fetchStreamers, handleFetchLive]);
+  }, [fetchStreamers]);
 
-  // 3-minute auto refresh timer
+  // 3-minute auto refresh timer: Decrements strictly 1s each tick with [] dependency
   useEffect(() => {
     const timer = setInterval(() => {
       setSecondsRemaining((prev) => {
         if (prev <= 1) {
-          handleFetchLive(false);
+          if (!isFetchingLiveRef.current && handleFetchLiveRef.current) {
+            isFetchingLiveRef.current = true;
+            Promise.resolve(handleFetchLiveRef.current(false, true)).finally(() => {
+              isFetchingLiveRef.current = false;
+            });
+          }
           return AUTO_REFRESH_SECONDS;
         }
         return prev - 1;
@@ -501,7 +517,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
               {/* 새로고침 버튼 */}
               <button
                 type="button"
-                onClick={() => handleFetchLive(true, true)}
+                onClick={handleManualRefresh}
                 disabled={isLoading}
                 title="SOOP 실시간 방송 정보 새로고침"
                 className="h-[34px] px-3 bg-[#1e1e2e] hover:bg-[#2a2a40] border border-[#2e2e42] text-white rounded-xl text-[11.5px] font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 shadow-sm"
@@ -802,7 +818,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <button
               type="button"
-              onClick={() => handleFetchLive(true, true)}
+              onClick={handleManualRefresh}
               className="px-5 py-2.5 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-white rounded-xl text-[12px] font-bold transition flex items-center gap-2 cursor-pointer border border-[#2a2a3a]"
             >
               <RefreshCw size={14} />
@@ -856,7 +872,7 @@ export const CkMembersTab: React.FC<CkMembersTabProps> = ({
           matches={matches}
           allProfiles={profiles}
           liveBroadcasts={liveBroadcasts}
-          onRefresh={() => handleFetchLive(true, true)}
+          onRefresh={handleManualRefresh}
           isLoading={isLoading}
           isAdmin={isAdmin}
           onToast={onToast}
