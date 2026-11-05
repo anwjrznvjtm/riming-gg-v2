@@ -661,8 +661,10 @@ async function startServer() {
           if (sId && idSet.has(sId)) return false;
           return true;
         });
-      } else if (targetNames.length > 0) {
-        // 2. FALLBACK ONLY: If no ID was provided, delete by exact name
+      }
+
+      // If no items were deleted by ID and targetNames are provided, fallback to name match!
+      if (remaining.length === current.length && targetNames.length > 0) {
         const nameSet = new Set(targetNames);
         remaining = current.filter((s) => {
           const sName = (s.name || '').trim();

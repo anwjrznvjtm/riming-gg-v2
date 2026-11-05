@@ -461,10 +461,20 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       setDeleteTarget(null);
       setAutoSaveStatus('DB 삭제 완료 ✓');
       onToastRef.current(`'${target.name}' 스트리머가 서버 DB에서 완전히 삭제되었습니다.`);
-    } catch (err) {
-      console.warn('[StreamerManageModal] Delete error:', err);
+    } catch (err: any) {
+      const errMsg = err?.message || '알 수 없는 오류가 발생했습니다.';
+      console.error('[StreamerManageModal] Delete error:', err);
       setAutoSaveStatus('삭제 실패');
-      onToastRef.current('스트리머 삭제 중 오류가 발생했습니다.');
+
+      // 1. Alert prompt requested by user
+      try {
+        if (typeof window !== 'undefined') {
+          window.alert(`삭제 실패: ${errMsg}`);
+        }
+      } catch {}
+
+      // 2. In-app toast banner
+      onToastRef.current(`삭제 실패: ${errMsg}`);
       await fetchAuthoritativeProfiles();
     } finally {
       setIsProcessing(false);
@@ -744,10 +754,20 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       setAutoSaveStatus('DB 삭제 완료 ✓');
 
       onToastRef.current(`선택한 ${count}명의 스트리머(전적 0건)가 서버 DB에서 영구 삭제되었습니다.`);
-    } catch (err) {
-      console.warn('[StreamerManageModal] Batch delete error:', err);
+    } catch (err: any) {
+      const errMsg = err?.message || '일괄 삭제 중 오류가 발생했습니다.';
+      console.error('[StreamerManageModal] Batch delete error:', err);
       setAutoSaveStatus('삭제 실패');
-      onToastRef.current('일괄 삭제 중 오류가 발생했습니다.');
+
+      // 1. Alert prompt requested by user
+      try {
+        if (typeof window !== 'undefined') {
+          window.alert(`일괄 삭제 실패: ${errMsg}`);
+        }
+      } catch {}
+
+      // 2. In-app toast banner
+      onToastRef.current(`일괄 삭제 실패: ${errMsg}`);
       await fetchAuthoritativeProfiles();
     } finally {
       setIsProcessing(false);

@@ -277,25 +277,35 @@ export default {
               if (id && typeof id === 'string' && id.trim()) idsToDelete.add(id.trim());
             }
 
-            // 1. PRIMARY RULE: If primary key IDs are specified, delete ONLY matching primary key rows!
-            if (idsToDelete.size > 0) {
-              for (const id of idsToDelete) {
-                try {
-                  await db.prepare('DELETE FROM streamers WHERE id = ?').bind(id).run();
-                } catch (err) {
-                  console.warn(`[Worker] Failed to delete by id="${id}":`, err);
-                }
+            let totalDeleted = 0;
+            // 1. Try primary key ID
+            for (const id of idsToDelete) {
+              try {
+                const res = await db.prepare('DELETE FROM streamers WHERE id = ?').bind(id).run();
+                const changes = res?.meta?.changes ?? res?.changes ?? 0;
+                totalDeleted += changes;
+              } catch (err) {
+                console.warn(`[Worker] Failed to delete by id="${id}":`, err);
               }
-            } else {
-              // 2. FALLBACK ONLY: If no ID was provided, delete by exact name
-              const namesToDelete = new Set();
-              if (targetName && String(targetName).trim()) namesToDelete.add(String(targetName).trim());
-              for (const n of targetNames) {
-                if (n && typeof n === 'string' && n.trim()) namesToDelete.add(n.trim());
-              }
+            }
+
+            // 2. Fallback: If 0 deleted by ID, or names were provided, delete by name
+            const namesToDelete = new Set();
+            if (targetName && String(targetName).trim()) namesToDelete.add(String(targetName).trim());
+            for (const n of targetNames) {
+              if (n && typeof n === 'string' && n.trim()) namesToDelete.add(n.trim());
+            }
+
+            if (totalDeleted === 0 || namesToDelete.size > 0) {
               for (const name of namesToDelete) {
                 try {
-                  await db.prepare('DELETE FROM streamers WHERE name = ?').bind(name).run();
+                  const res = await db.prepare('DELETE FROM streamers WHERE name = ?').bind(name).run();
+                  const changes = res?.meta?.changes ?? res?.changes ?? 0;
+                  totalDeleted += changes;
+                  if (changes === 0 && name.trim() !== name) {
+                    const res2 = await db.prepare('DELETE FROM streamers WHERE TRIM(name) = ?').bind(name.trim()).run();
+                    totalDeleted += (res2?.meta?.changes ?? res2?.changes ?? 0);
+                  }
                 } catch (err) {
                   console.warn(`[Worker] Failed to delete by name="${name}":`, err);
                 }

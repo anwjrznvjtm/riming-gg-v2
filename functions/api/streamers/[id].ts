@@ -84,7 +84,10 @@ export const onRequestPost = onRequestPut;
 export const onRequestDelete = async (context: any) => {
   try {
     const db = getD1(context);
-    const rawId = context.params?.id ? decodeURIComponent(context.params.id).trim() : '';
+    let rawId = context.params?.id ? String(context.params.id).trim() : '';
+    try {
+      rawId = decodeURIComponent(rawId).trim();
+    } catch {}
 
     let body: any = {};
     try {
@@ -98,8 +101,9 @@ export const onRequestDelete = async (context: any) => {
     const targetIds = Array.isArray(body.ids) ? body.ids : undefined;
     const targetNames = Array.isArray(body.names) ? body.names : undefined;
 
+    let deletedCount = 0;
     if (db) {
-      await executeD1StreamerDelete(db, { id: targetId, name: targetName, ids: targetIds, names: targetNames });
+      deletedCount = await executeD1StreamerDelete(db, { id: targetId, name: targetName, ids: targetIds, names: targetNames });
     }
 
     const fresh = await fetchAllStreamersFromD1(db);
@@ -107,6 +111,7 @@ export const onRequestDelete = async (context: any) => {
       success: true,
       count: fresh.length,
       streamers: fresh,
+      deletedCount,
       storage: db ? 'Cloudflare-D1' : 'memory',
     });
   } catch (err: any) {

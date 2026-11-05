@@ -20,21 +20,24 @@ export const onRequestPost = async (context: any) => {
     const db = getD1(context);
     const url = new URL(context.request.url);
 
-    let targetId = url.searchParams.get('id') || undefined;
-    let targetName = url.searchParams.get('name') || undefined;
+    const rawQueryId = url.searchParams.get('id');
+    const rawQueryName = url.searchParams.get('name');
+    let targetId = rawQueryId ? decodeURIComponent(rawQueryId).trim() : undefined;
+    let targetName = rawQueryName ? decodeURIComponent(rawQueryName).trim() : undefined;
     let targetIds: string[] | undefined;
     let targetNames: string[] | undefined;
 
     try {
       const body = await context.request.json().catch(() => ({}));
-      if (body?.id) targetId = body.id;
-      if (body?.name) targetName = body.name;
-      if (Array.isArray(body?.ids)) targetIds = body.ids;
-      if (Array.isArray(body?.names)) targetNames = body.names;
+      if (body?.id) targetId = String(body.id).trim();
+      if (body?.name) targetName = String(body.name).trim();
+      if (Array.isArray(body?.ids)) targetIds = body.ids.map((id: any) => String(id).trim()).filter(Boolean);
+      if (Array.isArray(body?.names)) targetNames = body.names.map((n: any) => String(n).trim()).filter(Boolean);
     } catch {}
 
+    let deletedCount = 0;
     if (db) {
-      await executeD1StreamerDelete(db, { id: targetId, name: targetName, ids: targetIds, names: targetNames });
+      deletedCount = await executeD1StreamerDelete(db, { id: targetId, name: targetName, ids: targetIds, names: targetNames });
     }
 
     const fresh = await fetchAllStreamersFromD1(db);
@@ -43,6 +46,7 @@ export const onRequestPost = async (context: any) => {
       success: true,
       count: fresh.length,
       streamers: fresh,
+      deletedCount,
       storage: db ? 'Cloudflare-D1' : 'memory',
     });
   } catch (err: any) {

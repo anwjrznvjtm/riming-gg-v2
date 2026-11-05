@@ -536,54 +536,93 @@ export async function deleteStreamerProfileAsync(
   const payload = JSON.stringify({ id: cleanId, name: cleanName, soop_id: soopId });
 
   let success = false;
+  let lastErrorMessage = '';
+  let serverReturnedList: StreamerProfile[] | null = null;
 
-  // Tier 1: DELETE /api/streamers/:id (URL path strictly encodeURIComponent'd)
+  // Tier 1 (Primary): POST /api/streamers/delete (Most reliable across Cloudflare Pages Functions - no URL path encoding bugs!)
   try {
-    const res = await fetch(`/api/streamers/${targetParam}?t=${t}`, {
-      method: 'DELETE',
+    const res = await fetch(`/api/streamers/delete?t=${t}`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
       },
       body: payload,
     });
-    if (res.ok) success = true;
-  } catch (err) {
-    console.warn('[StreamerApi] DELETE /api/streamers/:id network warning:', err);
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && Array.isArray(data.streamers)) {
+        serverReturnedList = data.streamers;
+        success = true;
+      }
+    } else {
+      const errText = await res.text().catch(() => '');
+      lastErrorMessage = `POST /api/streamers/delete (${res.status}): ${errText.slice(0, 100)}`;
+    }
+  } catch (err: any) {
+    lastErrorMessage = `POST /api/streamers/delete 네트워크 오류: ${err?.message || err}`;
   }
 
-  // Tier 2: POST /api/streamers/delete
+  // Tier 2: DELETE /api/streamers/:id (Path param strictly encoded)
   if (!success) {
     try {
-      const res = await fetch(`/api/streamers/delete?t=${t}`, {
-        method: 'POST',
+      const res = await fetch(`/api/streamers/${targetParam}?t=${t}`, {
+        method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache, no-store, must-revalidate',
         },
         body: payload,
       });
-      if (res.ok) success = true;
-    } catch (err) {
-      console.warn('[StreamerApi] POST /api/streamers/delete network warning:', err);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && Array.isArray(data.streamers)) {
+          serverReturnedList = data.streamers;
+          success = true;
+        }
+      } else {
+        const errText = await res.text().catch(() => '');
+        lastErrorMessage = `DELETE /api/streamers/${targetParam} (${res.status}): ${errText.slice(0, 100)}`;
+      }
+    } catch (err: any) {
+      lastErrorMessage = `DELETE /api/streamers/:id 네트워크 오류: ${err?.message || err}`;
     }
   }
 
-  // Tier 3: Direct Cloudflare Worker D1 Delete
+  // Tier 3: DELETE /api/streamers
   if (!success) {
     try {
-      const res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers/delete?t=${t}`, {
-        method: 'POST',
+      const queryParams = new URLSearchParams({
+        t: String(t),
+        ...(cleanId ? { id: cleanId } : {}),
+        ...(cleanName ? { name: cleanName } : {}),
+      });
+      const res = await fetch(`/api/streamers?${queryParams.toString()}`, {
+        method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache, no-store, must-revalidate',
         },
         body: payload,
       });
-      if (res.ok) success = true;
-    } catch (err) {
-      console.warn('[StreamerApi] Worker direct delete warning:', err);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && Array.isArray(data.streamers)) {
+          serverReturnedList = data.streamers;
+          success = true;
+        }
+      } else {
+        const errText = await res.text().catch(() => '');
+        lastErrorMessage = `DELETE /api/streamers (${res.status}): ${errText.slice(0, 100)}`;
+      }
+    } catch (err: any) {
+      lastErrorMessage = `DELETE /api/streamers 네트워크 오류: ${err?.message || err}`;
     }
+  }
+
+  // If all backend tiers failed, throw error immediately so frontend alert triggers
+  if (!success) {
+    throw new Error(`스트리머 삭제 API 호출 실패 [${lastErrorMessage || '모든 삭제 엔드포인트 응답 없음'}]`);
   }
 
   // Invalidate live broadcast cache
@@ -591,6 +630,17 @@ export async function deleteStreamerProfileAsync(
 
   // Strictly Re-fetch authoritative DB list (100% Single Source of Truth) with cache-busting
   const freshList = await fetchStreamersFromServer(true);
+
+  // Verification: Ensure the streamer was actually removed from the fresh list
+  const stillPresent = freshList.some(
+    (s) => (cleanId && s.id === cleanId) || (cleanName && s.name.trim() === cleanName)
+  );
+  if (stillPresent) {
+    throw new Error(
+      `서버 DB에서 레코드가 삭제되지 않고 그대로 유지되어 있습니다. (대상: ${cleanName}, ID: ${cleanId || '없음'})`
+    );
+  }
+
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('streamers-updated', { detail: freshList }));
   }
@@ -613,7 +663,7 @@ export async function deleteStreamersBatchAsync(
       else if (clean) names.push(clean);
     } else if (typeof t === 'object' && t) {
       if (t.id && String(t.id).trim()) ids.push(String(t.id).trim());
-      else if (t.name && String(t.name).trim()) names.push(String(t.name).trim());
+      if (t.name && String(t.name).trim()) names.push(String(t.name).trim());
     }
   }
 
@@ -622,6 +672,8 @@ export async function deleteStreamersBatchAsync(
   const t = Date.now();
   const payload = JSON.stringify({ ids, names });
   let success = false;
+  let lastErrorMessage = '';
+  let serverReturnedList: StreamerProfile[] | null = null;
 
   // Tier 1: POST /api/streamers/delete
   try {
@@ -633,9 +685,18 @@ export async function deleteStreamersBatchAsync(
       },
       body: payload,
     });
-    if (res.ok) success = true;
-  } catch (err) {
-    console.warn('[StreamerApi] POST /api/streamers/delete error:', err);
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && Array.isArray(data.streamers)) {
+        serverReturnedList = data.streamers;
+        success = true;
+      }
+    } else {
+      const errText = await res.text().catch(() => '');
+      lastErrorMessage = `POST /api/streamers/delete (${res.status}): ${errText.slice(0, 100)}`;
+    }
+  } catch (err: any) {
+    lastErrorMessage = `POST /api/streamers/delete 네트워크 오류: ${err?.message || err}`;
   }
 
   // Tier 2: DELETE /api/streamers
@@ -649,33 +710,40 @@ export async function deleteStreamersBatchAsync(
         },
         body: payload,
       });
-      if (res.ok) success = true;
-    } catch (err) {
-      console.warn('[StreamerApi] DELETE /api/streamers error:', err);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && Array.isArray(data.streamers)) {
+          serverReturnedList = data.streamers;
+          success = true;
+        }
+      } else {
+        const errText = await res.text().catch(() => '');
+        lastErrorMessage = `DELETE /api/streamers (${res.status}): ${errText.slice(0, 100)}`;
+      }
+    } catch (err: any) {
+      lastErrorMessage = `DELETE /api/streamers 네트워크 오류: ${err?.message || err}`;
     }
   }
 
-  // Tier 3: Direct Cloudflare Worker D1 Batch Delete
   if (!success) {
-    try {
-      const res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers/delete?t=${t}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-        },
-        body: payload,
-      });
-      if (res.ok) success = true;
-    } catch (err) {
-      console.warn('[StreamerApi] Worker direct batch delete error:', err);
-    }
+    throw new Error(`스트리머 일괄 삭제 실패 [${lastErrorMessage || '모든 삭제 엔드포인트 응답 없음'}]`);
   }
 
   fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
 
   // Strictly Re-fetch authoritative DB list
   const freshList = await fetchStreamersFromServer(true);
+
+  // Verify deletion
+  const idSet = new Set(ids);
+  const nameSet = new Set(names);
+  const stillPresent = freshList.filter((s) => (s.id && idSet.has(s.id)) || nameSet.has(s.name.trim()));
+  if (stillPresent.length > 0) {
+    throw new Error(
+      `일괄 삭제 실패: DB에서 ${stillPresent.length}명의 데이터가 삭제되지 않았습니다. (${stillPresent.map((s) => s.name).join(', ')})`
+    );
+  }
+
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('streamers-updated', { detail: freshList }));
   }

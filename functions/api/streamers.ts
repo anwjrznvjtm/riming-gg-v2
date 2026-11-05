@@ -363,33 +363,39 @@ export const onRequestPut = handleUpdateStreamers;
 export async function executeD1StreamerDelete(
   db: any,
   target: { id?: string; name?: string; ids?: string[]; names?: string[]; soop_id?: string }
-): Promise<void> {
-  if (!db || typeof db.prepare !== 'function') return;
+): Promise<number> {
+  if (!db || typeof db.prepare !== 'function') return 0;
   await ensureStreamersTable(db);
+
+  let totalDeleted = 0;
 
   const idsToDelete = new Set<string>();
   if (target.id && String(target.id).trim()) idsToDelete.add(String(target.id).trim());
+  if (target.name && String(target.name).trim()) idsToDelete.add(getStreamerId(target.name));
   if (Array.isArray(target.ids)) {
     for (const id of target.ids) {
       if (id && typeof id === 'string' && id.trim()) idsToDelete.add(id.trim());
     }
   }
-
-  // 1. PRIMARY RULE: If primary key IDs are specified, delete ONLY matching primary key rows!
-  // This guarantees that duplicate names (e.g. #김동하 with 0 matches vs ＃김동하 with 10 matches)
-  // are never cross-deleted.
-  if (idsToDelete.size > 0) {
-    for (const id of idsToDelete) {
-      try {
-        await db.prepare('DELETE FROM streamers WHERE id = ?').bind(id).run();
-      } catch (err) {
-        console.warn(`[Pages Functions] Failed to delete streamer by id="${id}":`, err);
-      }
+  if (Array.isArray(target.names)) {
+    for (const n of target.names) {
+      if (n && typeof n === 'string' && n.trim()) idsToDelete.add(getStreamerId(n));
     }
-    return;
   }
 
-  // 2. FALLBACK ONLY: If no ID was provided, delete by exact name
+  // 1. First attempt: Delete by primary key ID(s)
+  for (const id of idsToDelete) {
+    try {
+      const res = await db.prepare('DELETE FROM streamers WHERE id = ?').bind(id).run();
+      const changes = res?.meta?.changes ?? res?.changes ?? 0;
+      totalDeleted += changes;
+    } catch (err) {
+      console.warn(`[Pages Functions] Failed to delete streamer by id="${id}":`, err);
+    }
+  }
+
+  // 2. Fallback / supplementary: If no rows were deleted by ID (e.g. legacy D1 record without modern ID)
+  // or name targets are explicitly provided, attempt deletion by exact name
   const namesToDelete = new Set<string>();
   if (target.name && String(target.name).trim()) namesToDelete.add(String(target.name).trim());
   if (Array.isArray(target.names)) {
@@ -398,16 +404,26 @@ export async function executeD1StreamerDelete(
     }
   }
 
-  for (const name of namesToDelete) {
-    try {
-      await db
-        .prepare('DELETE FROM streamers WHERE name = ?')
-        .bind(name)
-        .run();
-    } catch (err) {
-      console.warn(`[Pages Functions] Failed to delete streamer by name="${name}":`, err);
+  // If ID-based deletion did not delete anything, or names were specifically supplied
+  if (totalDeleted === 0 || namesToDelete.size > 0) {
+    for (const name of namesToDelete) {
+      try {
+        const res = await db.prepare('DELETE FROM streamers WHERE name = ?').bind(name).run();
+        const changes = res?.meta?.changes ?? res?.changes ?? 0;
+        totalDeleted += changes;
+
+        // Try trimmed name if exact string didn't hit
+        if (changes === 0 && name.trim() !== name) {
+          const res2 = await db.prepare('DELETE FROM streamers WHERE TRIM(name) = ?').bind(name.trim()).run();
+          totalDeleted += (res2?.meta?.changes ?? res2?.changes ?? 0);
+        }
+      } catch (err) {
+        console.warn(`[Pages Functions] Failed to delete streamer by name="${name}":`, err);
+      }
     }
   }
+
+  return totalDeleted;
 }
 
 // DELETE /api/streamers: Permanent delete directly from Cloudflare D1 DB
@@ -416,21 +432,24 @@ export const onRequestDelete = async (context: any) => {
     const db = getD1(context);
     const url = new URL(context.request.url);
 
-    let targetId = url.searchParams.get('id') || undefined;
-    let targetName = url.searchParams.get('name') || undefined;
+    const rawQueryId = url.searchParams.get('id');
+    const rawQueryName = url.searchParams.get('name');
+    let targetId = rawQueryId ? decodeURIComponent(rawQueryId).trim() : undefined;
+    let targetName = rawQueryName ? decodeURIComponent(rawQueryName).trim() : undefined;
     let targetIds: string[] | undefined;
     let targetNames: string[] | undefined;
 
     try {
       const body = await context.request.json().catch(() => ({}));
-      if (body?.id) targetId = body.id;
-      if (body?.name) targetName = body.name;
-      if (Array.isArray(body?.ids)) targetIds = body.ids;
-      if (Array.isArray(body?.names)) targetNames = body.names;
+      if (body?.id) targetId = String(body.id).trim();
+      if (body?.name) targetName = String(body.name).trim();
+      if (Array.isArray(body?.ids)) targetIds = body.ids.map((id: any) => String(id).trim()).filter(Boolean);
+      if (Array.isArray(body?.names)) targetNames = body.names.map((n: any) => String(n).trim()).filter(Boolean);
     } catch {}
 
+    let deletedCount = 0;
     if (db) {
-      await executeD1StreamerDelete(db, { id: targetId, name: targetName, ids: targetIds, names: targetNames });
+      deletedCount = await executeD1StreamerDelete(db, { id: targetId, name: targetName, ids: targetIds, names: targetNames });
     }
 
     const fresh = await fetchAllStreamersFromD1(db);
@@ -438,6 +457,7 @@ export const onRequestDelete = async (context: any) => {
       success: true,
       count: fresh.length,
       streamers: fresh,
+      deletedCount,
       storage: db ? 'Cloudflare-D1' : 'memory',
     });
   } catch (err: any) {
