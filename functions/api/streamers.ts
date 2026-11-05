@@ -18,9 +18,11 @@ export interface StreamerRow {
 export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma',
   'Content-Type': 'application/json; charset=utf-8',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0',
+  'CDN-Cache-Control': 'no-store',
+  'Cloudflare-CDN-Cache-Control': 'no-store',
   'Pragma': 'no-cache',
   'Expires': '0',
 };
@@ -41,8 +43,11 @@ export function stripSymbols(name: string): string {
   return (name || '').replace(/[\.\_\#\^\*\♥\-\＃\☆\+\s]/g, '').toLowerCase().trim();
 }
 
+/**
+ * Generate unique, deterministic streamer ID preserving exact character codes (including halfwidth # vs fullwidth ＃)
+ */
 export function getStreamerId(name: string): string {
-  const norm = stripSymbols(name) || (name || '').trim().toLowerCase();
+  const norm = (name || '').trim().toLowerCase();
   let hash = 0;
   for (let i = 0; i < norm.length; i++) {
     hash = (hash << 5) - hash + norm.charCodeAt(i);
@@ -91,7 +96,8 @@ export function rowToStreamer(row: any): StreamerRow {
 export function deduplicateStreamers(rawRows: StreamerRow[]): StreamerRow[] {
   const map = new Map<string, StreamerRow>();
   for (const r of rawRows) {
-    const key = stripSymbols(r.name) || r.name.toLowerCase().trim();
+    // Key strictly by primary key id (or fallback to exact raw name) to preserve distinct records with identical names
+    const key = r.id ? `id_${r.id}` : `name_${r.name.trim()}`;
     const existing = map.get(key);
     if (!existing) {
       map.set(key, r);
@@ -142,90 +148,92 @@ export async function seedDefaultStreamersToD1(db: any) {
 }
 
 /**
- * Executes a direct D1 UPDATE statement on env.DB:
- * UPDATE streamers SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ? WHERE id = ? OR name = ?
+ * Executes a direct D1 UPDATE statement on env.DB strictly targeting by Primary Key ID:
+ * UPDATE streamers SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ? WHERE id = ?
  */
 export async function executeD1StreamerUpsert(db: any, item: any): Promise<void> {
-  if (!db || typeof db.prepare !== 'function' || !item?.name) return;
-  const cleanName = String(item.name).trim();
-  if (!cleanName) return;
-
-  const stripped = stripSymbols(cleanName);
-  const sId = item.id ? String(item.id).trim() : getStreamerId(cleanName);
+  if (!db || typeof db.prepare !== 'function' || !item) return;
+  const cleanName = String(item.name || '').trim();
+  const sId = item.id ? String(item.id).trim() : (cleanName ? getStreamerId(cleanName) : '');
   const soopId = typeof item.soop_id === 'string' ? item.soop_id.trim() : '';
   const position = item.main_position || 'mid';
   const isHidden = item.is_hidden ? 1 : 0;
   const memo = typeof item.memo === 'string' ? item.memo : '';
   const nowIso = item.updated_at || new Date().toISOString();
 
-  let updateRes: any = null;
-  try {
-    updateRes = await db
-      .prepare(`
-        UPDATE streamers 
-        SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-        WHERE id = ? 
-           OR name = ? 
-           OR LOWER(TRIM(name)) = LOWER(TRIM(?))
-           OR name = ?
-           OR name = ?
-           OR name = ?
-      `)
-      .bind(
-        soopId,
-        position,
-        isHidden,
-        memo,
-        nowIso,
-        sId,
-        cleanName,
-        cleanName,
-        stripped,
-        '#' + stripped,
-        '＃' + stripped
-      )
-      .run();
-  } catch (err) {
-    console.warn('[Pages Functions] UPDATE query warning:', err);
-  }
-
-  const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
-
-  // If row was not present in DB, insert it
-  if (changes === 0) {
+  if (sId) {
+    // 1. Target strictly by primary key ID first!
+    let updateRes: any = null;
     try {
-      await db
+      updateRes = await db
         .prepare(`
-          INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          UPDATE streamers 
+          SET name = CASE WHEN ? != '' THEN ? ELSE name END,
+              soop_id = ?, 
+              main_position = ?, 
+              is_hidden = ?, 
+              memo = ?, 
+              updated_at = ?
+          WHERE id = ?
         `)
-        .bind(sId, cleanName, soopId, position, isHidden, memo, nowIso)
+        .bind(cleanName, cleanName, soopId, position, isHidden, memo, nowIso, sId)
         .run();
-    } catch {
+    } catch (err) {
+      console.warn(`[Pages Functions] UPDATE query for id="${sId}" warning:`, err);
+    }
+
+    const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
+    if (changes > 0) return;
+
+    // If row was not present in DB, insert it with the exact sId
+    if (cleanName) {
       try {
         await db
           .prepare(`
-            UPDATE streamers 
-            SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-            WHERE id = ? OR name = ?
+            INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `)
-          .bind(soopId, position, isHidden, memo, nowIso, sId, cleanName)
+          .bind(sId, cleanName, soopId, position, isHidden, memo, nowIso)
           .run();
-      } catch {}
+        return;
+      } catch {
+        try {
+          await db
+            .prepare(`
+              UPDATE streamers 
+              SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+              WHERE id = ?
+            `)
+            .bind(soopId, position, isHidden, memo, nowIso, sId)
+            .run();
+          return;
+        } catch {}
+      }
     }
   }
 
-  // Sibling cleanup: update all symbol variations (e.g. '민찬기' vs '#민찬기' vs '＃민찬기')
-  if (stripped) {
+  // Fallback: if no ID, target by exact name
+  if (cleanName) {
     try {
-      await db
+      const updateByName = await db
         .prepare(`
-          UPDATE streamers
-          SET soop_id = ?, main_position = ?, is_hidden = ?, updated_at = ?
-          WHERE name = ? OR name = ? OR name = ?
+          UPDATE streamers 
+          SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+          WHERE name = ?
         `)
-        .bind(soopId, position, isHidden, nowIso, stripped, '#' + stripped, '＃' + stripped)
+        .bind(soopId, position, isHidden, memo, nowIso, cleanName)
         .run();
+      const changes = updateByName?.meta?.changes ?? updateByName?.changes ?? 0;
+      if (changes === 0) {
+        const generatedId = getStreamerId(cleanName);
+        await db
+          .prepare(`
+            INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `)
+          .bind(generatedId, cleanName, soopId, position, isHidden, memo, nowIso)
+          .run();
+      }
     } catch {}
   }
 }
@@ -352,40 +360,77 @@ export async function handleUpdateStreamers(context: any) {
 export const onRequestPost = handleUpdateStreamers;
 export const onRequestPut = handleUpdateStreamers;
 
+export async function executeD1StreamerDelete(
+  db: any,
+  target: { id?: string; name?: string; ids?: string[]; names?: string[]; soop_id?: string }
+): Promise<void> {
+  if (!db || typeof db.prepare !== 'function') return;
+  await ensureStreamersTable(db);
+
+  const idsToDelete = new Set<string>();
+  if (target.id && String(target.id).trim()) idsToDelete.add(String(target.id).trim());
+  if (Array.isArray(target.ids)) {
+    for (const id of target.ids) {
+      if (id && typeof id === 'string' && id.trim()) idsToDelete.add(id.trim());
+    }
+  }
+
+  // 1. PRIMARY RULE: If primary key IDs are specified, delete ONLY matching primary key rows!
+  // This guarantees that duplicate names (e.g. #김동하 with 0 matches vs ＃김동하 with 10 matches)
+  // are never cross-deleted.
+  if (idsToDelete.size > 0) {
+    for (const id of idsToDelete) {
+      try {
+        await db.prepare('DELETE FROM streamers WHERE id = ?').bind(id).run();
+      } catch (err) {
+        console.warn(`[Pages Functions] Failed to delete streamer by id="${id}":`, err);
+      }
+    }
+    return;
+  }
+
+  // 2. FALLBACK ONLY: If no ID was provided, delete by exact name
+  const namesToDelete = new Set<string>();
+  if (target.name && String(target.name).trim()) namesToDelete.add(String(target.name).trim());
+  if (Array.isArray(target.names)) {
+    for (const n of target.names) {
+      if (n && typeof n === 'string' && n.trim()) namesToDelete.add(n.trim());
+    }
+  }
+
+  for (const name of namesToDelete) {
+    try {
+      await db
+        .prepare('DELETE FROM streamers WHERE name = ?')
+        .bind(name)
+        .run();
+    } catch (err) {
+      console.warn(`[Pages Functions] Failed to delete streamer by name="${name}":`, err);
+    }
+  }
+}
+
 // DELETE /api/streamers: Permanent delete directly from Cloudflare D1 DB
 export const onRequestDelete = async (context: any) => {
   try {
     const db = getD1(context);
     const url = new URL(context.request.url);
 
-    let targetId = url.searchParams.get('id');
-    let targetName = url.searchParams.get('name');
+    let targetId = url.searchParams.get('id') || undefined;
+    let targetName = url.searchParams.get('name') || undefined;
+    let targetIds: string[] | undefined;
+    let targetNames: string[] | undefined;
 
     try {
       const body = await context.request.json().catch(() => ({}));
       if (body?.id) targetId = body.id;
       if (body?.name) targetName = body.name;
+      if (Array.isArray(body?.ids)) targetIds = body.ids;
+      if (Array.isArray(body?.names)) targetNames = body.names;
     } catch {}
 
-    if (db && (targetId || targetName)) {
-      await ensureStreamersTable(db);
-      if (targetName) {
-        const stripped = stripSymbols(targetName);
-        await db
-          .prepare(`
-            DELETE FROM streamers 
-            WHERE name = ? 
-               OR LOWER(TRIM(name)) = LOWER(TRIM(?))
-               OR name = ?
-               OR name = ?
-               OR name = ?
-          `)
-          .bind(targetName.trim(), targetName.trim(), stripped, '#' + stripped, '＃' + stripped)
-          .run();
-      }
-      if (targetId) {
-        await db.prepare('DELETE FROM streamers WHERE id = ?').bind(targetId).run();
-      }
+    if (db) {
+      await executeD1StreamerDelete(db, { id: targetId, name: targetName, ids: targetIds, names: targetNames });
     }
 
     const fresh = await fetchAllStreamersFromD1(db);
@@ -400,3 +445,4 @@ export const onRequestDelete = async (context: any) => {
     return jsonResponse({ success: false, error: err?.message }, 500);
   }
 };
+

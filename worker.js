@@ -17,8 +17,13 @@
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma',
   'Content-Type': 'application/json; charset=utf-8',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0',
+  'CDN-Cache-Control': 'no-store',
+  'Cloudflare-CDN-Cache-Control': 'no-store',
+  'Pragma': 'no-cache',
+  'Expires': '0',
 };
 
 function jsonResponse(data, status = 200) {
@@ -242,6 +247,78 @@ export default {
           return jsonResponse({ success: true, count: DEFAULT_STREAMERS_DATA.length, streamers: DEFAULT_STREAMERS_DATA, storage: 'default' });
         }
 
+        const isDeleteRoute = url.pathname.endsWith('/delete') || request.method === 'DELETE';
+        if (isDeleteRoute) {
+          let targetId = url.searchParams.get('id');
+          let targetName = url.searchParams.get('name');
+          let targetIds = [];
+          let targetNames = [];
+
+          const pathIdMatch = url.pathname.match(/^\/api\/streamers\/([^\/]+)$/);
+          if (pathIdMatch && pathIdMatch[1] !== 'delete' && pathIdMatch[1] !== 'update') {
+            const raw = decodeURIComponent(pathIdMatch[1]).trim();
+            if (raw.startsWith('s_')) targetId = raw;
+            else targetName = raw;
+          }
+
+          try {
+            const body = await request.json().catch(() => ({}));
+            if (body?.id) targetId = body.id;
+            if (body?.name) targetName = body.name;
+            if (Array.isArray(body?.ids)) targetIds = body.ids;
+            if (Array.isArray(body?.names)) targetNames = body.names;
+          } catch {}
+
+          if (db) {
+            await ensureTable(db);
+            const idsToDelete = new Set();
+            if (targetId && String(targetId).trim()) idsToDelete.add(String(targetId).trim());
+            for (const id of targetIds) {
+              if (id && typeof id === 'string' && id.trim()) idsToDelete.add(id.trim());
+            }
+
+            // 1. PRIMARY RULE: If primary key IDs are specified, delete ONLY matching primary key rows!
+            if (idsToDelete.size > 0) {
+              for (const id of idsToDelete) {
+                try {
+                  await db.prepare('DELETE FROM streamers WHERE id = ?').bind(id).run();
+                } catch (err) {
+                  console.warn(`[Worker] Failed to delete by id="${id}":`, err);
+                }
+              }
+            } else {
+              // 2. FALLBACK ONLY: If no ID was provided, delete by exact name
+              const namesToDelete = new Set();
+              if (targetName && String(targetName).trim()) namesToDelete.add(String(targetName).trim());
+              for (const n of targetNames) {
+                if (n && typeof n === 'string' && n.trim()) namesToDelete.add(n.trim());
+              }
+              for (const name of namesToDelete) {
+                try {
+                  await db.prepare('DELETE FROM streamers WHERE name = ?').bind(name).run();
+                } catch (err) {
+                  console.warn(`[Worker] Failed to delete by name="${name}":`, err);
+                }
+              }
+            }
+
+            const res = await db
+              .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
+              .all();
+            const list = (res?.results || []).map((r) => ({
+              id: r.id,
+              name: r.name,
+              soop_id: r.soop_id || '',
+              main_position: r.main_position || 'mid',
+              is_hidden: Boolean(r.is_hidden),
+              memo: r.memo || '',
+              updated_at: r.updated_at,
+            }));
+            return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
+          }
+          return jsonResponse({ success: true, message: 'Deleted' });
+        }
+
         if (request.method === 'POST' || request.method === 'PUT') {
           const body = await request.json().catch(() => ({}));
           const nowIso = new Date().toISOString();
@@ -275,26 +352,43 @@ export default {
               const memo = item?.memo || '';
               const updatedIso = item?.updated_at || nowIso;
 
-              // 1. Direct D1 UPDATE matching exact id, name, or symbol-stripped variation
-              const updateRes = await db
-                .prepare(`
-                  UPDATE streamers 
-                  SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-                  WHERE id = ? 
-                     OR name = ? 
-                     OR LOWER(TRIM(name)) = LOWER(TRIM(?))
-                     OR name = ?
-                     OR name = ?
-                     OR name = ?
-                `)
-                .bind(
-                  soopId, position, isHidden, memo, updatedIso,
-                  sId, cleanName, cleanName,
-                  stripped, '#' + stripped, '＃' + stripped
-                )
-                .run();
+              // 1. Direct D1 UPDATE targeting strictly by primary key ID first
+              let changes = 0;
+              if (sId) {
+                try {
+                  const updateById = await db
+                    .prepare(`
+                      UPDATE streamers 
+                      SET name = CASE WHEN ? != '' THEN ? ELSE name END,
+                          soop_id = ?, 
+                          main_position = ?, 
+                          is_hidden = ?, 
+                          memo = ?, 
+                          updated_at = ?
+                      WHERE id = ?
+                    `)
+                    .bind(cleanName, cleanName, soopId, position, isHidden, memo, updatedIso, sId)
+                    .run();
+                  changes = updateById?.meta?.changes ?? updateById?.changes ?? 0;
+                } catch (err) {
+                  console.warn(`[Worker] UPDATE query for id="${sId}" warning:`, err);
+                }
+              }
 
-              const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
+              // Fallback to exact name only if no ID matched
+              if (changes === 0 && cleanName) {
+                try {
+                  const updateByName = await db
+                    .prepare(`
+                      UPDATE streamers 
+                      SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+                      WHERE name = ?
+                    `)
+                    .bind(soopId, position, isHidden, memo, updatedIso, cleanName)
+                    .run();
+                  changes = updateByName?.meta?.changes ?? updateByName?.changes ?? 0;
+                } catch {}
+              }
 
               // 2. If row not found in DB, insert it
               if (changes === 0 && (cleanName || sId)) {
@@ -371,48 +465,6 @@ export default {
             return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
           }
           return jsonResponse({ success: true, count: incoming.length, streamers: incoming, storage: 'fallback' });
-        }
-
-        if (request.method === 'DELETE') {
-          // Check query params or pathname
-          let targetId = url.searchParams.get('id');
-          let targetName = url.searchParams.get('name');
-
-          const pathIdMatch = url.pathname.match(/^\/api\/streamers\/([^\/]+)$/);
-          if (pathIdMatch && pathIdMatch[1] !== 'delete') {
-            const raw = decodeURIComponent(pathIdMatch[1]).trim();
-            if (raw.startsWith('s_')) targetId = raw;
-            else targetName = raw;
-          }
-
-          try {
-            const body = await request.json().catch(() => ({}));
-            if (body?.id) targetId = body.id;
-            if (body?.name) targetName = body.name;
-          } catch {}
-
-          if (db) {
-            if (targetName) {
-              await db.prepare('DELETE FROM streamers WHERE name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))').bind(targetName.trim(), targetName.trim()).run();
-            }
-            if (targetId) {
-              await db.prepare('DELETE FROM streamers WHERE id = ?').bind(targetId).run();
-            }
-            const res = await db
-              .prepare("SELECT * FROM streamers ORDER BY CASE WHEN name = '우리밍_' OR name = '우리밍' THEN 0 ELSE 1 END, name ASC")
-              .all();
-            const list = (res?.results || []).map((r) => ({
-              id: r.id,
-              name: r.name,
-              soop_id: r.soop_id || '',
-              main_position: r.main_position || 'mid',
-              is_hidden: Boolean(r.is_hidden),
-              memo: r.memo || '',
-              updated_at: r.updated_at,
-            }));
-            return jsonResponse({ success: true, count: list.length, streamers: list, storage: 'D1' });
-          }
-          return jsonResponse({ success: true, message: 'Deleted' });
         }
       }
 

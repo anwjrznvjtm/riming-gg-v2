@@ -19,7 +19,7 @@ export const DEFAULT_STREAMERS: DefaultStreamerItem[] = [
     "memo": ""
   },
   {
-    "id": "s_김동하",
+    "id": "s_half_김동하",
     "name": "#김동하",
     "soop_id": "likekk",
     "main_position": "top",
@@ -28,7 +28,7 @@ export const DEFAULT_STREAMERS: DefaultStreamerItem[] = [
     "memo": ""
   },
   {
-    "id": "s_김동하",
+    "id": "s_full_김동하",
     "name": "＃김동하",
     "soop_id": "likekk",
     "main_position": "mid",

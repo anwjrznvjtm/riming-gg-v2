@@ -56,14 +56,16 @@ const LINE_COLOR_CLASSES: Record<LineKey, { bg: string; text: string; border: st
  */
 function mapProfilesToDict(profiles: StreamerProfile[]): Record<string, StreamerProfile> {
   const result: Record<string, StreamerProfile> = {};
-  for (const p of profiles) {
+  for (let i = 0; i < profiles.length; i++) {
+    const p = profiles[i];
     if (!p?.name?.trim()) continue;
     const cleanName = p.name.trim();
-    const key = cleanName.toLowerCase();
+    // Unique key: strictly prefer primary key ID so duplicates (e.g. #김동하 vs ＃김동하) each have their own row
+    const key = p.id && String(p.id).trim() ? String(p.id).trim() : `streamer_${cleanName.toLowerCase()}_${i}`;
     const serverId = typeof p.soop_id === 'string' ? p.soop_id.trim() : '';
 
     result[key] = {
-      id: p.id,
+      id: p.id || key,
       name: cleanName,
       soop_id: serverId,
       main_position: p.main_position || 'mid',
@@ -93,13 +95,13 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     'ALL' | 'LIVE' | 'VISIBLE' | 'HIDDEN' | 'HAS_MATCHES' | 'NO_MATCHES' | 'NO_ID'
   >('ALL');
 
-  // Main local editable map (keyed by lowercase streamer name)
+  // Main local editable map (keyed by unique streamer ID / key)
   const [localMap, setLocalMap] = useState<Record<string, StreamerProfile>>(() =>
     mapProfilesToDict(allProfiles)
   );
 
-  // Checkbox selection state (Only stores names of streamers with 0 matches)
-  const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
+  // Checkbox selection state (Stores unique IDs / keys of streamers with 0 matches)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBatchConfirmOpen, setIsBatchConfirmOpen] = useState(false);
 
   // Per-streamer temporary input state for smooth typing before Auto-Save
@@ -199,7 +201,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       fetchAuthoritativeProfiles();
       setDeleteTarget(null);
       setIsAddingNew(false);
-      setSelectedNames(new Set());
+      setSelectedIds(new Set());
     }
   }, [isOpen, fetchAuthoritativeProfiles]);
 
@@ -309,13 +311,11 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   // --------------------------------------------------------------------------
   // 2. SOOP ID Edit & Auto-Save (onBlur or Enter) - Always allowed regardless of match count
   // --------------------------------------------------------------------------
-  const handleIdChange = (name: string, val: string) => {
-    const key = name.toLowerCase().trim();
+  const handleIdChange = (key: string, val: string) => {
     setEditingIds((prev) => ({ ...prev, [key]: val }));
   };
 
-  const handleIdCommit = async (name: string) => {
-    const key = name.toLowerCase().trim();
+  const handleIdCommit = async (key: string) => {
     const target = localMap[key];
     if (!target) return;
 
@@ -346,8 +346,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   // --------------------------------------------------------------------------
   // 3. Position Change & Auto-Save - Always allowed regardless of match count
   // --------------------------------------------------------------------------
-  const handlePositionChange = async (name: string, newPosition: LineKey) => {
-    const key = name.toLowerCase().trim();
+  const handlePositionChange = async (key: string, newPosition: LineKey) => {
     const target = localMap[key];
     if (!target || target.main_position === newPosition) return;
 
@@ -371,8 +370,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   // --------------------------------------------------------------------------
   // 4. [숨기기 / 노출] 토글 & Auto-Save - Always allowed regardless of match count
   // --------------------------------------------------------------------------
-  const handleToggleHidden = async (name: string) => {
-    const key = name.toLowerCase().trim();
+  const handleToggleHidden = async (key: string) => {
     const target = localMap[key];
     if (!target) return;
 
@@ -422,42 +420,33 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     if (!deleteTarget || !isAdmin) return;
 
     setIsProcessing(true);
-    setAutoSaveStatus('삭제 중...');
+    setAutoSaveStatus('DB 영구 삭제 중...');
     const target = deleteTarget;
 
-    // 1. Immediate optimistic UI filter from localMap
-    setLocalMap((prev) => {
-      const next = { ...prev };
-      for (const [k, pVal] of Object.entries(next)) {
-        const p = pVal as StreamerProfile;
-        if (
-          (target.id && p?.id === target.id) ||
-          p?.name?.toLowerCase().trim() === target.name.toLowerCase().trim()
-        ) {
-          delete next[k];
-        }
-      }
-      return next;
-    });
-
-    setSelectedNames((prev) => {
-      const next = new Set(prev);
-      next.delete(target.name);
-      return next;
-    });
-
     try {
-      const serverList = await deleteStreamerProfileAsync({ id: target.id, name: target.name });
+      // 1. Call real backend DB deletion API across all tiers targeting strictly by PK id
+      const serverList = await deleteStreamerProfileAsync({
+        id: target.id,
+        name: target.name,
+        soop_id: target.soop_id,
+      });
       let finalList = serverList;
 
+      // 2. Guaranteed fresh re-fetch from backend D1 DB
       if (!Array.isArray(finalList) || finalList.length === 0) {
-        // Fallback fetch if serverList wasn't returned
         finalList = await syncStreamersFromBackend(true);
       }
 
+      // 3. Strictly update state only after authoritative DB response
       if (Array.isArray(finalList)) {
         const dict = mapProfilesToDict(finalList);
         setLocalMap(dict);
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (target.id) next.delete(target.id);
+          next.delete(target.name);
+          return next;
+        });
         onProfilesUpdatedRef.current(finalList);
         if (onSaveCompleteRef.current) {
           try {
@@ -470,7 +459,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       }
 
       setDeleteTarget(null);
-      setAutoSaveStatus('자동 저장됨 ✓');
+      setAutoSaveStatus('DB 삭제 완료 ✓');
       onToastRef.current(`'${target.name}' 스트리머가 서버 DB에서 완전히 삭제되었습니다.`);
     } catch (err) {
       console.warn('[StreamerManageModal] Delete error:', err);
@@ -542,8 +531,10 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       return;
     }
 
-    const key = cleanName.toLowerCase();
-    if (localMap[key]) {
+    const exists = (Object.values(localMap) as StreamerProfile[]).some(
+      (p) => p.name.toLowerCase().trim() === cleanName.toLowerCase().trim()
+    );
+    if (exists) {
       onToastRef.current(`'${cleanName}' 스트리머가 이미 명단에 존재합니다.`);
       return;
     }
@@ -647,27 +638,28 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
   const isAllDeletableSelected = useMemo(() => {
     if (deletableFilteredProfiles.length === 0) return false;
-    return deletableFilteredProfiles.every((p) => selectedNames.has(p.name));
-  }, [deletableFilteredProfiles, selectedNames]);
+    return deletableFilteredProfiles.every((p) => selectedIds.has(p.id || p.name));
+  }, [deletableFilteredProfiles, selectedIds]);
 
   const isSomeDeletableSelected = useMemo(() => {
     if (isAllDeletableSelected) return false;
-    return deletableFilteredProfiles.some((p) => selectedNames.has(p.name));
-  }, [deletableFilteredProfiles, selectedNames, isAllDeletableSelected]);
+    return deletableFilteredProfiles.some((p) => selectedIds.has(p.id || p.name));
+  }, [deletableFilteredProfiles, selectedIds, isAllDeletableSelected]);
 
-  const handleToggleSelectOne = (name: string) => {
-    const stat = matchStatsMap.get(name.toLowerCase().trim()) || { total: 0, wins: 0, losses: 0, winRate: 0 };
-    if (stat.total > 0 || name === '우리밍_' || name === '우리밍') {
-      onToastRef.current(`'${name}' 스트리머는 CK 전적이 있어 삭제 선택이 불가합니다. (숨김만 가능)`);
+  const handleToggleSelectOne = (streamer: StreamerProfile) => {
+    const stat = matchStatsMap.get(streamer.name.toLowerCase().trim()) || { total: 0, wins: 0, losses: 0, winRate: 0 };
+    if (stat.total > 0 || streamer.name === '우리밍_' || streamer.name === '우리밍') {
+      onToastRef.current(`'${streamer.name}' 스트리머는 CK 전적이 있어 삭제 선택이 불가합니다. (숨김만 가능)`);
       return;
     }
 
-    setSelectedNames((prev) => {
+    const itemKey = streamer.id || streamer.name;
+    setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
+      if (next.has(itemKey)) {
+        next.delete(itemKey);
       } else {
-        next.add(name);
+        next.add(itemKey);
       }
       return next;
     });
@@ -681,19 +673,19 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
     if (isAllDeletableSelected) {
       // Deselect all deletable in current view
-      setSelectedNames((prev) => {
+      setSelectedIds((prev) => {
         const next = new Set(prev);
         for (const p of deletableFilteredProfiles) {
-          next.delete(p.name);
+          next.delete(p.id || p.name);
         }
         return next;
       });
     } else {
       // Select only deletable in current view
-      setSelectedNames((prev) => {
+      setSelectedIds((prev) => {
         const next = new Set(prev);
         for (const p of deletableFilteredProfiles) {
-          next.add(p.name);
+          next.add(p.id || p.name);
         }
         return next;
       });
@@ -704,35 +696,34 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
   // 9. SIMPLIFIED BATCH DELETE EXECUTION (Requirement 2 & 3: Persistent Delete)
   // --------------------------------------------------------------------------
   const handleExecuteBatchDelete = async () => {
-    if (selectedNames.size === 0) return;
+    if (selectedIds.size === 0) return;
     if (!isAdmin) {
       onToastRef.current('삭제 권한이 없습니다. 관리자 로그인이 필요합니다.');
       return;
     }
 
     setIsProcessing(true);
-    setAutoSaveStatus('영구 삭제 중...');
+    setAutoSaveStatus('DB 영구 삭제 중...');
 
-    const namesToDelete: string[] = Array.from(selectedNames);
-
-    // Optimistic UI update
-    setLocalMap((prev) => {
-      const next = { ...prev };
-      for (const [k, pVal] of Object.entries(next)) {
-        const p = pVal as StreamerProfile;
-        if (p?.name && selectedNames.has(p.name)) {
-          delete next[k];
-        }
+    // Collect target objects with exact ID and name to target strictly in backend D1 DB
+    const targetsToDelete: { id: string; name: string }[] = [];
+    for (const key of selectedIds) {
+      const p = localMap[key];
+      if (p) {
+        targetsToDelete.push({ id: p.id || key, name: p.name });
+      } else {
+        targetsToDelete.push({ id: key, name: key });
       }
-      return next;
-    });
+    }
 
     try {
-      // Persistent Batch Delete via backend API (DELETE /api/streamers)
-      let serverList = await deleteStreamersBatchAsync(namesToDelete);
+      // 1. Persistent Batch Delete via backend API across all tiers targeting strictly by PK id
+      let serverList = await deleteStreamersBatchAsync(targetsToDelete);
       if (!Array.isArray(serverList) || serverList.length === 0) {
         serverList = await syncStreamersFromBackend(true);
       }
+
+      // 2. Strictly update state only after authoritative DB response
       if (Array.isArray(serverList)) {
         const dict = mapProfilesToDict(serverList);
         setLocalMap(dict);
@@ -747,10 +738,10 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         }
       }
 
-      const count = namesToDelete.length;
-      setSelectedNames(new Set());
+      const count = targetsToDelete.length;
+      setSelectedIds(new Set());
       setIsBatchConfirmOpen(false);
-      setAutoSaveStatus('삭제 완료 ✓');
+      setAutoSaveStatus('DB 삭제 완료 ✓');
 
       onToastRef.current(`선택한 ${count}명의 스트리머(전적 0건)가 서버 DB에서 영구 삭제되었습니다.`);
     } catch (err) {
@@ -872,12 +863,12 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
         {/* ================================================================= */}
         {/* 2.5 BATCH ACTION BAR (전적 0건 스트리머 선택 시 일괄 삭제 바 노출)  */}
         {/* ================================================================= */}
-        {selectedNames.size > 0 && (
+        {selectedIds.size > 0 && (
           <div className="px-5 sm:px-6 py-2.5 bg-gradient-to-r from-[#2c131a] via-[#201524] to-[#161626] border-b border-[#ef4444]/40 flex flex-wrap items-center justify-between gap-3 animate-[fadeIn_0.15s]">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444] animate-ping" />
               <div className="text-[12px]">
-                <strong className="text-white font-bold">{selectedNames.size}명</strong>
+                <strong className="text-white font-bold">{selectedIds.size}명</strong>
                 <span className="text-[#e2e2ec]"> 선택됨 </span>
                 <span className="text-[11px] text-[#f87171] font-mono bg-[#ef4444]/15 px-2 py-0.5 rounded-md ml-1 border border-[#ef4444]/30">
                   전적 0건 (삭제 가능)
@@ -888,7 +879,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setSelectedNames(new Set())}
+                onClick={() => setSelectedIds(new Set())}
                 className="h-[32px] px-3 bg-[#1e1e2e] hover:bg-[#28283e] text-[#a0a0b8] hover:text-white rounded-xl text-[11px] font-medium border border-[#303046]"
               >
                 선택 해제
@@ -901,7 +892,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 className="h-[32px] px-4 bg-gradient-to-r from-[#ef4444] to-[#dc2626] hover:from-[#dc2626] hover:to-[#b91c1c] text-white font-bold rounded-xl text-[12px] shadow-[0_2px_12px_rgba(239,68,68,0.35)] flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
               >
                 <Trash2 size={13} />
-                <span>선택한 스트리머 일괄 삭제 ({selectedNames.size}명)</span>
+                <span>선택한 스트리머 일괄 삭제 ({selectedIds.size}명)</span>
               </button>
             </div>
           </div>
@@ -1114,14 +1105,15 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
             </div>
           ) : (
             filteredProfiles.map((streamer, index) => {
+              const itemKey = streamer.id || streamer.name;
               const streamerKey = streamer.name.toLowerCase().trim();
               const isBenchmark = streamer.name === '우리밍_' || streamer.name === '우리밍';
               const isLive = Boolean(streamer.soop_id && liveUserIds.has(streamer.soop_id.toLowerCase().trim()));
-              const currentInputVal = editingIds[streamerKey] !== undefined ? editingIds[streamerKey] : streamer.soop_id || '';
+              const currentInputVal = editingIds[itemKey] !== undefined ? editingIds[itemKey] : streamer.soop_id || '';
               const stat = matchStatsMap.get(streamerKey) || { total: 0, wins: 0, losses: 0, winRate: 0 };
               const hasMatches = stat.total > 0;
               const isIndicatorActive = savedIndicatorName === streamer.name;
-              const isChecked = selectedNames.has(streamer.name);
+              const isChecked = selectedIds.has(itemKey);
               const isDeletable = !hasMatches && !isBenchmark;
 
               return (
@@ -1141,7 +1133,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                     {isDeletable ? (
                       <button
                         type="button"
-                        onClick={() => handleToggleSelectOne(streamer.name)}
+                        onClick={() => handleToggleSelectOne(streamer)}
                         className="p-1 rounded-lg hover:bg-white/5 text-[#a0a0b8] hover:text-white transition-all cursor-pointer shrink-0"
                         title={isChecked ? '선택 해제' : '삭제 대상 선택'}
                       >
@@ -1224,7 +1216,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                     <div className="relative shrink-0">
                       <select
                         value={streamer.main_position || 'mid'}
-                        onChange={(e) => handlePositionChange(streamer.name, e.target.value as LineKey)}
+                        onChange={(e) => handlePositionChange(itemKey, e.target.value as LineKey)}
                         className={`h-[34px] pl-2.5 pr-7 rounded-xl text-[11px] font-bold border appearance-none outline-none cursor-pointer transition-all ${
                           LINE_COLOR_CLASSES[streamer.main_position || 'mid'].bg
                         } ${LINE_COLOR_CLASSES[streamer.main_position || 'mid'].text} ${
@@ -1248,12 +1240,12 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                       <input
                         type="text"
                         value={currentInputVal}
-                        onChange={(e) => handleIdChange(streamer.name, e.target.value)}
-                        onBlur={() => handleIdCommit(streamer.name)}
+                        onChange={(e) => handleIdChange(itemKey, e.target.value)}
+                        onBlur={() => handleIdCommit(itemKey)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.currentTarget.blur();
-                            handleIdCommit(streamer.name);
+                            handleIdCommit(itemKey);
                           }
                         }}
                         placeholder="SOOP ID (user_id 입력 후 Enter 또는 포커스 아웃)"
@@ -1282,7 +1274,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                     {/* [숨기기 / 노출 토글]: 모든 스트리머 가능 */}
                     <button
                       type="button"
-                      onClick={() => handleToggleHidden(streamer.name)}
+                      onClick={() => handleToggleHidden(itemKey)}
                       className={`h-[34px] px-3 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
                         streamer.is_hidden
                           ? 'bg-[#f59e0b]/15 hover:bg-[#f59e0b]/25 text-[#fbbf24] border-[#f59e0b]/40 shadow-sm'
@@ -1411,7 +1403,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
               <div className="space-y-2">
                 <p className="text-[13px] text-[#e2e2ec] font-semibold leading-relaxed">
-                  선택한 <strong className="text-[#f87171] font-black">{selectedNames.size}명</strong>의 스트리머(전적 0건)를 서버 DB에서 영구 삭제하시겠습니까?
+                  선택한 <strong className="text-[#f87171] font-black">{selectedIds.size}명</strong>의 스트리머(전적 0건)를 서버 DB에서 영구 삭제하시겠습니까?
                 </p>
                 <p className="text-[11px] text-[#9090aa] leading-relaxed">
                   * 삭제된 스트리머는 백엔드 서버 파일(<code className="text-[#c4b5fd]">server/streamers.json</code>) 및 DB에서 완전히 제거되며, 복구할 수 없습니다.
@@ -1420,14 +1412,18 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
 
               {/* Names preview tags */}
               <div className="p-3 bg-[#1a1218] border border-[#ef4444]/30 rounded-xl max-h-[110px] overflow-y-auto flex flex-wrap gap-1.5">
-                {Array.from(selectedNames).map((name) => (
-                  <span
-                    key={name}
-                    className="text-[11px] bg-[#2a141a] text-[#fca5a5] border border-[#ef4444]/40 px-2 py-0.5 rounded-lg"
-                  >
-                    {name}
-                  </span>
-                ))}
+                {Array.from(selectedIds).map((idKey) => {
+                  const p = localMap[idKey];
+                  return (
+                    <span
+                      key={idKey}
+                      className="text-[11px] bg-[#2a141a] text-[#fca5a5] border border-[#ef4444]/40 px-2 py-0.5 rounded-lg flex items-center gap-1"
+                    >
+                      <span>{p ? p.name : idKey}</span>
+                      {p?.id && <span className="text-[9px] text-[#f87171]/60 font-mono">({p.id})</span>}
+                    </span>
+                  );
+                })}
               </div>
 
               <div className="flex items-center gap-2.5 pt-1">
@@ -1442,7 +1438,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
                 <button
                   type="button"
                   onClick={handleExecuteBatchDelete}
-                  disabled={isProcessing || selectedNames.size === 0}
+                  disabled={isProcessing || selectedIds.size === 0}
                   className="flex-1 h-[38px] bg-gradient-to-r from-[#ef4444] to-[#dc2626] hover:from-[#dc2626] hover:to-[#b91c1c] text-white font-bold rounded-xl text-[12px] shadow-lg shadow-[#ef4444]/25 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isProcessing ? (

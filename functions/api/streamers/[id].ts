@@ -9,6 +9,7 @@ import {
   getD1,
   ensureStreamersTable,
   executeD1StreamerUpsert,
+  executeD1StreamerDelete,
   fetchAllStreamersFromD1,
   rowToStreamer,
 } from '../streamers';
@@ -17,7 +18,7 @@ export const onRequestOptions = async () => {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 };
 
-// PUT /api/streamers/:id: Direct D1 UPDATE for single streamer
+// PUT & POST /api/streamers/:id
 export const onRequestPut = async (context: any) => {
   try {
     const db = getD1(context);
@@ -28,6 +29,23 @@ export const onRequestPut = async (context: any) => {
       body = await context.request.json();
     } catch {
       body = {};
+    }
+
+    // Safety guard: If accidentally hit with :id = 'delete', route to delete handler
+    if (rawId === 'delete') {
+      const targetId = body?.id;
+      const targetName = body?.name;
+      const targetNames = body?.names;
+      if (db) {
+        await executeD1StreamerDelete(db, { id: targetId, name: targetName, names: targetNames });
+      }
+      const fresh = await fetchAllStreamersFromD1(db);
+      return jsonResponse({
+        success: true,
+        count: fresh.length,
+        streamers: fresh,
+        storage: db ? 'Cloudflare-D1' : 'memory',
+      });
     }
 
     const incomingItem = {
@@ -68,12 +86,20 @@ export const onRequestDelete = async (context: any) => {
     const db = getD1(context);
     const rawId = context.params?.id ? decodeURIComponent(context.params.id).trim() : '';
 
-    if (db && rawId) {
-      await ensureStreamersTable(db);
-      await db
-        .prepare('DELETE FROM streamers WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))')
-        .bind(rawId, rawId, rawId)
-        .run();
+    let body: any = {};
+    try {
+      body = await context.request.json();
+    } catch {
+      body = {};
+    }
+
+    const targetId = body.id || (rawId.startsWith('s_') ? rawId : undefined);
+    const targetName = body.name || (!rawId.startsWith('s_') && rawId !== 'delete' ? rawId : undefined);
+    const targetIds = Array.isArray(body.ids) ? body.ids : undefined;
+    const targetNames = Array.isArray(body.names) ? body.names : undefined;
+
+    if (db) {
+      await executeD1StreamerDelete(db, { id: targetId, name: targetName, ids: targetIds, names: targetNames });
     }
 
     const fresh = await fetchAllStreamersFromD1(db);

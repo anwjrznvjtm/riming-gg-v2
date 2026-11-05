@@ -4,6 +4,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { analyzeScreenshotWithGemini } from './server/geminiVision';
+import { DEFAULT_STREAMERS } from './src/data/defaultStreamers';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -187,20 +188,32 @@ async function startServer() {
     return path.join(process.cwd(), 'server', 'streamers.json');
   }
 
+  const defaultStreamerMap = new Map<string, any>();
+  for (const ds of DEFAULT_STREAMERS) {
+    defaultStreamerMap.set(ds.name.trim(), ds);
+  }
+
   function readStreamersFromFile(): any[] {
     try {
       const targetPath = getStreamersFilePath();
       if (fs.existsSync(targetPath)) {
         const raw = fs.readFileSync(targetPath, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((item: any) => {
+            const cleanName = (item.name || '').trim();
+            const matchedDefault = defaultStreamerMap.get(cleanName);
+            return {
+              ...item,
+              id: item.id || matchedDefault?.id || getD1StreamerId(cleanName),
+            };
+          });
         }
       }
     } catch (err) {
       console.warn('[Server] Error reading streamers file:', err);
     }
-    return [];
+    return DEFAULT_STREAMERS.map((s) => ({ ...s }));
   }
 
   function writeStreamersToFile(data: any[]): boolean {
@@ -530,12 +543,16 @@ async function startServer() {
   });
 
   // PUT /api/streamers & PUT /api/streamers/:id: Safe ID & profile update without mutating matches
+  // Guard: if /api/streamers/:id receives id === 'delete', delegate to handleDeleteStreamers
   const handlePutStreamers = async (req: any, res: any) => {
+    if (req.params?.id === 'delete') {
+      return handleDeleteStreamers(req, res);
+    }
     try {
       cachedLiveResponse = null;
       const { streamers, streamer } = req.body || {};
       const rawParamId = req.params?.id;
-      const singleId = rawParamId && rawParamId !== 'update' && rawParamId !== 'delete' ? rawParamId : null;
+      const singleId = rawParamId && rawParamId !== 'update' && rawParamId !== 'delete' ? decodeURIComponent(String(rawParamId)).trim() : null;
       const incoming = Array.isArray(streamers) ? streamers : streamer ? [streamer] : (req.body && (req.body.name || req.body.soop_id || singleId)) ? [req.body] : [];
 
       if (incoming.length === 0 && !singleId) {
@@ -546,28 +563,28 @@ async function startServer() {
       const current = readStreamersFromFile();
       const currentMap = new Map<string, any>();
       for (const s of current) {
-        if (s?.id) currentMap.set(String(s.id), s);
-        if (s?.name) {
-          currentMap.set(s.name.toLowerCase().trim(), s);
-          const stripped = s.name.replace(/[\.\_\#\^\*\♥\-\＃]/g, '').toLowerCase().trim();
-          if (stripped && !currentMap.has(stripped)) {
-            currentMap.set(stripped, s);
-          }
-        }
+        const idKey = s?.id ? 'id_' + String(s.id).trim() : 'name_' + String(s?.name || '').trim();
+        currentMap.set(idKey, s);
       }
 
       for (const item of incoming) {
         const cleanName = (item.name || '').trim();
-        const stripped = cleanName.replace(/[\.\_\#\^\*\♥\-\＃]/g, '').toLowerCase().trim();
-        const existing =
-          (singleId ? currentMap.get(singleId) : null) ||
-          (cleanName ? currentMap.get(cleanName.toLowerCase()) : null) ||
-          (stripped ? currentMap.get(stripped) : null);
-        if (!existing && !cleanName) continue;
+        const itemId = item.id || (singleId && singleId.startsWith('s_') ? singleId : null);
+        
+        let existing: any = null;
+        if (itemId) {
+          existing = currentMap.get('id_' + itemId);
+        }
+        if (!existing && singleId) {
+          existing = currentMap.get('id_' + singleId) || currentMap.get('name_' + singleId);
+        }
+        if (!existing && cleanName) {
+          existing = currentMap.get('name_' + cleanName);
+        }
+        if (!existing && !cleanName && !itemId) continue;
 
-        const effectiveName = existing?.name || cleanName;
-        const normKey = effectiveName.toLowerCase().trim();
-        const effectiveId = (singleId && singleId !== 'update' ? singleId : null) || item.id || existing?.id || getD1StreamerId(effectiveName);
+        const effectiveName = cleanName || existing?.name || singleId || '';
+        const effectiveId = itemId || existing?.id || (singleId && singleId.startsWith('s_') ? singleId : null) || getD1StreamerId(effectiveName);
 
         const updatedStreamer = {
           id: effectiveId,
@@ -579,33 +596,11 @@ async function startServer() {
           updated_at: item.updated_at || nowIso,
         };
 
-        currentMap.set(normKey, updatedStreamer);
-        if (stripped) {
-          currentMap.set(stripped, updatedStreamer);
-        }
-        if (effectiveId) {
-          currentMap.set(String(effectiveId), updatedStreamer);
-        }
+        const targetKey = effectiveId ? 'id_' + effectiveId : 'name_' + effectiveName;
+        currentMap.set(targetKey, updatedStreamer);
       }
 
-      const uniqueByName = new Map<string, any>();
-      for (const s of currentMap.values()) {
-        if (s?.name) {
-          const strippedKey = s.name.replace(/[\.\_\#\^\*\♥\-\＃\☆\+\s]/g, '').toLowerCase().trim() || s.name.toLowerCase().trim();
-          const existing = uniqueByName.get(strippedKey);
-          if (!existing) {
-            uniqueByName.set(strippedKey, s);
-          } else {
-            if (!existing.soop_id && s.soop_id) {
-              uniqueByName.set(strippedKey, s);
-            } else if (s.soop_id && existing.soop_id && new Date(s.updated_at).getTime() > new Date(existing.updated_at).getTime()) {
-              uniqueByName.set(strippedKey, { ...existing, ...s, soop_id: s.soop_id });
-            }
-          }
-        }
-      }
-
-      const updatedList = Array.from(uniqueByName.values()).sort((a: any, b: any) => {
+      const updatedList = Array.from(currentMap.values()).sort((a: any, b: any) => {
         if (a.name === '우리밍_' || a.name === '우리밍') return -1;
         if (b.name === '우리밍_' || b.name === '우리밍') return 1;
         return a.name.localeCompare(b.name, 'ko-KR');
@@ -621,49 +616,64 @@ async function startServer() {
     }
   };
 
+  app.post('/api/streamers/delete', handleDeleteStreamers);
+  app.delete('/api/streamers/delete', handleDeleteStreamers);
+  app.put('/api/streamers/update', handlePutStreamers);
+  app.post('/api/streamers/update', handlePutStreamers);
   app.put('/api/streamers', handlePutStreamers);
   app.put('/api/streamers/:id', handlePutStreamers);
   app.post('/api/streamers/:id', handlePutStreamers);
-  app.post('/api/streamers/update', handlePutStreamers);
-  app.put('/api/streamers/update', handlePutStreamers);
 
   // DELETE /api/streamers & DELETE /api/streamers/:id: Safe backend DB removal
   async function handleDeleteStreamers(req: any, res: any) {
     try {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0');
+      res.setHeader('CDN-Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       cachedLiveResponse = null;
+
       const rawId = req.params?.id || req.body?.id || req.query?.id;
-      const singleId = rawId ? decodeURIComponent(String(rawId)).trim() : '';
+      const singleId = rawId && rawId !== 'delete' && rawId !== 'update' ? decodeURIComponent(String(rawId)).trim() : '';
+      const rawIds = req.body?.ids || (req.query?.ids ? (Array.isArray(req.query.ids) ? req.query.ids : [req.query.ids]) : null);
+      const targetIds: string[] = Array.isArray(rawIds)
+        ? rawIds.map((id: any) => decodeURIComponent(String(id)).trim()).filter(Boolean)
+        : singleId
+        ? [singleId]
+        : [];
+
       const rawNames = req.body?.names || (req.query?.names ? (Array.isArray(req.query.names) ? req.query.names : [req.query.names]) : null);
       const singleName = (req.body?.name || req.query?.name || '') as string;
       const targetNames: string[] = Array.isArray(rawNames)
-        ? rawNames.map((n: any) => decodeURIComponent(String(n)).toLowerCase().trim()).filter(Boolean)
-        : singleName
-        ? [decodeURIComponent(singleName).toLowerCase().trim()]
+        ? rawNames.map((n: any) => decodeURIComponent(String(n)).trim()).filter(Boolean)
+        : singleName && singleName !== 'delete'
+        ? [decodeURIComponent(singleName).trim()]
         : [];
 
       const current = readStreamersFromFile();
-      const deleteNameSet = new Set(targetNames);
-      if (singleId) {
-        deleteNameSet.add(singleId.toLowerCase());
+      let remaining = current;
+
+      // 1. PRIMARY RULE: If target IDs are provided, delete ONLY matching rows by exact ID!
+      if (targetIds.length > 0) {
+        const idSet = new Set(targetIds);
+        remaining = current.filter((s) => {
+          const sId = String(s.id || '').trim();
+          if (sId && idSet.has(sId)) return false;
+          return true;
+        });
+      } else if (targetNames.length > 0) {
+        // 2. FALLBACK ONLY: If no ID was provided, delete by exact name
+        const nameSet = new Set(targetNames);
+        remaining = current.filter((s) => {
+          const sName = (s.name || '').trim();
+          if (sName && nameSet.has(sName)) return false;
+          return true;
+        });
       }
-
-      const remaining = current.filter((s) => {
-        const sId = String(s.id || getD1StreamerId(s.name)).trim();
-        const sName = (s.name || '').toLowerCase().trim();
-        const sStripped = sName.replace(/[\.\_\#\^\*\♥\-\＃]/g, '');
-
-        if (singleId && (sId === singleId || s.id === singleId || sName === singleId.toLowerCase())) {
-          return false;
-        }
-        if (deleteNameSet.has(sName) || (sStripped && deleteNameSet.has(sStripped))) {
-          return false;
-        }
-        return true;
-      });
 
       const deletedCount = current.length - remaining.length;
       writeStreamersToFile(remaining);
-      console.log(`[Server] Streamer(s) deleted: target="${singleId || targetNames.join(',')}", deleted=${deletedCount}, remaining=${remaining.length}`);
+      console.log(`[Server] Streamer(s) deleted: targetIds="${targetIds.join(',')}" targetNames="${targetNames.join(',')}", deleted=${deletedCount}, remaining=${remaining.length}`);
 
       return res.json({
         success: true,

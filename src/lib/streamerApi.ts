@@ -399,39 +399,54 @@ export async function saveStreamerProfilesBatchAsync(
 /**
  * Async update a single streamer profile (SOOP ID, position, hidden) directly to backend DB via PUT /api/streamers/:id
  */
+/**
+ * Async update a single streamer profile (SOOP ID, position, hidden) directly to backend DB via PUT /api/streamers/:id
+ */
 export async function updateStreamerProfileAsync(profile: StreamerProfile): Promise<StreamerProfile[]> {
   const cleanName = (profile.name || '').trim();
-  if (!cleanName) return getStoredStreamerProfiles();
+  const cleanId = (profile.id || '').trim();
+  if (!cleanName && !cleanId) return getStoredStreamerProfiles();
 
-  // 1. Immediate optimistic in-memory cache update
+  // In-memory optimistic update matching strictly by ID first, then name
   const current = getStoredStreamerProfiles();
-  const map = new Map<string, StreamerProfile>();
-  for (const p of current) {
-    if (p?.name) map.set(p.name.toLowerCase().trim(), p);
-  }
-  const existing = map.get(cleanName.toLowerCase().trim());
-  const updatedItem: StreamerProfile = {
-    ...existing,
-    ...profile,
-    name: cleanName,
-    updated_at: new Date().toISOString(),
-  };
-  map.set(cleanName.toLowerCase().trim(), updatedItem);
-  _cachedStreamerProfiles = sortStreamerProfiles(Array.from(map.values()));
+  const updatedList = current.map((p) => {
+    if ((cleanId && p.id === cleanId) || (!cleanId && p.name === cleanName)) {
+      return {
+        ...p,
+        ...profile,
+        updated_at: new Date().toISOString(),
+      };
+    }
+    return p;
+  });
+  _cachedStreamerProfiles = sortStreamerProfiles(updatedList);
 
-  const streamerId = profile.id || 's_' + encodeURIComponent(cleanName);
+  const targetIdentifier = cleanId || cleanName;
+  const encodedIdentifier = encodeURIComponent(targetIdentifier);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
-    // 2. Multi-tier API calls to guarantee D1 DB persistence across Cloudflare Pages & Workers
     const t = Date.now();
-    // Route 1: PUT /api/streamers/:id
-    let res = await fetch(`/api/streamers/${encodeURIComponent(streamerId)}?t=${t}`, {
+    const payload = JSON.stringify({
+      id: cleanId,
+      name: cleanName,
+      soop_id: profile.soop_id,
+      main_position: profile.main_position,
+      is_hidden: profile.is_hidden,
+      memo: profile.memo,
+      streamer: profile,
+    });
+
+    // Route 1: PUT /api/streamers/:id (URL path strictly encodeURIComponent'd to prevent '#' hash truncation)
+    let res = await fetch(`/api/streamers/${encodedIdentifier}?t=${t}`, {
       signal: controller.signal,
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(profile),
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+      body: payload,
     });
 
     // Route 2: POST /api/streamers/update fallback
@@ -439,8 +454,11 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
       res = await fetch(`/api/streamers/update?t=${t}`, {
         signal: controller.signal,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ streamer: profile }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+        body: payload,
       });
     }
 
@@ -449,7 +467,10 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
       res = await fetch(`/api/streamers?t=${t}`, {
         signal: controller.signal,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
         body: JSON.stringify({ replace: false, streamers: [profile] }),
       });
     }
@@ -459,8 +480,11 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
       res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers/update?t=${t}`, {
         signal: controller.signal,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ streamer: profile }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+        body: payload,
       });
     }
 
@@ -489,137 +513,174 @@ export async function updateStreamerProfileAsync(profile: StreamerProfile): Prom
  * Delete a streamer profile permanently from server DB
  */
 export function deleteStreamerProfile(target: string | { id?: string; name: string }): StreamerProfile[] {
-  const name = typeof target === 'string' ? target : target.name;
-  const id = typeof target === 'object' ? target.id : '';
-  const cleanName = (name || '').trim().toLowerCase();
-  const cleanId = (id || '').trim();
-
-  const current = getStoredStreamerProfiles();
-  const updatedList = current.filter((p) => {
-    if (cleanId && p.id === cleanId) return false;
-    if (cleanName && p.name.toLowerCase().trim() === cleanName) return false;
-    return true;
+  // Fire genuine async DB delete in background
+  deleteStreamerProfileAsync(target).catch((err) => {
+    console.warn('[StreamerApi] Background deleteStreamerProfile warning:', err);
   });
-  _cachedStreamerProfiles = updatedList;
-
-  // Dispatch delete directly to DB server API
-  const endpoint = cleanId ? `/api/streamers/${encodeURIComponent(cleanId)}` : '/api/streamers/delete';
-  fetch(endpoint, {
-    method: cleanId ? 'DELETE' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: cleanId, name }),
-  }).catch(() => {});
-
-  fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
-
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('streamers-updated', { detail: updatedList }));
-  }
-
-  return updatedList;
+  return getStoredStreamerProfiles();
 }
 
-export async function deleteStreamerProfileAsync(target: string | { id?: string; name: string }): Promise<StreamerProfile[]> {
-  const name = typeof target === 'string' ? target : target.name;
-  const id = typeof target === 'object' ? target.id : '';
+export async function deleteStreamerProfileAsync(
+  target: string | { id?: string; name?: string; soop_id?: string }
+): Promise<StreamerProfile[]> {
+  const name = typeof target === 'string' ? target : target.name || '';
+  const id = typeof target === 'object' ? target.id || '' : '';
+  const soopId = typeof target === 'object' ? (target as any).soop_id || '' : '';
   const cleanName = (name || '').trim();
   const cleanId = (id || '').trim();
-  if (!cleanName && !cleanId) return getStoredStreamerProfiles();
+  if (!cleanName && !cleanId) return fetchStreamersFromServer(true);
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const t = Date.now();
+  // Target parameter strictly encoded with encodeURIComponent to prevent '#' truncation
+  const targetParam = encodeURIComponent(cleanId || cleanName);
+  const payload = JSON.stringify({ id: cleanId, name: cleanName, soop_id: soopId });
 
+  let success = false;
+
+  // Tier 1: DELETE /api/streamers/:id (URL path strictly encodeURIComponent'd)
   try {
-    // 1. Try DELETE /api/streamers/:id (or :name)
-    const targetParam = cleanId || cleanName;
-    const res = await fetch(`/api/streamers/${encodeURIComponent(targetParam)}`, {
-      signal: controller.signal,
+    const res = await fetch(`/api/streamers/${targetParam}?t=${t}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: cleanId, name: cleanName }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+      body: payload,
     });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.success && Array.isArray(data.streamers)) {
-        const serverList = sortStreamerProfiles(data.streamers);
-        _cachedStreamerProfiles = serverList;
-        await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
-        }
-        return serverList;
-      }
-    }
-  } catch (err: any) {
-    console.warn('[StreamerApi] DELETE /api/streamers/:id error, trying POST fallback:', err);
-  } finally {
-    clearTimeout(timeoutId);
+    if (res.ok) success = true;
+  } catch (err) {
+    console.warn('[StreamerApi] DELETE /api/streamers/:id network warning:', err);
   }
 
-  // 2. Fallback: POST /api/streamers/delete
-  try {
-    const res = await fetch('/api/streamers/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: cleanId, name: cleanName }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.success && Array.isArray(data.streamers)) {
-        const serverList = sortStreamerProfiles(data.streamers);
-        _cachedStreamerProfiles = serverList;
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
-        }
-        return serverList;
-      }
+  // Tier 2: POST /api/streamers/delete
+  if (!success) {
+    try {
+      const res = await fetch(`/api/streamers/delete?t=${t}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+        body: payload,
+      });
+      if (res.ok) success = true;
+    } catch (err) {
+      console.warn('[StreamerApi] POST /api/streamers/delete network warning:', err);
     }
-  } catch {}
+  }
 
-  return deleteStreamerProfile(target);
+  // Tier 3: Direct Cloudflare Worker D1 Delete
+  if (!success) {
+    try {
+      const res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers/delete?t=${t}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+        body: payload,
+      });
+      if (res.ok) success = true;
+    } catch (err) {
+      console.warn('[StreamerApi] Worker direct delete warning:', err);
+    }
+  }
+
+  // Invalidate live broadcast cache
+  fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+
+  // Strictly Re-fetch authoritative DB list (100% Single Source of Truth) with cache-busting
+  const freshList = await fetchStreamersFromServer(true);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('streamers-updated', { detail: freshList }));
+  }
+
+  return freshList;
 }
 
 /**
- * Batch delete multiple streamer profiles permanently from server DB
+ * Batch delete multiple streamer profiles permanently from server DB targeting strictly by ID and name
  */
-export async function deleteStreamersBatchAsync(names: string[]): Promise<StreamerProfile[]> {
-  const cleanNames = names.map((n) => (n || '').trim()).filter(Boolean);
-  if (cleanNames.length === 0) return getStoredStreamerProfiles();
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-  try {
-    const res = await fetch('/api/streamers/delete', {
-      signal: controller.signal,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ names: cleanNames }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.success && Array.isArray(data.streamers)) {
-        const serverList = sortStreamerProfiles(data.streamers);
-        _cachedStreamerProfiles = serverList;
-        await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
-        }
-        return serverList;
-      }
+export async function deleteStreamersBatchAsync(
+  targets: (string | { id?: string; name?: string })[]
+): Promise<StreamerProfile[]> {
+  const ids: string[] = [];
+  const names: string[] = [];
+  for (const t of targets) {
+    if (typeof t === 'string') {
+      const clean = t.trim();
+      if (clean.startsWith('s_')) ids.push(clean);
+      else if (clean) names.push(clean);
+    } else if (typeof t === 'object' && t) {
+      if (t.id && String(t.id).trim()) ids.push(String(t.id).trim());
+      else if (t.name && String(t.name).trim()) names.push(String(t.name).trim());
     }
-  } catch (err: any) {
-    console.warn('[StreamerApi] deleteStreamersBatchAsync error:', err);
-  } finally {
-    clearTimeout(timeoutId);
   }
 
-  const deleteSet = new Set(cleanNames.map((n) => n.toLowerCase()));
-  const current = getStoredStreamerProfiles();
-  const updated = current.filter((p) => !deleteSet.has(p.name.toLowerCase().trim()));
-  _cachedStreamerProfiles = updated;
-  return updated;
+  if (ids.length === 0 && names.length === 0) return fetchStreamersFromServer(true);
+
+  const t = Date.now();
+  const payload = JSON.stringify({ ids, names });
+  let success = false;
+
+  // Tier 1: POST /api/streamers/delete
+  try {
+    const res = await fetch(`/api/streamers/delete?t=${t}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+      body: payload,
+    });
+    if (res.ok) success = true;
+  } catch (err) {
+    console.warn('[StreamerApi] POST /api/streamers/delete error:', err);
+  }
+
+  // Tier 2: DELETE /api/streamers
+  if (!success) {
+    try {
+      const res = await fetch(`/api/streamers?t=${t}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+        body: payload,
+      });
+      if (res.ok) success = true;
+    } catch (err) {
+      console.warn('[StreamerApi] DELETE /api/streamers error:', err);
+    }
+  }
+
+  // Tier 3: Direct Cloudflare Worker D1 Batch Delete
+  if (!success) {
+    try {
+      const res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers/delete?t=${t}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+        body: payload,
+      });
+      if (res.ok) success = true;
+    } catch (err) {
+      console.warn('[StreamerApi] Worker direct batch delete error:', err);
+    }
+  }
+
+  fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+
+  // Strictly Re-fetch authoritative DB list
+  const freshList = await fetchStreamersFromServer(true);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('streamers-updated', { detail: freshList }));
+  }
+
+  return freshList;
 }
 
 /**
