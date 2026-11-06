@@ -891,137 +891,96 @@ export async function initD1DatabaseAsync(): Promise<{
  * Tidy and synchronize streamer profiles strictly based on CK Match database (Single Source of Truth).
  * Unifies the [CK일지 전적 기반 명단 정돈] button with the backend D1 DB synchronization pipeline.
  */
+/**
+ * 100% Force formats (DROP/TRUNCATE & RECREATE) the D1 streamers table
+ * and re-seeds with the clean, authoritative 91 defaultStreamers.
+ */
+export async function resetAndFormatStreamerDatabase(): Promise<StreamerProfile[]> {
+  const t = Date.now();
+  let success = false;
+  let lastError = '';
+  let returnedStreamers: StreamerProfile[] | null = null;
+
+  // 1. Primary: POST /api/admin/init-db?t=...
+  try {
+    const res = await fetch(`/api/admin/init-db?t=${t}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data?.success && Array.isArray(data.streamers) && data.streamers.length > 0) {
+        returnedStreamers = data.streamers;
+        success = true;
+      }
+    } else {
+      const errText = await res.text().catch(() => '');
+      lastError = `POST /api/admin/init-db (${res.status}): ${errText.slice(0, 100)}`;
+    }
+  } catch (err: any) {
+    lastError = `POST /api/admin/init-db 네트워크 오류: ${err?.message || err}`;
+  }
+
+  // 2. Fallback: Direct Cloudflare Worker D1
+  if (!success) {
+    try {
+      const res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/admin/init-db?t=${t}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.success && Array.isArray(data.streamers) && data.streamers.length > 0) {
+          returnedStreamers = data.streamers;
+          success = true;
+        }
+      }
+    } catch (err: any) {
+      console.warn('[StreamerApi] Worker init-db fallback error:', err);
+    }
+  }
+
+  if (!success || !returnedStreamers) {
+    throw new Error(`DB 초기화 API 호출 실패 [${lastError || '모든 초기화 엔드포인트 응답 없음'}]`);
+  }
+
+  const sorted = sortStreamerProfiles(returnedStreamers);
+  _cachedStreamerProfiles = sorted;
+
+  fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('streamers-updated', { detail: sorted }));
+  }
+
+  return sorted;
+}
+
+/**
+ * Tidy and synchronize streamer profiles strictly based on CK Match database (Single Source of Truth).
+ * Unifies the [CK일지 전적 기반 명단 정돈] button with the 100% force format D1 reset pipeline.
+ */
 export async function tidyStreamersFromMatches(
-  matches: Match[],
+  _matches: Match[],
   currentProfiles: StreamerProfile[]
 ): Promise<{
   updatedList: StreamerProfile[];
   addedCount: number;
   ghostCount: number;
 }> {
-  // 1. First attempt authoritative backend D1 synchronization via /api/admin/init-db
-  try {
-    let initRes = await fetch('/api/admin/init-db', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!initRes.ok) {
-      initRes = await fetch('https://riming-gg.janghyck2.workers.dev/api/admin/init-db', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (initRes.ok) {
-      const initData = await initRes.json();
-      if (initData?.success && Array.isArray(initData.streamers)) {
-        const sorted = sortStreamerProfiles(initData.streamers);
-        _cachedStreamerProfiles = sorted;
-        await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
-        const prevCount = currentProfiles?.length || 0;
-        const diff = sorted.length - prevCount;
-        return {
-          updatedList: sorted,
-          addedCount: Math.max(0, diff),
-          ghostCount: Math.max(0, -diff),
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[StreamerApi] tidyStreamersFromMatches backend call fallback:', err);
-  }
-
-  // 2. Client-side fallback: Count matches & positions for all streamers in CK database
-  const profileMap = new Map<string, StreamerProfile>();
-  for (const p of currentProfiles || []) {
-    if (p?.name?.trim()) {
-      profileMap.set(p.name.toLowerCase().trim(), p);
-    }
-  }
-
-  const matchPositionCounts = new Map<string, Record<LineKey, number>>();
-  const matchDisplayNames = new Map<string, string>();
-
-  for (const m of matches) {
-    for (const line of LINE_KEYS) {
-      for (const roster of [m.team_a, m.team_b]) {
-        const rawName = roster?.[line]?.trim();
-        if (!rawName) continue;
-        const normKey = rawName.toLowerCase();
-        if (!matchPositionCounts.has(normKey)) {
-          matchPositionCounts.set(normKey, { top: 0, jgl: 0, mid: 0, adc: 0, sup: 0 });
-          matchDisplayNames.set(normKey, rawName);
-        }
-        matchPositionCounts.get(normKey)![line]++;
-      }
-    }
-  }
-
-  let addedCount = 0;
-  const nowIso = new Date().toISOString();
-
-  for (const [normKey, counts] of matchPositionCounts.entries()) {
-    let bestLine: LineKey = 'mid';
-    let maxPlayed = -1;
-    for (const line of LINE_KEYS) {
-      if (counts[line] > maxPlayed) {
-        maxPlayed = counts[line];
-        bestLine = line;
-      }
-    }
-
-    const displayName = matchDisplayNames.get(normKey) || normKey;
-    const stripped = normKey.replace(/[\.\_\#\^\*\♥\-]/g, '');
-    let fallbackSoopId = KNOWN_SOOP_IDS[normKey] || KNOWN_SOOP_IDS[stripped] || '';
-    if (normKey === '우리밍_' || normKey === '우리밍') fallbackSoopId = 'kmj05317';
-
-    const existing = profileMap.get(normKey);
-
-    if (!existing) {
-      profileMap.set(normKey, {
-        name: displayName,
-        soop_id: fallbackSoopId,
-        main_position: bestLine,
-        is_hidden: false,
-        updated_at: nowIso,
-      });
-      addedCount++;
-    } else {
-      profileMap.set(normKey, {
-        ...existing,
-        name: existing.name || displayName,
-        soop_id: (existing.soop_id || '').trim() || fallbackSoopId,
-        main_position: existing.main_position || bestLine,
-      });
-    }
-  }
-
-  // Prune empty ghost entries: streamers with 0 matches AND no SOOP ID
-  const cleaned: StreamerProfile[] = [];
-  let ghostCount = 0;
-
-  for (const [key, p] of profileMap.entries()) {
-    const hasMatches = matchPositionCounts.has(key);
-    const hasSoopId = Boolean(p.soop_id && p.soop_id.trim());
-    const isWooriming = p.name === '우리밍_' || p.name === '우리밍';
-
-    if (hasMatches || hasSoopId || isWooriming) {
-      cleaned.push(p);
-    } else {
-      ghostCount++;
-    }
-  }
-
-  const sorted = sortStreamerProfiles(cleaned);
-  _cachedStreamerProfiles = sorted;
-
-  // Persist directly to backend DB
-  await saveStreamerProfilesBatchAsync(sorted, { replace: true });
-  await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
-
+  const sorted = await resetAndFormatStreamerDatabase();
+  const prevCount = currentProfiles?.length || 0;
+  const diff = sorted.length - prevCount;
   return {
     updatedList: sorted,
-    addedCount,
-    ghostCount,
+    addedCount: Math.max(0, diff),
+    ghostCount: Math.max(0, -diff),
   };
 }
 

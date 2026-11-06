@@ -7,8 +7,7 @@ import {
   CORS_HEADERS,
   jsonResponse,
   getD1,
-  ensureStreamersTable,
-  seedDefaultStreamersToD1,
+  formatAndResetD1StreamersTable,
   fetchAllStreamersFromD1,
 } from '../streamers';
 
@@ -21,8 +20,7 @@ export const onRequestPost = async (context: any) => {
     const db = getD1(context);
 
     if (db) {
-      await ensureStreamersTable(db);
-      await seedDefaultStreamersToD1(db);
+      await formatAndResetD1StreamersTable(db);
     }
 
     const streamers = await fetchAllStreamersFromD1(db);
@@ -31,8 +29,9 @@ export const onRequestPost = async (context: any) => {
       success: true,
       count: streamers.length,
       streamers,
-      message: 'D1 데이터베이스 초기화 및 스트리머 명단 정돈 완료 (총 ' + streamers.length + '명)',
+      message: 'D1 streamers 테이블이 100% 포맷(DROP & RECREATE)되고 기본 91명 명단으로 완전히 새롭게 초기화되었습니다.',
       storage: db ? 'Cloudflare-D1' : 'default-bundle',
+      timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
     console.error('[Pages Functions /api/admin/init-db] error:', err);

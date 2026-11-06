@@ -428,8 +428,19 @@ async function startServer() {
   // D1 DB Initialization & Migration API (POST & GET /api/admin/init-db)
   const handleAdminInitDb = async (req: any, res: any) => {
     try {
-      const result = await performD1DatabaseSyncAndMigration();
-      return res.json(result);
+      console.log('[Server] /api/admin/init-db called: 100% force format & reset to default 91 streamers');
+      const freshDefaults = DEFAULT_STREAMERS.map((s) => ({ ...s }));
+      writeStreamersToFile(freshDefaults);
+      cachedLiveResponse = null;
+
+      return res.json({
+        success: true,
+        message: '서버 streamers DB가 100% 포맷되고 기본 91명 명단으로 완전히 새롭게 초기화되었습니다.',
+        count: freshDefaults.length,
+        streamers: freshDefaults,
+        source: 'backend-db',
+        timestamp: new Date().toISOString(),
+      });
     } catch (err: any) {
       console.error('[Server] Init-db endpoint error:', err);
       return res.status(500).json({ success: false, error: err?.message || 'Failed to initialize database' });

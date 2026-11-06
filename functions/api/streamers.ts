@@ -148,6 +148,51 @@ export async function seedDefaultStreamersToD1(db: any) {
 }
 
 /**
+ * 100% Force formats (DROP & RECREATE) the D1 streamers table and re-seeds with clean 91 default streamers.
+ */
+export async function formatAndResetD1StreamersTable(db: any): Promise<void> {
+  if (!db || typeof db.prepare !== 'function') return;
+
+  // 1. Force drop existing table to eliminate any legacy dirty/duplicate records
+  try {
+    await db.prepare('DROP TABLE IF EXISTS streamers').run();
+  } catch (dropErr) {
+    console.warn('[Pages Functions] DROP TABLE streamers warning:', dropErr);
+    try {
+      await db.prepare('DELETE FROM streamers').run();
+    } catch {}
+  }
+
+  // 2. Re-create the table with clean schema & indexes
+  await ensureStreamersTable(db);
+
+  // 3. Insert all 91 streamers from DEFAULT_STREAMERS with their exact unique IDs
+  const now = new Date().toISOString();
+  for (const s of DEFAULT_STREAMERS) {
+    try {
+      const sId = (s as any).id || getStreamerId(s.name);
+      await db
+        .prepare(`
+          INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        .bind(
+          sId,
+          s.name,
+          s.soop_id || '',
+          s.main_position || 'mid',
+          s.is_hidden ? 1 : 0,
+          s.memo || '',
+          s.updated_at || now
+        )
+        .run();
+    } catch (insertErr) {
+      console.warn(`[Pages Functions] Failed to insert default streamer ${s.name}:`, insertErr);
+    }
+  }
+}
+
+/**
  * Executes a direct D1 UPDATE statement on env.DB strictly targeting by Primary Key ID:
  * UPDATE streamers SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ? WHERE id = ?
  */

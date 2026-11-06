@@ -7,6 +7,7 @@ import {
   deleteStreamerProfileAsync,
   deleteStreamersBatchAsync,
   tidyStreamersFromMatches,
+  resetAndFormatStreamerDatabase,
 } from '../lib/streamerApi';
 import { StreamerAvatar } from './StreamerAvatar';
 import { getChosung } from '../lib/championSearch';
@@ -491,35 +492,57 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
     }
 
     setIsProcessing(true);
-    setAutoSaveStatus('명단 정돈 중...');
+    setAutoSaveStatus('DB 포맷 및 명단 초기화 중...');
     try {
-      const serverList = await syncStreamersFromBackend(true);
-      const currentList = serverList && serverList.length > 0 ? serverList : (Object.values(localMap) as StreamerProfile[]);
-      const { updatedList, addedCount, ghostCount } = await tidyStreamersFromMatches(
-        matches,
-        currentList
-      );
+      // 1. Direct 100% force format (DROP & RECREATE) of D1 DB streamers table
+      const resetList = await resetAndFormatStreamerDatabase();
 
-      const dict = mapProfilesToDict(updatedList);
+      // 2. Refresh local state strictly with the fresh 91 streamers
+      const dict = mapProfilesToDict(resetList);
       setLocalMap(dict);
-      onProfilesUpdatedRef.current(updatedList);
+      setSelectedIds(new Set());
+      setDeleteTarget(null);
+
+      // Pre-fill editingIds
+      const idMap: Record<string, string> = {};
+      for (const [k, p] of Object.entries(dict)) {
+        idMap[k] = p.soop_id || '';
+      }
+      setEditingIds(idMap);
+
+      onProfilesUpdatedRef.current(resetList);
       if (onSaveCompleteRef.current) {
         try {
-          await onSaveCompleteRef.current(updatedList);
+          await onSaveCompleteRef.current(resetList);
         } catch {}
       }
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('streamers-updated', { detail: updatedList }));
+        window.dispatchEvent(new CustomEvent('streamers-updated', { detail: resetList }));
       }
-      setAutoSaveStatus('정돈 완료 ✓');
+      setAutoSaveStatus('포맷 및 복원 완료 ✓');
+
+      // 3. User feedback
+      try {
+        if (typeof window !== 'undefined') {
+          window.alert(
+            `[D1 DB 포맷 완료]\nstreamers 테이블이 100% 강제 초기화(DROP & RECREATE)되었으며, 기본 91명 명단(고유 PK id 부여)으로 완전히 새롭게 복원되었습니다.`
+          );
+        }
+      } catch {}
 
       onToastRef.current(
-        `CK일지 전적 기반 명단 정돈 완료! (출전 스트리머 +${addedCount}명 등록, 유령 데이터 ${ghostCount}건 정리)`
+        `D1 DB가 100% 포맷되고 기본 ${resetList.length}명 명단으로 완전히 새롭게 초기화되었습니다.`
       );
-    } catch (err) {
-      console.warn('[StreamerManageModal] Tidy error:', err);
-      setAutoSaveStatus('정돈 실패');
-      onToastRef.current('CK일지 기반 명단 정돈 중 오류가 발생했습니다.');
+    } catch (err: any) {
+      const errMsg = err?.message || '알 수 없는 오류가 발생했습니다.';
+      console.error('[StreamerManageModal] Tidy error:', err);
+      setAutoSaveStatus('포맷 실패');
+      try {
+        if (typeof window !== 'undefined') {
+          window.alert(`DB 포맷 실패: ${errMsg}`);
+        }
+      } catch {}
+      onToastRef.current(`DB 포맷 실패: ${errMsg}`);
     } finally {
       setIsProcessing(false);
     }
