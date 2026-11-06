@@ -239,10 +239,14 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
             onToastRef.current(actionLabel);
           }
           return serverList;
-        } catch (err) {
-          console.warn('[StreamerManageModal] Auto-save failed:', err);
-          setAutoSaveStatus('저장 실패');
-          onToastRef.current('서버 자동 저장에 실패했습니다.');
+        } catch (err: any) {
+          const errMsg = err?.message || '알 수 없는 서버 오류가 발생했습니다.';
+          console.error('[StreamerManageModal] Auto-save failed:', err);
+          setAutoSaveStatus('저장 실패 ✗');
+          onToastRef.current(`서버 자동 저장 실패: ${errMsg}`);
+          if (typeof window !== 'undefined') {
+            window.alert('저장 실패: ' + errMsg);
+          }
           throw err;
         }
       })();
@@ -283,8 +287,11 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       setAutoSaveStatus('저장 완료 대기 중...');
       try {
         await Promise.all(allPending);
-      } catch (err) {
-        console.warn('[StreamerManageModal] Error awaiting save promises:', err);
+      } catch (err: any) {
+        console.error('[StreamerManageModal] Error awaiting save promises:', err);
+        if (typeof window !== 'undefined') {
+          window.alert('저장 실패: ' + (err?.message || '일부 스트리머 정보 저장 중 오류가 발생했습니다.'));
+        }
       }
     }
 

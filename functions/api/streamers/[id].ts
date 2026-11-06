@@ -22,7 +22,14 @@ export const onRequestOptions = async () => {
 export const onRequestPut = async (context: any) => {
   try {
     const db = getD1(context);
-    const rawId = context.params?.id ? decodeURIComponent(context.params.id).trim() : '';
+    let rawId = '';
+    if (context.params?.id) {
+      try {
+        rawId = decodeURIComponent(String(context.params.id)).trim();
+      } catch {
+        rawId = String(context.params.id).trim();
+      }
+    }
 
     let body: any = {};
     try {
@@ -48,10 +55,16 @@ export const onRequestPut = async (context: any) => {
       });
     }
 
+    const itemData = body?.streamer || body || {};
     const incomingItem = {
-      ...body,
-      id: body.id || (rawId.startsWith('s_') ? rawId : undefined),
-      name: body.name || (!rawId.startsWith('s_') ? rawId : undefined),
+      ...itemData,
+      id: itemData.id || body.id || (rawId.startsWith('s_') ? rawId : undefined),
+      name: itemData.name || body.name || (!rawId.startsWith('s_') && rawId !== 'update' && rawId !== 'delete' ? rawId : undefined),
+      soop_id: typeof itemData.soop_id === 'string' ? itemData.soop_id : body.soop_id,
+      main_position: itemData.main_position || body.main_position,
+      is_hidden: itemData.is_hidden !== undefined ? itemData.is_hidden : body.is_hidden,
+      memo: itemData.memo !== undefined ? itemData.memo : body.memo,
+      updated_at: itemData.updated_at || body.updated_at,
     };
 
     if (!incomingItem.name && !incomingItem.id && rawId) {

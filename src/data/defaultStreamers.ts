@@ -30,7 +30,7 @@ export const DEFAULT_STREAMERS: DefaultStreamerItem[] = [
   {
     "id": "s_민찬기",
     "name": "#민찬기",
-    "soop_id": "minchanki",
+    "soop_id": "ckmin706",
     "main_position": "mid",
     "is_hidden": false,
     "updated_at": "2026-11-04T08:25:11.230Z",

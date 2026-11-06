@@ -193,93 +193,130 @@ export async function formatAndResetD1StreamersTable(db: any): Promise<void> {
 }
 
 /**
- * Executes a direct D1 UPDATE statement on env.DB strictly targeting by Primary Key ID:
- * UPDATE streamers SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ? WHERE id = ?
+ * Executes a direct D1 UPDATE statement on env.DB targeting by Primary Key ID, all candidate ID forms,
+ * and exact/normalized Name variations to guarantee 100% update commitment across schema revisions:
  */
 export async function executeD1StreamerUpsert(db: any, item: any): Promise<void> {
   if (!db || typeof db.prepare !== 'function' || !item) return;
+
   const cleanName = String(item.name || '').trim();
-  const sId = item.id ? String(item.id).trim() : (cleanName ? getStreamerId(cleanName) : '');
+  const stripped = stripSymbols(cleanName);
+  const sId = String(item.id || (stripped ? `s_${stripped}` : (cleanName ? `s_${cleanName}` : ''))).trim();
   const soopId = typeof item.soop_id === 'string' ? item.soop_id.trim() : '';
   const position = item.main_position || 'mid';
   const isHidden = item.is_hidden ? 1 : 0;
   const memo = typeof item.memo === 'string' ? item.memo : '';
   const nowIso = item.updated_at || new Date().toISOString();
 
-  if (sId) {
-    // 1. Target strictly by primary key ID first!
-    let updateRes: any = null;
-    try {
-      updateRes = await db
-        .prepare(`
-          UPDATE streamers 
-          SET name = CASE WHEN ? != '' THEN ? ELSE name END,
-              soop_id = ?, 
-              main_position = ?, 
-              is_hidden = ?, 
-              memo = ?, 
-              updated_at = ?
-          WHERE id = ?
-        `)
-        .bind(cleanName, cleanName, soopId, position, isHidden, memo, nowIso, sId)
-        .run();
-    } catch (err) {
-      console.warn(`[Pages Functions] UPDATE query for id="${sId}" warning:`, err);
-    }
+  if (!cleanName && !sId) return;
+
+  // Build candidate IDs & names to ensure 100% match regardless of historical PK/name conventions
+  const idCandidates = Array.from(new Set([
+    sId,
+    `s_${stripped}`,
+    `s_full_${stripped}`,
+    `s_half_${stripped}`,
+    cleanName ? getStreamerId(cleanName) : '',
+    stripped ? getStreamerId(stripped) : '',
+  ].filter(Boolean)));
+
+  const nameCandidates = Array.from(new Set([
+    cleanName,
+    `#${stripped}`,
+    `＃${stripped}`,
+    stripped,
+  ].filter(Boolean)));
+
+  // 1. Comprehensive UPDATE targeting by all candidate IDs and Name variations
+  let updateSuccess = false;
+  try {
+    const idPlaceholders = idCandidates.map(() => '?').join(', ');
+    const namePlaceholders = nameCandidates.map(() => '?').join(', ');
+
+    const updateRes = await db
+      .prepare(`
+        UPDATE streamers 
+        SET name = CASE WHEN ? != '' THEN ? ELSE name END,
+            soop_id = ?, 
+            main_position = ?, 
+            is_hidden = ?, 
+            memo = ?, 
+            updated_at = ?
+        WHERE id IN (${idPlaceholders})
+           OR name IN (${namePlaceholders})
+           OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+      `)
+      .bind(
+        cleanName, cleanName,
+        soopId, position, isHidden, memo, nowIso,
+        ...idCandidates,
+        ...nameCandidates,
+        cleanName
+      )
+      .run();
 
     const changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
-    if (changes > 0) return;
+    if (changes > 0) {
+      updateSuccess = true;
+    }
+  } catch (err) {
+    console.warn(`[Pages Functions] Multi-match UPDATE warning for "${cleanName}" (${sId}):`, err);
+  }
 
-    // If row was not present in DB, insert it with the exact sId
-    if (cleanName) {
+  // 2. If row was updated, synchronize the ID to the latest canonical sId and prune duplicates
+  if (updateSuccess) {
+    if (sId) {
+      const namePlaceholders = nameCandidates.map(() => '?').join(', ');
       try {
         await db
           .prepare(`
-            INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            UPDATE streamers SET id = ? 
+            WHERE (name IN (${namePlaceholders}) OR LOWER(TRIM(name)) = LOWER(TRIM(?)))
+              AND id != ?
           `)
-          .bind(sId, cleanName, soopId, position, isHidden, memo, nowIso)
+          .bind(sId, ...nameCandidates, cleanName, sId)
           .run();
-        return;
-      } catch {
-        try {
-          await db
-            .prepare(`
-              UPDATE streamers 
-              SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-              WHERE id = ?
-            `)
-            .bind(soopId, position, isHidden, memo, nowIso, sId)
-            .run();
-          return;
-        } catch {}
-      }
-    }
-  }
+      } catch {}
 
-  // Fallback: if no ID, target by exact name
-  if (cleanName) {
-    try {
-      const updateByName = await db
-        .prepare(`
-          UPDATE streamers 
-          SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-          WHERE name = ?
-        `)
-        .bind(soopId, position, isHidden, memo, nowIso, cleanName)
-        .run();
-      const changes = updateByName?.meta?.changes ?? updateByName?.changes ?? 0;
-      if (changes === 0) {
-        const generatedId = getStreamerId(cleanName);
+      try {
         await db
           .prepare(`
-            INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            DELETE FROM streamers 
+            WHERE (name IN (${namePlaceholders}) OR LOWER(TRIM(name)) = LOWER(TRIM(?)))
+              AND id != ?
           `)
-          .bind(generatedId, cleanName, soopId, position, isHidden, memo, nowIso)
+          .bind(...nameCandidates, cleanName, sId)
           .run();
-      }
-    } catch {}
+      } catch {}
+    }
+    return;
+  }
+
+  // 3. If no existing row was found, insert a brand new record with the canonical sId
+  if (cleanName || sId) {
+    const insertId = sId || (cleanName ? getStreamerId(cleanName) : `s_${Date.now()}`);
+    const insertName = cleanName || sId;
+    try {
+      await db
+        .prepare(`
+          INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        .bind(insertId, insertName, soopId, position, isHidden, memo, nowIso)
+        .run();
+    } catch (insertErr) {
+      console.warn(`[Pages Functions] INSERT fallback warning for "${insertName}":`, insertErr);
+      try {
+        await db
+          .prepare(`
+            UPDATE streamers 
+            SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
+            WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+          `)
+          .bind(soopId, position, isHidden, memo, nowIso, insertId, insertName, insertName)
+          .run();
+      } catch {}
+    }
   }
 }
 

@@ -50,7 +50,7 @@ let memoryMatchesCache = [];
  * Ensure D1 ck_matches & streamers tables exist
  */
 // Pre-seeded authoritative 90 streamers list
-const DEFAULT_STREAMERS_DATA = [{"id":"s_우리밍","name":"우리밍_","soop_id":"kmj05317","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:17:47.282Z","memo":""},{"id":"s_full_김동하","name":"＃김동하","soop_id":"likekk","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T09:30:04.296Z","memo":""},{"id":"s_민찬기","name":"#민찬기","soop_id":"minchanki","main_position":"mid","is_hidden":false,"updated_at":"2026-11-04T08:25:11.230Z","memo":""},{"id":"s_˚서건우","name":"˚서건우","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_1vsall","name":"1vsAll","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_감블러","name":"감블러","soop_id":"gambler","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_광폿","name":"광폿","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_구스범스","name":"구스범스","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김구거구거","name":"김구거구거","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김군","name":"김군","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김레인","name":"김레인♥","soop_id":"kimrain","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김민교","name":"김민교.","soop_id":"minkyo1994","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김세아","name":"김세아","soop_id":"kimseah94","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김야미","name":"김야미♥","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_깐숙","name":"깐숙","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_깽깽이","name":"깽깽이.","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_꿀탱탱","name":"꿀탱탱","soop_id":"kkultt","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_꿀템은죽었다","name":"꿀템은죽었다","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_뀨삐","name":"뀨삐","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나는눈꽃","name":"나는눈꽃.","soop_id":"snowflower","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나는상윤","name":"나는상윤","soop_id":"sangyoon","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나무늘봉순","name":"나무늘봉순","soop_id":"namunlbong","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나연아","name":"나연아.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나옹이빵","name":"나옹이빵","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_나탈리","name":"나탈리-","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_냥꼬밍","name":"냥꼬밍","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_냥츠","name":"냥츠","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-03T10:34:43.665Z","memo":""},{"id":"s_뇽이","name":"뇽이♥","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_눈길","name":"눈길.","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"id":"s_다나짱","name":"다나짱♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_듀단","name":"듀단.","soop_id":"dydan","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_디나이05","name":"디나이05","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_디임","name":"디임","soop_id":"diim","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_란쵸","name":"란쵸","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_로코볼","name":"로코볼","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_로키05","name":"로키05","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_린다랑b","name":"린다랑b","soop_id":"lindarang","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_마우낭","name":"마우낭","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_문또농","name":"문또농","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_미쓰리","name":"미쓰리","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_미키","name":"미키.","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_백지라구","name":"백지라구","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_뱃뉴bdns","name":"뱃뉴BDNS","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_병헌","name":"병헌.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_빵지니","name":"빵지니♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_뿌리","name":"뿌리.","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_상어녀","name":"상어녀","soop_id":"eun7432","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_샤코타임0","name":"샤코타임0","soop_id":"shacotime","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_서도일","name":"서도일","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_성훈","name":"성훈-","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_수주","name":"수주-","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_스맵임","name":"스맵임","soop_id":"smeb","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_쏘대장","name":"쏘대장","soop_id":"ssodaezang","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_아뚱","name":"아뚱.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_아뜨","name":"아뜨_","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"id":"s_아이보리","name":"아이보리__","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_앵지","name":"앵지","soop_id":"angji","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_야옹민지","name":"야옹민지","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_엊우진","name":"엊우진","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_여올","name":"여올","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_영재애애","name":"영재애애","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_오뀨","name":"오뀨","soop_id":"oggyu","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_옥맨","name":"옥맨","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_우치!","name":"우치!","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_유복실","name":"유복실","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_윤코","name":"윤코#","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"id":"s_으냉이","name":"으냉이","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_이경민","name":"이경민+_+","soop_id":"leekyeongmin","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_이하름","name":"이하름","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_임선비","name":"임선비.","soop_id":"sunbi1024","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_장하니","name":"장하니","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_저라뎃","name":"저라뎃","soop_id":"jradet","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_전략적죽음","name":"전략적죽음","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_졈니","name":"졈니","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_주보리","name":"주보리♥","soop_id":"jubori","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_준밧드","name":"준밧드","soop_id":"junbadd","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_짐묵","name":"짐묵","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_찌미","name":"찌미♥","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_채니","name":"채니☆","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_최강이연지","name":"최강이연지","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_킹냥이","name":"킹냥이","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_태영","name":"태영♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_하두링","name":"하두링","soop_id":"haduring","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_하로로","name":"하로로.","soop_id":"haroro","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_하루98","name":"하루98","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_한둬얼","name":"한둬얼","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_헤니","name":"헤니♥","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_효딤","name":"효딤","soop_id":"hyodim","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_히댕","name":"히댕","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_히엉7","name":"히엉^^7","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""}];
+const DEFAULT_STREAMERS_DATA = [{"id":"s_우리밍","name":"우리밍_","soop_id":"kmj05317","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:17:47.282Z","memo":""},{"id":"s_full_김동하","name":"＃김동하","soop_id":"likekk","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T09:30:04.296Z","memo":""},{"id":"s_민찬기","name":"#민찬기","soop_id":"ckmin706","main_position":"mid","is_hidden":false,"updated_at":"2026-11-04T08:25:11.230Z","memo":""},{"id":"s_˚서건우","name":"˚서건우","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_1vsall","name":"1vsAll","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_감블러","name":"감블러","soop_id":"gambler","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_광폿","name":"광폿","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_구스범스","name":"구스범스","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김구거구거","name":"김구거구거","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김군","name":"김군","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김레인","name":"김레인♥","soop_id":"kimrain","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김민교","name":"김민교.","soop_id":"minkyo1994","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김세아","name":"김세아","soop_id":"kimseah94","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_김야미","name":"김야미♥","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_깐숙","name":"깐숙","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_깽깽이","name":"깽깽이.","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_꿀탱탱","name":"꿀탱탱","soop_id":"kkultt","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_꿀템은죽었다","name":"꿀템은죽었다","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_뀨삐","name":"뀨삐","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나는눈꽃","name":"나는눈꽃.","soop_id":"snowflower","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나는상윤","name":"나는상윤","soop_id":"sangyoon","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나무늘봉순","name":"나무늘봉순","soop_id":"namunlbong","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나연아","name":"나연아.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_나옹이빵","name":"나옹이빵","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_나탈리","name":"나탈리-","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_냥꼬밍","name":"냥꼬밍","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_냥츠","name":"냥츠","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-03T10:34:43.665Z","memo":""},{"id":"s_뇽이","name":"뇽이♥","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_눈길","name":"눈길.","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"id":"s_다나짱","name":"다나짱♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_듀단","name":"듀단.","soop_id":"dydan","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_디나이05","name":"디나이05","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_디임","name":"디임","soop_id":"diim","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_란쵸","name":"란쵸","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_로코볼","name":"로코볼","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_로키05","name":"로키05","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_린다랑b","name":"린다랑b","soop_id":"lindarang","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_마우낭","name":"마우낭","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_문또농","name":"문또농","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_미쓰리","name":"미쓰리","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_미키","name":"미키.","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_백지라구","name":"백지라구","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_뱃뉴bdns","name":"뱃뉴BDNS","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_병헌","name":"병헌.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_빵지니","name":"빵지니♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_뿌리","name":"뿌리.","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_상어녀","name":"상어녀","soop_id":"eun7432","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_샤코타임0","name":"샤코타임0","soop_id":"shacotime","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_서도일","name":"서도일","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_성훈","name":"성훈-","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_수주","name":"수주-","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_스맵임","name":"스맵임","soop_id":"smeb","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_쏘대장","name":"쏘대장","soop_id":"ssodaezang","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_아뚱","name":"아뚱.","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_아뜨","name":"아뜨_","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"id":"s_아이보리","name":"아이보리__","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_앵지","name":"앵지","soop_id":"angji","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_야옹민지","name":"야옹민지","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_엊우진","name":"엊우진","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_여올","name":"여올","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_영재애애","name":"영재애애","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_오뀨","name":"오뀨","soop_id":"oggyu","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_옥맨","name":"옥맨","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_우치!","name":"우치!","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_유복실","name":"유복실","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_윤코","name":"윤코#","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.134Z","memo":""},{"id":"s_으냉이","name":"으냉이","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_이경민","name":"이경민+_+","soop_id":"leekyeongmin","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_이하름","name":"이하름","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_임선비","name":"임선비.","soop_id":"sunbi1024","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_장하니","name":"장하니","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_저라뎃","name":"저라뎃","soop_id":"jradet","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_전략적죽음","name":"전략적죽음","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_졈니","name":"졈니","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_주보리","name":"주보리♥","soop_id":"jubori","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_준밧드","name":"준밧드","soop_id":"junbadd","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_짐묵","name":"짐묵","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-03T08:05:07.123Z","memo":""},{"id":"s_찌미","name":"찌미♥","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_채니","name":"채니☆","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_최강이연지","name":"최강이연지","soop_id":"","main_position":"adc","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_킹냥이","name":"킹냥이","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_태영","name":"태영♥","soop_id":"","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_하두링","name":"하두링","soop_id":"haduring","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_하로로","name":"하로로.","soop_id":"haroro","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_하루98","name":"하루98","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_한둬얼","name":"한둬얼","soop_id":"","main_position":"jgl","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_헤니","name":"헤니♥","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_효딤","name":"효딤","soop_id":"hyodim","main_position":"mid","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_히댕","name":"히댕","soop_id":"","main_position":"sup","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""},{"id":"s_히엉7","name":"히엉^^7","soop_id":"","main_position":"top","is_hidden":false,"updated_at":"2026-11-02T09:07:26.428Z","memo":""}];
 
 async function ensureTable(db) {
   if (!db) return;
@@ -382,53 +382,82 @@ export default {
               const memo = item?.memo || '';
               const updatedIso = item?.updated_at || nowIso;
 
-              // 1. Direct D1 UPDATE targeting strictly by primary key ID first
+              if (!cleanName && !sId) continue;
+
+              const idCandidates = Array.from(new Set([
+                sId,
+                `s_${stripped}`,
+                `s_full_${stripped}`,
+                `s_half_${stripped}`,
+              ].filter(Boolean)));
+
+              const nameCandidates = Array.from(new Set([
+                cleanName,
+                `#${stripped}`,
+                `＃${stripped}`,
+                stripped,
+              ].filter(Boolean)));
+
+              // 1. Direct D1 UPDATE targeting all candidate IDs and Name variations
               let changes = 0;
-              if (sId) {
-                try {
-                  const updateById = await db
-                    .prepare(`
-                      UPDATE streamers 
-                      SET name = CASE WHEN ? != '' THEN ? ELSE name END,
-                          soop_id = ?, 
-                          main_position = ?, 
-                          is_hidden = ?, 
-                          memo = ?, 
-                          updated_at = ?
-                      WHERE id = ?
-                    `)
-                    .bind(cleanName, cleanName, soopId, position, isHidden, memo, updatedIso, sId)
-                    .run();
-                  changes = updateById?.meta?.changes ?? updateById?.changes ?? 0;
-                } catch (err) {
-                  console.warn(`[Worker] UPDATE query for id="${sId}" warning:`, err);
+              try {
+                const idPlaceholders = idCandidates.map(() => '?').join(', ');
+                const namePlaceholders = nameCandidates.map(() => '?').join(', ');
+                const updateRes = await db
+                  .prepare(`
+                    UPDATE streamers 
+                    SET name = CASE WHEN ? != '' THEN ? ELSE name END,
+                        soop_id = ?, 
+                        main_position = ?, 
+                        is_hidden = ?, 
+                        memo = ?, 
+                        updated_at = ?
+                    WHERE id IN (${idPlaceholders})
+                       OR name IN (${namePlaceholders})
+                       OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+                  `)
+                  .bind(
+                    cleanName, cleanName,
+                    soopId, position, isHidden, memo, updatedIso,
+                    ...idCandidates,
+                    ...nameCandidates,
+                    cleanName
+                  )
+                  .run();
+                changes = updateRes?.meta?.changes ?? updateRes?.changes ?? 0;
+              } catch (err) {
+                console.warn(`[Worker] UPDATE query warning for "${cleanName}":`, err);
+              }
+
+              // 2. If updated, ensure ID is aligned to sId and prune duplicate legacy records
+              if (changes > 0) {
+                if (sId) {
+                  const namePlaceholders = nameCandidates.map(() => '?').join(', ');
+                  try {
+                    await db.prepare(`
+                      UPDATE streamers SET id = ? 
+                      WHERE (name IN (${namePlaceholders}) OR LOWER(TRIM(name)) = LOWER(TRIM(?))) AND id != ?
+                    `).bind(sId, ...nameCandidates, cleanName, sId).run();
+                  } catch {}
+
+                  try {
+                    await db.prepare(`
+                      DELETE FROM streamers 
+                      WHERE (name IN (${namePlaceholders}) OR LOWER(TRIM(name)) = LOWER(TRIM(?))) AND id != ?
+                    `).bind(...nameCandidates, cleanName, sId).run();
+                  } catch {}
                 }
-              }
-
-              // Fallback to exact name only if no ID matched
-              if (changes === 0 && cleanName) {
-                try {
-                  const updateByName = await db
-                    .prepare(`
-                      UPDATE streamers 
-                      SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
-                      WHERE name = ?
-                    `)
-                    .bind(soopId, position, isHidden, memo, updatedIso, cleanName)
-                    .run();
-                  changes = updateByName?.meta?.changes ?? updateByName?.changes ?? 0;
-                } catch {}
-              }
-
-              // 2. If row not found in DB, insert it
-              if (changes === 0 && (cleanName || sId)) {
+              } else {
+                // 3. If row not found in DB, insert it
+                const insertId = sId || (cleanName ? `s_${stripped}` : `s_${Date.now()}`);
+                const insertName = cleanName || sId;
                 try {
                   await db
                     .prepare(`
                       INSERT INTO streamers (id, name, soop_id, main_position, is_hidden, memo, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?)
                     `)
-                    .bind(sId, cleanName || sId, soopId, position, isHidden, memo, updatedIso)
+                    .bind(insertId, insertName, soopId, position, isHidden, memo, updatedIso)
                     .run();
                 } catch {
                   await db
@@ -437,23 +466,9 @@ export default {
                       SET soop_id = ?, main_position = ?, is_hidden = ?, memo = ?, updated_at = ?
                       WHERE id = ? OR name = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?))
                     `)
-                    .bind(soopId, position, isHidden, memo, updatedIso, sId, cleanName, cleanName)
+                    .bind(soopId, position, isHidden, memo, updatedIso, insertId, insertName, insertName)
                     .run();
                 }
-              }
-
-              // 3. Sibling cleanup: update all symbol variations (e.g. '민찬기' vs '#민찬기' vs '＃민찬기')
-              if (stripped) {
-                try {
-                  await db
-                    .prepare(`
-                      UPDATE streamers
-                      SET soop_id = ?, main_position = ?, is_hidden = ?, updated_at = ?
-                      WHERE name = ? OR name = ? OR name = ?
-                    `)
-                    .bind(soopId, position, isHidden, updatedIso, stripped, '#' + stripped, '＃' + stripped)
-                    .run();
-                } catch {}
               }
             }
 

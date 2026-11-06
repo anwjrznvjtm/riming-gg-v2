@@ -64,9 +64,9 @@ const KNOWN_SOOP_IDS: Record<string, string> = {
   '감블러': 'gambler',
   '김동하': 'likekk',
   '＃김동하': 'likekk',
-  '#민찬기': 'minchanki',
-  '민찬기': 'minchanki',
-  '＃민찬기': 'minchanki',
+  '#민찬기': 'ckmin706',
+  '민찬기': 'ckmin706',
+  '＃민찬기': 'ckmin706',
 };
 
 export function autoExtractStreamersFromMatches(matches: Match[]): StreamerProfile[] {
@@ -401,111 +401,166 @@ export async function saveStreamerProfilesBatchAsync(
 /**
  * Async update a single streamer profile (SOOP ID, position, hidden) directly to backend DB via PUT /api/streamers/:id
  */
+/**
+ * Async update a single streamer profile (SOOP ID, position, hidden) directly to backend DB via PUT /api/streamers/:id
+ * Strictly throws on failure so caller can notify user with alert and never silently masks DB update errors.
+ */
 export async function updateStreamerProfileAsync(profile: StreamerProfile): Promise<StreamerProfile[]> {
   const cleanName = (profile.name || '').trim();
   const cleanId = (profile.id || '').trim();
   if (!cleanName && !cleanId) return getStoredStreamerProfiles();
 
-  // In-memory optimistic update matching strictly by ID first, then name
-  const current = getStoredStreamerProfiles();
-  const updatedList = current.map((p) => {
-    if ((cleanId && p.id === cleanId) || (!cleanId && p.name === cleanName)) {
-      return {
-        ...p,
-        ...profile,
-        updated_at: new Date().toISOString(),
-      };
-    }
-    return p;
-  });
-  _cachedStreamerProfiles = sortStreamerProfiles(updatedList);
-
   const targetIdentifier = cleanId || cleanName;
   const encodedIdentifier = encodeURIComponent(targetIdentifier);
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  const t = Date.now();
+  const payload = JSON.stringify({
+    id: cleanId,
+    name: cleanName,
+    soop_id: typeof profile.soop_id === 'string' ? profile.soop_id.trim() : '',
+    main_position: profile.main_position || 'mid',
+    is_hidden: Boolean(profile.is_hidden),
+    memo: profile.memo || '',
+    updated_at: profile.updated_at || new Date().toISOString(),
+    streamer: profile,
+  });
+
+  let lastError = '';
+  let serverList: StreamerProfile[] | null = null;
 
   try {
-    const t = Date.now();
-    const payload = JSON.stringify({
-      id: cleanId,
-      name: cleanName,
-      soop_id: profile.soop_id,
-      main_position: profile.main_position,
-      is_hidden: profile.is_hidden,
-      memo: profile.memo,
-      streamer: profile,
-    });
-
     // Route 1: PUT /api/streamers/:id (URL path strictly encodeURIComponent'd to prevent '#' hash truncation)
-    let res = await fetch(`/api/streamers/${encodedIdentifier}?t=${t}`, {
-      signal: controller.signal,
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-      },
-      body: payload,
-    });
-
-    // Route 2: POST /api/streamers/update fallback
-    if (!res.ok) {
-      res = await fetch(`/api/streamers/update?t=${t}`, {
+    try {
+      const res = await fetch(`/api/streamers/${encodedIdentifier}?t=${t}`, {
         signal: controller.signal,
-        method: 'POST',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache, no-store, must-revalidate',
         },
         body: payload,
       });
+
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.success && Array.isArray(data.streamers)) {
+          serverList = sortStreamerProfiles(data.streamers);
+        } else if (data?.error) {
+          lastError = `PUT /api/streamers/${encodedIdentifier}: ${data.error}`;
+        }
+      } else {
+        const errText = await res.text().catch(() => '');
+        lastError = `PUT /api/streamers/${encodedIdentifier} [${res.status}]: ${errText.slice(0, 100)}`;
+      }
+    } catch (err1: any) {
+      lastError = `PUT /api/streamers/${encodedIdentifier} 네트워크 오류: ${err1?.message || err1}`;
+    }
+
+    // Route 2: POST /api/streamers/update fallback
+    if (!serverList) {
+      try {
+        const res = await fetch(`/api/streamers/update?t=${t}`, {
+          signal: controller.signal,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+          },
+          body: payload,
+        });
+
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.success && Array.isArray(data.streamers)) {
+            serverList = sortStreamerProfiles(data.streamers);
+          } else if (data?.error) {
+            lastError = `POST /api/streamers/update: ${data.error}`;
+          }
+        } else {
+          const errText = await res.text().catch(() => '');
+          lastError = `POST /api/streamers/update [${res.status}]: ${errText.slice(0, 100)}`;
+        }
+      } catch (err2: any) {
+        lastError = `POST /api/streamers/update 네트워크 오류: ${err2?.message || err2}`;
+      }
     }
 
     // Route 3: POST /api/streamers fallback
-    if (!res.ok) {
-      res = await fetch(`/api/streamers?t=${t}`, {
-        signal: controller.signal,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-        },
-        body: JSON.stringify({ replace: false, streamers: [profile] }),
-      });
+    if (!serverList) {
+      try {
+        const res = await fetch(`/api/streamers?t=${t}`, {
+          signal: controller.signal,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+          },
+          body: JSON.stringify({ replace: false, streamers: [profile] }),
+        });
+
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.success && Array.isArray(data.streamers)) {
+            serverList = sortStreamerProfiles(data.streamers);
+          } else if (data?.error) {
+            lastError = `POST /api/streamers: ${data.error}`;
+          }
+        } else {
+          const errText = await res.text().catch(() => '');
+          lastError = `POST /api/streamers [${res.status}]: ${errText.slice(0, 100)}`;
+        }
+      } catch (err3: any) {
+        lastError = `POST /api/streamers 네트워크 오류: ${err3?.message || err3}`;
+      }
     }
 
     // Route 4: Direct Cloudflare Worker fallback
-    if (!res.ok) {
-      res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers/update?t=${t}`, {
-        signal: controller.signal,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-        },
-        body: payload,
-      });
-    }
+    if (!serverList) {
+      try {
+        const res = await fetch(`https://riming-gg.janghyck2.workers.dev/api/streamers/update?t=${t}`, {
+          signal: controller.signal,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+          },
+          body: payload,
+        });
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.success && Array.isArray(data.streamers)) {
-        const serverList = sortStreamerProfiles(data.streamers);
-        _cachedStreamerProfiles = serverList;
-        await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.success && Array.isArray(data.streamers)) {
+            serverList = sortStreamerProfiles(data.streamers);
+          } else if (data?.error) {
+            lastError = `Worker update: ${data.error}`;
+          }
+        } else {
+          const errText = await res.text().catch(() => '');
+          lastError = `Worker update [${res.status}]: ${errText.slice(0, 100)}`;
         }
-        return serverList;
+      } catch (err4: any) {
+        lastError = `Worker update 네트워크 오류: ${err4?.message || err4}`;
       }
     }
-  } catch (err: any) {
-    console.warn('[StreamerApi] updateStreamerProfileAsync error, using batch fallback:', err);
   } finally {
     clearTimeout(timeoutId);
   }
 
-  return saveStreamerProfilesBatchAsync([profile], { replace: false });
+  // If server save succeeded, update local cache and dispatch event
+  if (serverList && serverList.length > 0) {
+    _cachedStreamerProfiles = serverList;
+    await fetch('/api/soop/live/invalidate', { method: 'POST' }).catch(() => {});
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('streamers-updated', { detail: serverList }));
+    }
+    return serverList;
+  }
+
+  // CRITICAL: DO NOT silently swallow errors into optimistic memory cache!
+  // Throw so caller catches and notifies the user with window.alert!
+  throw new Error(lastError || '서버 DB(Cloudflare D1) 저장에 실패했습니다. 네트워크 또는 권한을 확인해 주세요.');
 }
 
 /**

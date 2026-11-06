@@ -292,8 +292,8 @@ async function startServer() {
     '감블러': 'gambler',
     '김동하': 'likekk',
     '＃김동하': 'likekk',
-    '#민찬기': 'minchanki',
-    '민찬기': 'minchanki',
+    '#민찬기': 'ckmin706',
+    '민찬기': 'ckmin706',
   };
 
   /**
@@ -581,20 +581,40 @@ async function startServer() {
         const cleanName = (item.name || '').trim();
         const itemId = item.id || (singleId && singleId.startsWith('s_') ? singleId : null);
         
+        const stripped = cleanName.replace(/[\.\_\#\^\*\♥\-\＃\☆\+\s]/g, '').toLowerCase().trim();
+        
         let existing: any = null;
-        if (itemId) {
+        let existingKey: string | null = null;
+        if (itemId && currentMap.has('id_' + itemId)) {
           existing = currentMap.get('id_' + itemId);
+          existingKey = 'id_' + itemId;
         }
         if (!existing && singleId) {
-          existing = currentMap.get('id_' + singleId) || currentMap.get('name_' + singleId);
+          if (currentMap.has('id_' + singleId)) {
+            existing = currentMap.get('id_' + singleId);
+            existingKey = 'id_' + singleId;
+          } else if (currentMap.has('name_' + singleId)) {
+            existing = currentMap.get('name_' + singleId);
+            existingKey = 'name_' + singleId;
+          }
         }
-        if (!existing && cleanName) {
+        if (!existing && cleanName && currentMap.has('name_' + cleanName)) {
           existing = currentMap.get('name_' + cleanName);
+          existingKey = 'name_' + cleanName;
+        }
+        if (!existing && stripped) {
+          for (const cand of [`name_#${stripped}`, `name_＃${stripped}`, `name_${stripped}`, `id_s_${stripped}`, `id_s_full_${stripped}`, `id_s_half_${stripped}`]) {
+            if (currentMap.has(cand)) {
+              existing = currentMap.get(cand);
+              existingKey = cand;
+              break;
+            }
+          }
         }
         if (!existing && !cleanName && !itemId) continue;
 
         const effectiveName = cleanName || existing?.name || singleId || '';
-        const effectiveId = itemId || existing?.id || (singleId && singleId.startsWith('s_') ? singleId : null) || getD1StreamerId(effectiveName);
+        const effectiveId = itemId || existing?.id || (singleId && singleId.startsWith('s_') ? singleId : null) || (stripped ? `s_${stripped}` : getD1StreamerId(effectiveName));
 
         const updatedStreamer = {
           id: effectiveId,
@@ -606,6 +626,9 @@ async function startServer() {
           updated_at: item.updated_at || nowIso,
         };
 
+        if (existingKey) {
+          currentMap.delete(existingKey);
+        }
         const targetKey = effectiveId ? 'id_' + effectiveId : 'name_' + effectiveName;
         currentMap.set(targetKey, updatedStreamer);
       }
