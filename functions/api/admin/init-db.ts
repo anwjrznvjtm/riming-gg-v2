@@ -29,7 +29,7 @@ export const onRequestPost = async (context: any) => {
       success: true,
       count: streamers.length,
       streamers,
-      message: 'D1 streamers 테이블이 100% 포맷(DROP & RECREATE)되고 기본 91명 명단으로 완전히 새롭게 초기화되었습니다.',
+      message: 'D1 streamers 테이블이 100% 포맷(DROP & RECREATE)되고 기본 90명 명단으로 완전히 새롭게 초기화되었습니다.',
       storage: db ? 'Cloudflare-D1' : 'default-bundle',
       timestamp: new Date().toISOString(),
     });

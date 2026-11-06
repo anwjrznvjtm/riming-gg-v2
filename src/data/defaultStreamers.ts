@@ -19,15 +19,6 @@ export const DEFAULT_STREAMERS: DefaultStreamerItem[] = [
     "memo": ""
   },
   {
-    "id": "s_half_김동하",
-    "name": "#김동하",
-    "soop_id": "likekk",
-    "main_position": "top",
-    "is_hidden": false,
-    "updated_at": "2026-11-04T08:04:50.476Z",
-    "memo": ""
-  },
-  {
     "id": "s_full_김동하",
     "name": "＃김동하",
     "soop_id": "likekk",

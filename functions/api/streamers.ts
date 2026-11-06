@@ -148,7 +148,7 @@ export async function seedDefaultStreamersToD1(db: any) {
 }
 
 /**
- * 100% Force formats (DROP & RECREATE) the D1 streamers table and re-seeds with clean 91 default streamers.
+ * 100% Force formats (DROP & RECREATE) the D1 streamers table and re-seeds with clean 90 default streamers.
  */
 export async function formatAndResetD1StreamersTable(db: any): Promise<void> {
   if (!db || typeof db.prepare !== 'function') return;
@@ -166,7 +166,7 @@ export async function formatAndResetD1StreamersTable(db: any): Promise<void> {
   // 2. Re-create the table with clean schema & indexes
   await ensureStreamersTable(db);
 
-  // 3. Insert all 91 streamers from DEFAULT_STREAMERS with their exact unique IDs
+  // 3. Insert all 90 streamers from DEFAULT_STREAMERS with their exact unique IDs
   const now = new Date().toISOString();
   for (const s of DEFAULT_STREAMERS) {
     try {
@@ -305,7 +305,7 @@ export async function fetchAllStreamersFromD1(db: any): Promise<StreamerRow[]> {
     console.warn('[Pages Functions] fetchAllStreamersFromD1 error, trying seed:', err);
   }
 
-  // If table is empty (0 rows) or table didn't exist yet, auto-seed with all 91 streamers
+  // If table is empty (0 rows) or table didn't exist yet, auto-seed with all 90 streamers
   try {
     await seedDefaultStreamersToD1(db);
     const retryRes = await db

@@ -525,7 +525,7 @@ export const StreamerManageModal: React.FC<StreamerManageModalProps> = ({
       try {
         if (typeof window !== 'undefined') {
           window.alert(
-            `[D1 DB 포맷 완료]\nstreamers 테이블이 100% 강제 초기화(DROP & RECREATE)되었으며, 기본 91명 명단(고유 PK id 부여)으로 완전히 새롭게 복원되었습니다.`
+            `[D1 DB 포맷 완료]\nstreamers 테이블이 100% 강제 초기화(DROP & RECREATE)되었으며, 더미 데이터가 제거된 기본 ${resetList.length}명 명단(고유 PK id 부여)으로 완전히 새롭게 복원되었습니다.`
           );
         }
       } catch {}

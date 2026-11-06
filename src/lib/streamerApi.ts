@@ -3,7 +3,7 @@ import { DEFAULT_STREAMERS } from '../data/defaultStreamers';
 
 export const SOOP_CLIENT_ID = '6746e3e1945b4cd93b1fba5fd28afc34';
 
-// In-memory runtime cache pre-seeded with authoritative 91 streamers
+// In-memory runtime cache pre-seeded with authoritative 90 streamers
 let _cachedStreamerProfiles: StreamerProfile[] | null = DEFAULT_STREAMERS.map((s) => ({
   id: (s as any).id,
   name: s.name,
@@ -62,7 +62,6 @@ const KNOWN_SOOP_IDS: Record<string, string> = {
   '하로로.': 'haroro',
   '하두링': 'haduring',
   '감블러': 'gambler',
-  '#김동하': 'likekk',
   '김동하': 'likekk',
   '＃김동하': 'likekk',
   '#민찬기': 'minchanki',
@@ -893,7 +892,7 @@ export async function initD1DatabaseAsync(): Promise<{
  */
 /**
  * 100% Force formats (DROP/TRUNCATE & RECREATE) the D1 streamers table
- * and re-seeds with the clean, authoritative 91 defaultStreamers.
+ * and re-seeds with the clean, authoritative 90 defaultStreamers.
  */
 export async function resetAndFormatStreamerDatabase(): Promise<StreamerProfile[]> {
   const t = Date.now();
