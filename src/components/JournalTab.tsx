@@ -16,7 +16,6 @@ import { parseKdaString, normalizeChampionName, SOOP_POPULAR_STREAMERS } from '.
 import { verifyAdminPasscode } from '../data/initialMatches';
 import { calculateMatchSeriesScores, calculateScoreForSetInSeries, sortMatchesDescending } from '../lib/seriesScores';
 import { getSeriesRepresentativeFunding } from '../lib/fundingStats';
-import { findSeriesMatchIds } from '../lib/matchApi';
 import { ScreenshotUploadSection } from './ScreenshotUploadSection';
 import { FundingRatioSelector } from './FundingRatioSelector';
 import {
@@ -2541,33 +2540,16 @@ export const JournalTab: React.FC<JournalTabProps> = ({
             </div>
 
             {(() => {
-              const seriesIds = deleteTargetId ? findSeriesMatchIds(deleteTargetId, matches) : [];
-              const isMultiSet = seriesIds.length > 1;
               return (
                 <>
                   {isAdmin ? (
                     <p className="text-[12px] text-[#8a8aa0] mb-4 leading-relaxed">
-                      {isMultiSet ? (
-                        <>
-                          선택한 경기 및 동일 시리즈에 연결된{' '}
-                          <span className="text-[#f87171] font-bold">{seriesIds.length}개 세트</span>가
-                          DB에서 함께 완전히 삭제(Cascade Delete)됩니다. 계속하시겠습니까?
-                        </>
-                      ) : (
-                        '관리자 모드가 활성화되어 있습니다. 선택한 경기를 삭제하시겠습니까?'
-                      )}
+                      관리자 모드가 활성화되어 있습니다. 선택한 경기 1건을 삭제하시겠습니까?
                     </p>
                   ) : (
                     <>
                       <p className="text-[12px] text-[#8a8aa0] mb-4 leading-relaxed">
-                        {isMultiSet ? (
-                          <>
-                            동일 시리즈에 속한 <span className="text-[#f87171] font-bold">{seriesIds.length}개 세트</span>가
-                            함께 삭제됩니다. 삭제하려면 관리자 패스코드를 입력해주세요.
-                          </>
-                        ) : (
-                          '경기를 삭제하려면 관리자 패스코드를 입력해주세요.'
-                        )}
+                        선택한 경기 1건을 삭제하려면 관리자 패스코드를 입력해주세요.
                       </p>
                       <input
                         type="password"

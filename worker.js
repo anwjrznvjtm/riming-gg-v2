@@ -618,7 +618,7 @@ export default {
         // Single Match Insert
         const m = body?.match || body;
         if (!m || (!m.date && !m.team_a && !m.ck_name)) {
-          return jsonResponse({ error: '유효한 경기 데이터가 아닙니다.' }, 400);
+          return jsonResponse({ success: false, error: '유효한 경기 데이터가 아닙니다.' }, 400);
         }
 
         const matchId = String(m.id || `ck_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
@@ -695,7 +695,7 @@ export default {
         const body = await request.json();
         const m = body?.match || body;
         if (!m || !m.id) {
-          return jsonResponse({ error: '수정할 경기 ID가 필요합니다.' }, 400);
+          return jsonResponse({ success: false, error: '수정할 경기 ID가 필요합니다.' }, 400);
         }
 
         const nowIso = new Date().toISOString();
@@ -787,11 +787,11 @@ export default {
           } catch {}
         }
 
-        if (!targetId) {
-          return jsonResponse({ error: '삭제할 경기 ID가 필요합니다.' }, 400);
+        if (!targetId || !String(targetId).trim()) {
+          return jsonResponse({ success: false, error: '삭제할 경기 ID가 필요합니다.' }, 400);
         }
 
-        const idStr = String(targetId);
+        const idStr = String(targetId).trim();
 
         if (db) {
           await ensureTable(db);
@@ -809,10 +809,10 @@ export default {
         }
       }
 
-      return jsonResponse({ error: 'Method Not Allowed' }, 405);
+      return jsonResponse({ success: false, error: 'Method Not Allowed' }, 405);
     } catch (err) {
       console.error('[Worker Error]', err);
-      return jsonResponse({ error: err?.message || 'Internal Server Error' }, 500);
+      return jsonResponse({ success: false, error: err?.message || 'Internal Server Error' }, 500);
     }
   },
 };

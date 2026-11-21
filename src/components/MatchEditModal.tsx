@@ -31,8 +31,8 @@ interface MatchEditModalProps {
   allMatches: Match[];
   isAdmin: boolean;
   onClose: () => void;
-  onAddMatch: (m: Match) => void;
-  onUpdateMatch: (m: Match) => void;
+  onAddMatch: (m: Match) => Promise<{ success: boolean; error?: string } | void> | void;
+  onUpdateMatch: (m: Match) => Promise<{ success: boolean; error?: string } | void> | void;
   onAdminLoginSuccess: () => void;
   onToast: (msg: string) => void;
   allStreamers: string[];
@@ -91,6 +91,7 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
   const [persistAdminInForm, setPersistAdminInForm] = useState(true);
   const [formError, setFormError] = useState('');
   const [successBanner, setSuccessBanner] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const [activeEditingMatch, setActiveEditingMatch] = useState<Match | null>(editingMatch);
   const [playerSoopIds, setPlayerSoopIds] = useState<Record<string, string>>({});
 
@@ -595,17 +596,35 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
 
   const upsertPlayersFromForm = () => {
     try {
+      const existingByName = new Map<string, StreamerProfile>();
+      for (const p of storedProfiles) {
+        if (p?.name) {
+          existingByName.set(p.name.trim().toLowerCase(), p);
+        }
+      }
+
       const profilesToSave: StreamerProfile[] = [];
       for (const tKey of ['team_a', 'team_b'] as const) {
         for (const lKey of LINE_KEYS) {
           const pName = formData[tKey][lKey]?.trim();
           if (pName) {
+            const existing = existingByName.get(pName.toLowerCase());
             const rawId = playerSoopIds[pName] !== undefined ? playerSoopIds[pName] : playerSoopIds[pName.replace(/_$/, '')];
             const sId = (rawId !== undefined ? rawId : '').trim();
+            // Do not overwrite an existing streamer with an empty SOOP ID or unchanged profile
+            if (existing) {
+              const existingSoop = (existing.soop_id || '').trim();
+              if (!sId || sId === existingSoop) {
+                continue;
+              }
+            }
             profilesToSave.push({
+              id: existing?.id,
               name: pName,
               soop_id: sId,
-              main_position: lKey,
+              main_position: existing?.main_position || lKey,
+              is_hidden: existing?.is_hidden ?? false,
+              memo: existing?.memo || '',
               updated_at: new Date().toISOString(),
             });
           }
@@ -619,7 +638,9 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
     }
   };
 
-  const handleSaveMatch = () => {
+  const handleSaveMatch = async () => {
+    if (isSaving) return;
+
     const val = validateMatchForm(formData);
     if (!val.isValid) {
       setFormError(val.errorMsg);
@@ -631,29 +652,47 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       onAdminLoginSuccess();
     }
 
-    // Auto Upsert streamer profiles to DB/store
+    // Auto Upsert new/updated streamer profiles safely
     upsertPlayersFromForm();
 
     const matchToSave = buildMatchToSave(formData);
+    setIsSaving(true);
+    setFormError('');
 
     try {
-      if (activeEditingMatch) {
-        onUpdateMatch(matchToSave);
-        onToast('경기가 성공적으로 수정되었습니다.');
-      } else {
-        onAddMatch(matchToSave);
-        onToast('새로운 경기가 등록되었습니다.');
+      const result = activeEditingMatch
+        ? await onUpdateMatch(matchToSave)
+        : await onAddMatch(matchToSave);
+
+      if (result && result.success === false) {
+        const errMsg = result.error || '서버 DB 저장 중 오류가 발생했습니다.';
+        setFormError(`경기 저장 실패: ${errMsg}`);
+        onToast(`경기 저장 실패: ${errMsg}`);
+        if (typeof window !== 'undefined') {
+          window.alert(`경기 저장 실패: ${errMsg}`);
+        }
+        return;
       }
+
+      onToast(activeEditingMatch ? '경기가 성공적으로 수정되었습니다.' : '새로운 경기가 등록되었습니다.');
       onClose();
       setFormError('');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save match error', err);
-      setFormError('경기 저장 중 예기치 않은 오류가 발생했습니다.');
-      onToast('저장 실패');
+      const errMsg = err?.message || '경기 저장 중 예기치 않은 오류가 발생했습니다.';
+      setFormError(`경기 저장 실패: ${errMsg}`);
+      onToast(`저장 실패: ${errMsg}`);
+      if (typeof window !== 'undefined') {
+        window.alert(`경기 저장 실패: ${errMsg}`);
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleSaveAndNextSet = () => {
+  const handleSaveAndNextSet = async () => {
+    if (isSaving) return;
+
     const val = validateMatchForm(formData);
     if (!val.isValid) {
       setFormError(val.errorMsg);
@@ -665,22 +704,38 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
       onAdminLoginSuccess();
     }
 
-    // Auto Upsert streamer profiles to DB/store
+    // Auto Upsert new/updated streamer profiles safely
     upsertPlayersFromForm();
 
     const matchToSave = buildMatchToSave(formData);
+    setIsSaving(true);
+    setFormError('');
 
     try {
-      if (activeEditingMatch) {
-        onUpdateMatch(matchToSave);
-      } else {
-        onAddMatch(matchToSave);
+      const result = activeEditingMatch
+        ? await onUpdateMatch(matchToSave)
+        : await onAddMatch(matchToSave);
+
+      if (result && result.success === false) {
+        const errMsg = result.error || '서버 DB 저장 중 오류가 발생했습니다.';
+        setFormError(`경기 저장 실패: ${errMsg}`);
+        onToast(`경기 저장 실패: ${errMsg}`);
+        if (typeof window !== 'undefined') {
+          window.alert(`경기 저장 실패: ${errMsg}`);
+        }
+        return;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save match error', err);
-      setFormError('경기 저장 중 예기치 않은 오류가 발생했습니다.');
-      onToast('저장 실패');
+      const errMsg = err?.message || '경기 저장 중 예기치 않은 오류가 발생했습니다.';
+      setFormError(`경기 저장 실패: ${errMsg}`);
+      onToast(`저장 실패: ${errMsg}`);
+      if (typeof window !== 'undefined') {
+        window.alert(`경기 저장 실패: ${errMsg}`);
+      }
       return;
+    } finally {
+      setIsSaving(false);
     }
 
     const currentSetNum = Number(formData.set_number || 1);
@@ -1363,25 +1418,28 @@ export const MatchEditModal: React.FC<MatchEditModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="h-[36px] px-4 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#c0c0d0] rounded-full text-[12px] font-medium transition"
+              disabled={isSaving}
+              className="h-[36px] px-4 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#c0c0d0] rounded-full text-[12px] font-medium transition disabled:opacity-50"
             >
               취소
             </button>
             <button
               type="button"
               onClick={handleSaveAndNextSet}
-              className="h-[36px] px-4 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:from-[#7c3aed] hover:to-[#4f46e5] text-white rounded-full text-[12px] font-bold shadow transition flex items-center gap-1.5"
+              disabled={isSaving}
+              className="h-[36px] px-4 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] hover:from-[#7c3aed] hover:to-[#4f46e5] text-white rounded-full text-[12px] font-bold shadow transition flex items-center gap-1.5 disabled:opacity-50"
             >
               <FastForward size={14} />
-              <span>저장하고 다음 세트 작성 (⚡)</span>
+              <span>{isSaving ? '저장 중...' : '저장하고 다음 세트 작성 (⚡)'}</span>
             </button>
             <button
               type="button"
               onClick={handleSaveMatch}
-              className="h-[36px] px-5 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-full text-[12px] font-bold shadow transition flex items-center gap-1.5"
+              disabled={isSaving}
+              className="h-[36px] px-5 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-full text-[12px] font-bold shadow transition flex items-center gap-1.5 disabled:opacity-50"
             >
               <Save size={14} />
-              <span>저장 완료</span>
+              <span>{isSaving ? '저장 중...' : '저장 완료'}</span>
             </button>
           </div>
         </div>

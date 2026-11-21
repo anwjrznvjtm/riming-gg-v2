@@ -33,8 +33,13 @@ interface MatchRow {
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Cache-Control, Pragma',
   'Content-Type': 'application/json; charset=utf-8',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0',
+  'CDN-Cache-Control': 'no-store',
+  'Cloudflare-CDN-Cache-Control': 'no-store',
+  'Pragma': 'no-cache',
+  'Expires': '0',
 };
 
 function jsonResponse(data: any, status = 200): Response {
@@ -162,21 +167,27 @@ export const onRequestGet = async (context: { env: Env }) => {
     }
   }
 
-  // Fallback: Proxy to Worker backend or return empty list
+  // Fallback: Proxy to Worker backend
+  let workerErr = '';
   try {
-    const res = await fetch(WORKER_FALLBACK_URL, {
+    const res = await fetch(`${WORKER_FALLBACK_URL}?t=${Date.now()}`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
     });
     if (res.ok) {
       const data = await res.json();
       return jsonResponse(data);
     }
-  } catch (err) {
+    workerErr = `Worker HTTP ${res.status}`;
+  } catch (err: any) {
+    workerErr = err?.message || 'Worker proxy error';
     console.warn('Worker proxy error:', err);
   }
 
-  return jsonResponse({ matches: [], total: 0, source: 'fallback' });
+  return jsonResponse({ success: false, matches: [], total: 0, error: workerErr || '경기 목록을 불러오지 못했습니다.' }, 500);
 };
 
 // POST: Create a new match OR batch import
@@ -234,6 +245,9 @@ export const onRequestPost = async (context: { env: Env; request: Request }) => 
 
       // Single Match Insert
       const match = body.match || body;
+      if (!match || (!match.date && !match.team_a && !match.ck_name)) {
+        return jsonResponse({ success: false, error: '유효한 경기 데이터가 아닙니다.' }, 400);
+      }
       const now = new Date().toISOString();
       const id = String(match.id || `match_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
 
@@ -266,98 +280,124 @@ export const onRequestPost = async (context: { env: Env; request: Request }) => 
       return jsonResponse({ success: true, match: { ...match, id }, source: 'd1' }, 201);
     } catch (err: any) {
       console.warn('D1 insert error, falling back to worker:', err);
+      var d1PostError = err?.message || String(err);
     }
   }
 
   // Fallback: Proxy to Worker backend
+  let workerPostError = '';
   try {
     const res = await fetch(WORKER_FALLBACK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (res.ok) {
-      const data = await res.json();
+    const data: any = await res.json().catch(() => null);
+    if (res.ok && data?.success !== false) {
       return jsonResponse(data, 201);
     }
-  } catch (err) {
+    workerPostError = data?.error || data?.message || `Worker POST HTTP ${res.status}`;
+  } catch (err: any) {
+    workerPostError = err?.message || 'Worker proxy POST error';
     console.warn('Worker proxy POST error:', err);
   }
 
-  return jsonResponse({ success: true, match: body?.match || body });
+  return jsonResponse(
+    {
+      success: false,
+      error: [typeof d1PostError !== 'undefined' ? `D1 오류: ${d1PostError}` : '', workerPostError]
+        .filter(Boolean)
+        .join(' / ') || '경기 DB 저장에 실패했습니다.',
+    },
+    500
+  );
 };
 
 // PUT: Update an existing match
 export const onRequestPut = async (context: { env: Env; request: Request }) => {
   const { DB } = context.env || {};
   const body: any = await context.request.json().catch(() => ({}));
+  const match = body.match || body;
+  if (!match || !match.id) {
+    return jsonResponse({ success: false, error: '수정할 경기 ID가 필요합니다.' }, 400);
+  }
 
+  let d1PutError = '';
   if (DB && typeof DB.prepare === 'function') {
     try {
       await ensureTable(DB);
-      const match = body.match || body;
-      if (match.id) {
-        const now = new Date().toISOString();
-        await DB.prepare(`
-          UPDATE ck_matches SET
-            date = ?,
-            ck_name = ?,
-            match_format = ?,
-            set_number = ?,
-            score = ?,
-            winning_team = ?,
-            team_a = ?,
-            team_b = ?,
-            team_a_champs = ?,
-            team_b_champs = ?,
-            team_a_kda = ?,
-            team_b_kda = ?,
-            ban_a = ?,
-            ban_b = ?,
-            updated_at = ?
-          WHERE id = ?
-        `).bind(
-          String(match.date),
-          String(match.ck_name),
-          String(match.match_format || '단판'),
-          Number(match.set_number) || 1,
-          String(match.score || '1:0'),
-          String(match.winning_team),
-          JSON.stringify(match.team_a || {}),
-          JSON.stringify(match.team_b || {}),
-          JSON.stringify(match.team_a_champs || {}),
-          JSON.stringify(match.team_b_champs || {}),
-          JSON.stringify(match.team_a_kda || {}),
-          JSON.stringify(match.team_b_kda || {}),
-          JSON.stringify(match.ban_a || []),
-          JSON.stringify(match.ban_b || []),
-          now,
-          String(match.id)
-        ).run();
+      const now = new Date().toISOString();
+      await DB.prepare(`
+        UPDATE ck_matches SET
+          date = ?,
+          ck_name = ?,
+          match_format = ?,
+          set_number = ?,
+          score = ?,
+          winning_team = ?,
+          team_a = ?,
+          team_b = ?,
+          team_a_champs = ?,
+          team_b_champs = ?,
+          team_a_kda = ?,
+          team_b_kda = ?,
+          ban_a = ?,
+          ban_b = ?,
+          updated_at = ?
+        WHERE id = ?
+      `).bind(
+        String(match.date),
+        String(match.ck_name),
+        String(match.match_format || '단판'),
+        Number(match.set_number) || 1,
+        String(match.score || '1:0'),
+        String(match.winning_team),
+        JSON.stringify(match.team_a || {}),
+        JSON.stringify(match.team_b || {}),
+        JSON.stringify(match.team_a_champs || {}),
+        JSON.stringify(match.team_b_champs || {}),
+        JSON.stringify(match.team_a_kda || {}),
+        JSON.stringify(match.team_b_kda || {}),
+        JSON.stringify(match.ban_a || []),
+        JSON.stringify(match.ban_b || []),
+        now,
+        String(match.id)
+      ).run();
 
-        return jsonResponse({ success: true, match, source: 'd1' });
-      }
+      return jsonResponse({ success: true, match, source: 'd1' });
     } catch (err: any) {
+      d1PutError = err?.message || String(err);
       console.warn('D1 update error, falling back to worker:', err);
     }
   }
 
   // Fallback: Proxy to Worker backend
+  let workerPutError = '';
   try {
     const res = await fetch(WORKER_FALLBACK_URL, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (res.ok) {
-      const data = await res.json();
+    const data: any = await res.json().catch(() => null);
+    if (res.ok && data?.success !== false) {
       return jsonResponse(data);
     }
-  } catch (err) {
+    workerPutError = data?.error || data?.message || `Worker PUT HTTP ${res.status}`;
+  } catch (err: any) {
+    workerPutError = err?.message || 'Worker proxy PUT error';
     console.warn('Worker proxy PUT error:', err);
   }
 
-  return jsonResponse({ success: true, match: body?.match || body });
+  return jsonResponse(
+    {
+      success: false,
+      error: [d1PutError ? `D1 오류: ${d1PutError}` : '', workerPutError]
+        .filter(Boolean)
+        .join(' / ') || '경기 수정 저장에 실패했습니다.',
+    },
+    500
+  );
 };
 
 // DELETE: Delete a match by ID
@@ -373,27 +413,45 @@ export const onRequestDelete = async (context: { env: Env; request: Request }) =
     } catch {}
   }
 
-  if (DB && typeof DB.prepare === 'function' && id) {
+  const cleanId = String(id || '').trim();
+  if (!cleanId) {
+    return jsonResponse({ success: false, error: '삭제할 경기 ID가 필요합니다.' }, 400);
+  }
+
+  let d1DeleteError = '';
+  if (DB && typeof DB.prepare === 'function') {
     try {
       await ensureTable(DB);
-      await DB.prepare('DELETE FROM ck_matches WHERE id = ?').bind(id).run();
-      return jsonResponse({ success: true, deletedId: id, source: 'd1' });
+      await DB.prepare('DELETE FROM ck_matches WHERE id = ?').bind(cleanId).run();
+      return jsonResponse({ success: true, deletedId: cleanId, source: 'd1' });
     } catch (err: any) {
+      d1DeleteError = err?.message || String(err);
       console.warn('D1 delete error, falling back to worker:', err);
     }
   }
 
   // Fallback: Proxy to Worker backend
+  let workerDeleteError = '';
   try {
-    const targetUrl = id ? `${WORKER_FALLBACK_URL}?id=${encodeURIComponent(id)}` : WORKER_FALLBACK_URL;
+    const targetUrl = `${WORKER_FALLBACK_URL}?id=${encodeURIComponent(cleanId)}&t=${Date.now()}`;
     const res = await fetch(targetUrl, { method: 'DELETE' });
-    if (res.ok) {
-      const data = await res.json();
+    const data: any = await res.json().catch(() => null);
+    if (res.ok && data?.success !== false) {
       return jsonResponse(data);
     }
-  } catch (err) {
+    workerDeleteError = data?.error || data?.message || `Worker DELETE HTTP ${res.status}`;
+  } catch (err: any) {
+    workerDeleteError = err?.message || 'Worker proxy DELETE error';
     console.warn('Worker proxy DELETE error:', err);
   }
 
-  return jsonResponse({ success: true, deletedId: id });
+  return jsonResponse(
+    {
+      success: false,
+      error: [d1DeleteError ? `D1 오류: ${d1DeleteError}` : '', workerDeleteError]
+        .filter(Boolean)
+        .join(' / ') || '경기 삭제에 실패했습니다.',
+    },
+    500
+  );
 };

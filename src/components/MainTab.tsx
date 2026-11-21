@@ -39,9 +39,9 @@ interface MainTabProps {
   allStreamers: string[];
   allChampions: string[];
   onJumpToStreamer?: (streamerName: string, matchId?: string, teamRole?: 'all' | 'ally' | 'enemy') => void;
-  onAddMatch: (m: Match) => void;
-  onUpdateMatch: (m: Match) => void;
-  onDeleteMatch: (id: string) => void;
+  onAddMatch: (m: Match) => Promise<{ success: boolean; error?: string } | void> | void;
+  onUpdateMatch: (m: Match) => Promise<{ success: boolean; error?: string } | void> | void;
+  onDeleteMatch: (id: string) => Promise<{ success: boolean; error?: string } | void> | void;
   isAdmin: boolean;
   onAdminLoginSuccess: () => void;
   targetStreamer?: string;
@@ -1117,9 +1117,12 @@ export const MainTab: React.FC<MainTabProps> = ({
           matchId={deleteTargetId}
           isAdmin={isAdmin}
           onClose={() => setDeleteTargetId(null)}
-          onConfirmDelete={(id) => {
-            onDeleteMatch(id);
-            setDeleteTargetId(null);
+          onConfirmDelete={async (id) => {
+            const res = await onDeleteMatch(id);
+            if (!res || res.success !== false) {
+              setDeleteTargetId(null);
+            }
+            return res;
           }}
           onToast={onToast}
         />

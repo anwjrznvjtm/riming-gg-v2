@@ -775,12 +775,23 @@ async function startServer() {
   app.post('/api/matches', async (req, res) => {
     try {
       const payload = req.body;
+      const target = payload?.match || payload;
+      if (!payload?.mode && (!target || (!target.date && !target.team_a && !target.ck_name))) {
+        return res.status(400).json({ success: false, error: '유효한 경기 데이터가 아닙니다.' });
+      }
       const workerRes = await fetch(WORKER_BASE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await workerRes.json().catch(() => ({}));
+      const data: any = await workerRes.json().catch(() => ({}));
+      if (!workerRes.ok || data?.success === false) {
+        return res.status(workerRes.ok ? 500 : workerRes.status).json({
+          success: false,
+          error: data?.error || data?.message || `Worker POST failed (HTTP ${workerRes.status})`,
+          ...data,
+        });
+      }
       return res.status(workerRes.status).json(data);
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to save match to Worker' });
@@ -795,78 +806,52 @@ async function startServer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await workerRes.json().catch(() => ({}));
+      const data: any = await workerRes.json().catch(() => ({}));
+      if (!workerRes.ok || data?.success === false) {
+        return res.status(workerRes.ok ? 500 : workerRes.status).json({
+          success: false,
+          error: data?.error || data?.message || `Worker PUT failed (HTTP ${workerRes.status})`,
+          ...data,
+        });
+      }
       return res.status(workerRes.status).json(data);
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message || 'Failed to update match on Worker' });
     }
   });
 
-  // Cascade Delete for matches and connected BO3/BO5 sets
+  // Strict Single-ID Delete: Delete ONLY the match matching the unique ID
   app.delete(['/api/matches/:id', '/api/matches'], async (req, res) => {
     try {
-      const targetId = (req.params?.id || req.query?.id || req.body?.id || '') as string;
+      const targetId = String(req.params?.id || req.query?.id || req.body?.id || '').trim();
       if (!targetId) {
         return res.status(400).json({ success: false, error: 'Match id is required for deletion' });
       }
 
-      const allMatches = await fetchWorkerMatches();
-      const target = allMatches.find((m: any) => String(m.id) === String(targetId));
+      console.log(`[Server] Deleting single match strictly by unique id="${targetId}"`);
 
-      const set = new Set<string>();
-      set.add(String(targetId));
+      const dRes = await fetch(`${WORKER_BASE_URL}?id=${encodeURIComponent(targetId)}&t=${Date.now()}`, {
+        method: 'DELETE',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
+      });
+      const data: any = await dRes.json().catch(() => ({}));
 
-      if (target) {
-        const rootParentId = target.parent_match_id ? String(target.parent_match_id) : '';
-        const isSeries = target.match_format === '3판2선승' || target.match_format === '5판3선승';
-
-        for (const m of allMatches) {
-          const mId = String(m.id);
-          const mParent = m.parent_match_id ? String(m.parent_match_id) : '';
-
-          if (rootParentId && mId === rootParentId) {
-            set.add(mId);
-          } else if (mParent && mParent === String(target.id)) {
-            set.add(mId);
-          } else if (rootParentId && mParent && mParent === rootParentId) {
-            set.add(mId);
-          } else if (
-            isSeries &&
-            m.date === target.date &&
-            (m.ck_name || '').trim() === (target.ck_name || '').trim()
-          ) {
-            set.add(mId);
-          }
-        }
+      if (!dRes.ok || data?.success === false) {
+        return res.status(dRes.ok ? 500 : dRes.status).json({
+          success: false,
+          id: targetId,
+          error: data?.error || data?.message || `Worker DELETE failed (HTTP ${dRes.status})`,
+        });
       }
 
-      const idsToDelete = Array.from(set);
-      console.log(`[Server] Cascade deleting match series: target=${targetId}, count=${idsToDelete.length}`, idsToDelete);
-
-      // Concurrently delete all series set IDs from Cloudflare Worker
-      const deletePromises = idsToDelete.map(async (mid) => {
-        try {
-          const dRes = await fetch(`${WORKER_BASE_URL}?id=${encodeURIComponent(mid)}`, {
-            method: 'DELETE',
-          });
-          return { id: mid, ok: dRes.ok };
-        } catch {
-          return { id: mid, ok: false };
-        }
-      });
-
-      const results = await Promise.all(deletePromises);
-      const anySuccess = results.some((r) => r.ok);
-
       return res.json({
-        success: anySuccess || idsToDelete.length === 0,
+        success: true,
         id: targetId,
-        deletedIds: idsToDelete,
-        results,
+        deletedIds: [targetId],
       });
     } catch (err: any) {
       console.error('[Server] Match delete error:', err);
-      return res.status(500).json({ success: false, error: err?.message || 'Cascade delete failed' });
+      return res.status(500).json({ success: false, error: err?.message || 'Match delete failed' });
     }
   });
 
@@ -878,7 +863,9 @@ async function startServer() {
 
       for (const m of allMatches) {
         const isOct25 = (m.date || '').includes('10-25') || (m.date || '').includes('2026-10-25');
-        const isCorrupted = !m.team_a || !m.team_b || (!m.team_a.top && !m.team_b.top);
+        const hasAnyA = Boolean(m.team_a && Object.values(m.team_a).some(Boolean));
+        const hasAnyB = Boolean(m.team_b && Object.values(m.team_b).some(Boolean));
+        const isCorrupted = !hasAnyA && !hasAnyB;
         if (isOct25 || isCorrupted) {
           orphanIds.push(String(m.id));
         }

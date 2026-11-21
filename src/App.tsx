@@ -55,7 +55,8 @@ export default function App() {
             if (m.type === 'streamer' || (typeof m.id === 'string' && m.id.startsWith('s_'))) return false;
             const hasTeamA = Boolean(m.team_a && (m.team_a.top || m.team_a.jgl || m.team_a.mid || m.team_a.adc || m.team_a.sup));
             const hasTeamB = Boolean(m.team_b && (m.team_b.top || m.team_b.jgl || m.team_b.mid || m.team_b.adc || m.team_b.sup));
-            return hasTeamA && hasTeamB;
+            const hasMeta = Boolean(m.ck_name && String(m.ck_name).trim() && m.date);
+            return hasTeamA || hasTeamB || hasMeta;
           });
           return recalculateAllSeriesScores(validMatches.map((m) => normalizeMatch(m)));
         }
@@ -217,7 +218,7 @@ export default function App() {
   }, [matches]);
 
   // FIXED: Match mutations - auto-recalculate cumulative series scores & bind parent/funding
-  const handleAddMatch = async (newMatch: Match) => {
+  const handleAddMatch = async (newMatch: Match): Promise<{ success: boolean; error?: string }> => {
     let matchToAdd = { ...newMatch };
 
     // Auto-link parent_match_id and inherit series funding if set > 1
@@ -246,22 +247,28 @@ export default function App() {
 
     const normalized = normalizeMatch(matchToAdd);
     const updatedList = recalculateAllSeriesScores([normalized, ...matches]);
-    setMatches(updatedList);
     const syncedMatch = updatedList.find((m) => String(m.id) === String(normalized.id)) || normalized;
     try {
       const res = await createMatchOnApi(syncedMatch);
       if (res.success) {
-        showToast('경기 등록 완료 (Worker 클라우드 저장 ☁)');
+        setMatches(updatedList);
+        showToast('경기 등록 완료 (클라우드 DB 저장 ☁)');
+        setTimeout(() => syncFromApi(true), 1500);
+        return { success: true };
       } else {
-        showToast('경기 등록 완료 (로컬 캐시 보관됨)');
+        const errMsg = res.error || '서버 DB 저장에 실패했습니다.';
+        showToast(`경기 등록 실패: ${errMsg}`);
+        return { success: false, error: errMsg };
       }
-      setTimeout(() => syncFromApi(true), 1500);
-    } catch (err) {
-      console.warn('[MatchApi] POST match failed:', err);
+    } catch (err: any) {
+      const errMsg = err?.message || '네트워크 또는 서버 오류가 발생했습니다.';
+      console.error('[MatchApi] POST match failed:', err);
+      showToast(`경기 등록 실패: ${errMsg}`);
+      return { success: false, error: errMsg };
     }
   };
 
-  const handleUpdateMatch = async (updatedMatch: Match) => {
+  const handleUpdateMatch = async (updatedMatch: Match): Promise<{ success: boolean; error?: string }> => {
     let matchToUpdate = { ...updatedMatch };
 
     // Ensure parent_match_id is maintained
@@ -306,42 +313,53 @@ export default function App() {
     });
 
     const updatedList = recalculateAllSeriesScores(rawUpdatedList);
-    setMatches(updatedList);
     const syncedMatch = updatedList.find((m) => String(m.id) === String(normalized.id)) || normalized;
     try {
       const res = await updateMatchOnApi(syncedMatch, updatedList);
       if (res.success) {
-        showToast('경기 수정 완료 (Worker 클라우드 반영 ☁)');
+        setMatches(updatedList);
+        showToast('경기 수정 완료 (클라우드 DB 반영 ☁)');
+        setTimeout(() => syncFromApi(true), 1500);
+        return { success: true };
       } else {
-        showToast('경기 수정 완료 (로컬 캐시 보관됨) - ' + (res.error || ''));
+        const errMsg = res.error || '서버 DB 수정에 실패했습니다.';
+        showToast(`경기 수정 실패: ${errMsg}`);
+        return { success: false, error: errMsg };
       }
-      setTimeout(() => syncFromApi(true), 1500);
-    } catch (err) {
-      console.warn('[MatchApi] PUT match failed:', err);
-      showToast('로컬에 수정됨 (클라우드 동기화 실패)');
+    } catch (err: any) {
+      const errMsg = err?.message || '네트워크 또는 서버 오류가 발생했습니다.';
+      console.error('[MatchApi] PUT match failed:', err);
+      showToast(`경기 수정 실패: ${errMsg}`);
+      return { success: false, error: errMsg };
     }
   };
 
-  const handleDeleteMatch = async (id: string) => {
-    const idsToDelete = findSeriesMatchIds(id, matches);
-    const deleteIdSet = new Set(idsToDelete.map(String));
-    const remaining = matches.filter((m) => !deleteIdSet.has(String(m.id)));
+  const handleDeleteMatch = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const targetId = String(id || '').trim();
+    if (!targetId) {
+      return { success: false, error: '삭제할 경기 ID가 없습니다.' };
+    }
+
+    const remaining = matches.filter((m) => String(m.id) !== targetId);
     const syncedList = recalculateAllSeriesScores(remaining);
-    setMatches(syncedList);
+
     try {
-      const res = await deleteMatchOnApi(id, matches);
+      const res = await deleteMatchOnApi(targetId);
       if (res.success) {
-        showToast(
-          idsToDelete.length > 1
-            ? `경기 및 시리즈 세트(${idsToDelete.length}개) 영구 삭제 완료 ☁`
-            : '경기 삭제 완료 (Worker 클라우드 반영 ☁)'
-        );
+        setMatches(syncedList);
+        showToast('선택한 경기 1건이 삭제되었습니다. (클라우드 DB 반영 ☁)');
+        setTimeout(() => syncFromApi(true), 1500);
+        return { success: true };
       } else {
-        showToast('경기 삭제 완료 (로컬 캐시 보관됨)');
+        const errMsg = res.error || '서버 DB에서 경기를 삭제하지 못했습니다.';
+        showToast(`경기 삭제 실패: ${errMsg}`);
+        return { success: false, error: errMsg };
       }
-      setTimeout(() => syncFromApi(true), 1500);
-    } catch (err) {
-      console.warn('[MatchApi] DELETE match failed:', err);
+    } catch (err: any) {
+      const errMsg = err?.message || '네트워크 또는 서버 오류가 발생했습니다.';
+      console.error('[MatchApi] DELETE match failed:', err);
+      showToast(`경기 삭제 실패: ${errMsg}`);
+      return { success: false, error: errMsg };
     }
   };
 

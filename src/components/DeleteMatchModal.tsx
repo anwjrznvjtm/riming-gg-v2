@@ -7,7 +7,7 @@ interface DeleteMatchModalProps {
   matchId: string | null;
   isAdmin: boolean;
   onClose: () => void;
-  onConfirmDelete: (id: string) => void;
+  onConfirmDelete: (id: string) => Promise<{ success: boolean; error?: string } | void> | void;
   onToast: (msg: string) => void;
 }
 
@@ -21,10 +21,13 @@ export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
 }) => {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   if (!isOpen || !matchId) return null;
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
+    if (isDeleting) return;
+
     if (!isAdmin) {
       const clean = passcode.trim();
       if (!clean) {
@@ -37,11 +40,35 @@ export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
       }
     }
 
-    onConfirmDelete(matchId);
-    onToast('경기가 성공적으로 삭제되었습니다.');
-    setPasscode('');
+    setIsDeleting(true);
     setError('');
-    onClose();
+
+    try {
+      const result = await onConfirmDelete(matchId);
+      if (result && result.success === false) {
+        const errMsg = result.error || '서버 DB에서 경기를 삭제하지 못했습니다.';
+        setError(`삭제 실패: ${errMsg}`);
+        onToast(`경기 삭제 실패: ${errMsg}`);
+        if (typeof window !== 'undefined') {
+          window.alert(`경기 삭제 실패: ${errMsg}`);
+        }
+        return;
+      }
+
+      onToast('선택한 경기가 성공적으로 삭제되었습니다.');
+      setPasscode('');
+      setError('');
+      onClose();
+    } catch (err: any) {
+      const errMsg = err?.message || '경기 삭제 중 오류가 발생했습니다.';
+      setError(`삭제 실패: ${errMsg}`);
+      onToast(`경기 삭제 실패: ${errMsg}`);
+      if (typeof window !== 'undefined') {
+        window.alert(`경기 삭제 실패: ${errMsg}`);
+      }
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -60,20 +87,21 @@ export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-[16px] text-white">경기 삭제 확인</h3>
-              <p className="text-[11px] text-[#8e8ea0]">선택한 CK 경기 데이터를 삭제합니다.</p>
+              <p className="text-[11px] text-[#8e8ea0]">선택한 CK 경기 1건만 고유 ID 기준으로 삭제합니다.</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-7 h-7 bg-[#1e1e2a] hover:bg-[#2a2a3a] rounded-full flex items-center justify-center text-[#8e8ea0] hover:text-white"
+            disabled={isDeleting}
+            className="w-7 h-7 bg-[#1e1e2a] hover:bg-[#2a2a3a] rounded-full flex items-center justify-center text-[#8e8ea0] hover:text-white disabled:opacity-50"
           >
             <X size={14} />
           </button>
         </div>
 
         <p className="text-[12px] text-[#c0c0d0] mb-4 bg-black/40 p-3 rounded-xl border border-white/5">
-          정말로 이 경기를 삭제하시겠습니까? 삭제된 경기 데이터는 복구할 수 없으며 전체 세트 스코어와 통계에 즉시 반영됩니다.
+          정말로 선택한 이 경기 1건을 삭제하시겠습니까? 삭제된 경기 데이터는 복구할 수 없으며, 같은 날짜의 다른 경기는 유지됩니다.
         </p>
 
         {!isAdmin && (
@@ -105,17 +133,19 @@ export const DeleteMatchModal: React.FC<DeleteMatchModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#c0c0d0] rounded-xl text-[12px] font-medium transition"
+            disabled={isDeleting}
+            className="px-4 py-2 bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#c0c0d0] rounded-xl text-[12px] font-medium transition disabled:opacity-50"
           >
             취소
           </button>
           <button
             type="button"
             onClick={handleDelete}
-            className="px-4 py-2 bg-[#dc2626] hover:bg-[#b91c1c] text-white rounded-xl text-[12px] font-bold transition flex items-center gap-1.5 shadow-lg shadow-[#dc2626]/30"
+            disabled={isDeleting}
+            className="px-4 py-2 bg-[#dc2626] hover:bg-[#b91c1c] text-white rounded-xl text-[12px] font-bold transition flex items-center gap-1.5 shadow-lg shadow-[#dc2626]/30 disabled:opacity-50"
           >
             <Trash2 size={13} />
-            <span>삭제하기</span>
+            <span>{isDeleting ? '삭제 중...' : '삭제하기'}</span>
           </button>
         </div>
       </div>
