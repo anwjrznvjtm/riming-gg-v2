@@ -26,7 +26,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const tabs = [
     { id: 'main', label: '메인' },
-    { id: 'members', label: 'CK멤버' },
     { id: 'synergy', label: '시너지' },
     { id: 'rolland', label: '롤랜드' },
   ];

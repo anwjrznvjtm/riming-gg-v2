@@ -25,7 +25,6 @@ import { Footer } from './components/Footer';
 import { MainTab } from './components/MainTab';
 import { SynergyTab } from './components/SynergyTab';
 import { RollandTab } from './components/RollandTab';
-import { CkMembersTab } from './components/CkMembersTab';
 import { SummaryModal } from './components/SummaryModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 
@@ -424,9 +423,6 @@ export default function App() {
             targetStreamerRole={targetStreamerRole}
             jumpTimestamp={jumpTimestamp}
           />
-        )}
-        {currentTab === 'members' && (
-          <CkMembersTab matches={matches} onToast={showToast} isAdmin={isAdmin} />
         )}
         {currentTab === 'synergy' && (
           <SynergyTab
